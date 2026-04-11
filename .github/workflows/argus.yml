@@ -1,0 +1,140 @@
+name: ARGUS — Automated Regression Check
+
+on:
+  push:
+    branches: [main, master]
+  schedule:
+    # Daily at 6 AM UTC — runs before team starts work
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Override staging URL for this run'
+        required: false
+        default: ''
+
+env:
+  NODE_VERSION: '20.x'
+
+jobs:
+  regression-check:
+    name: Error Detection + Environment Comparison
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Start Chrome with remote debugging
+        run: |
+          google-chrome \
+            --headless=new \
+            --remote-debugging-port=9222 \
+            --no-sandbox \
+            --disable-setuid-sandbox \
+            --disable-dev-shm-usage \
+            --disable-gpu \
+            --window-size=1920,1080 \
+            about:blank &
+          # Wait for Chrome to be ready
+          sleep 3
+          echo "Chrome started with remote debugging on :9222"
+
+      - name: Write MCP config for headless Chrome
+        run: |
+          mkdir -p .mcp
+          cat > .mcp/config.json << 'EOF'
+          {
+            "mcpServers": {
+              "chrome-devtools": {
+                "command": "npx",
+                "args": [
+                  "-y", "chrome-devtools-mcp@latest",
+                  "--browser-url=http://127.0.0.1:9222",
+                  "--headless=true",
+                  "--isolated=true",
+                  "--viewport=1920x1080"
+                ]
+              }
+            }
+          }
+          EOF
+
+      - name: Set target URLs
+        run: |
+          echo "TARGET_DEV_URL=${{ vars.TARGET_DEV_URL || 'http://localhost:3000' }}" >> $GITHUB_ENV
+          echo "TARGET_STAGING_URL=${{ inputs.target_url || vars.TARGET_STAGING_URL || secrets.TARGET_STAGING_URL }}" >> $GITHUB_ENV
+
+      - name: Run ARGUS error detection crawl
+        id: crawl
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
+          SLACK_CHANNEL_CRITICAL: ${{ secrets.SLACK_CHANNEL_CRITICAL }}
+          SLACK_CHANNEL_WARNINGS: ${{ secrets.SLACK_CHANNEL_WARNINGS }}
+          SLACK_CHANNEL_DIGEST: ${{ secrets.SLACK_CHANNEL_DIGEST }}
+          REPORT_OUTPUT_DIR: ./reports
+        run: |
+          node -e "
+            import('./src/orchestration/crawl-and-report.js').then(async ({ runCrawl }) => {
+              // In CI, MCP tools are provided via the chrome-devtools-mcp process
+              // This runner uses the MCP JSON-RPC protocol directly
+              const { createMcpClient } = await import('./src/utils/mcp-client.js');
+              const mcp = await createMcpClient();
+              const report = await runCrawl(mcp);
+              const criticals = report.summary.critical;
+              console.log('ARGUS_CRITICAL_COUNT=' + criticals);
+              process.env.ARGUS_CRITICAL_COUNT = criticals;
+              if (criticals > 0) process.exit(1);
+            }).catch(e => { console.error(e); process.exit(1); });
+          "
+        continue-on-error: true
+
+      - name: Run ARGUS environment comparison
+        id: compare
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
+          SLACK_CHANNEL_CRITICAL: ${{ secrets.SLACK_CHANNEL_CRITICAL }}
+          SLACK_CHANNEL_WARNINGS: ${{ secrets.SLACK_CHANNEL_WARNINGS }}
+          SLACK_CHANNEL_DIGEST: ${{ secrets.SLACK_CHANNEL_DIGEST }}
+          REPORT_OUTPUT_DIR: ./reports
+        run: |
+          node -e "
+            import('./src/orchestration/env-comparison.js').then(async ({ runComparison }) => {
+              const { createMcpClient } = await import('./src/utils/mcp-client.js');
+              const mcp = await createMcpClient();
+              const report = await runComparison(mcp);
+              if (report.summary.critical > 0) process.exit(1);
+            }).catch(e => { console.error(e); process.exit(1); });
+          "
+        continue-on-error: true
+
+      - name: Upload reports as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: argus-reports-${{ github.run_number }}
+          path: reports/
+          retention-days: 14
+
+      - name: Fail pipeline if criticals found
+        if: steps.crawl.outcome == 'failure' || steps.compare.outcome == 'failure'
+        run: |
+          echo "ARGUS detected critical issues. Check Slack #bugs-critical and the uploaded artifacts."
+          exit 1
