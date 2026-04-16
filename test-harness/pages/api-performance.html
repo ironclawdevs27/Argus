@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<!-- Argus v3 — Phase A2 fixture: slow API + oversized payload detection -->
+<!-- Fetches slow-warning (1500ms), slow-critical (3200ms), large-warning (~600KB), large-critical (~2.2MB) -->
+<!-- Sets #all-fetches-done after all four complete so validate.js waitFor can gate assertions -->
+<html>
+<head>
+  <title>API Performance Issues</title>
+  <meta name="description" content="Fixture page exercising Argus slow API and large payload detection">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>body { font-family: sans-serif; padding: 20px; }</style>
+</head>
+<body>
+  <h1>API Performance Fixture</h1>
+  <p>Fetching slow and large API responses to trigger Argus v3 Phase A2 detection.</p>
+  <ul>
+    <li><code>/api/slow-warning</code> — 1 500 ms delay (warning: &gt; 1 000 ms)</li>
+    <li><code>/api/slow-critical</code> — 3 200 ms delay (critical: &gt; 3 000 ms)</li>
+    <li><code>/api/large-warning</code> — ~600 KB payload (warning: &gt; 500 KB)</li>
+    <li><code>/api/large-critical</code> — ~2.2 MB payload (critical: &gt; 2 MB)</li>
+  </ul>
+  <div id="status">Fetches in progress...</div>
+
+  <script>
+    // In-page console interceptor (same pattern as other fixtures)
+    window.__argus_console = [];
+    const _origConsole = { log: console.log, error: console.error, warn: console.warn };
+    ['log','error','warn'].forEach(level => {
+      console[level] = function(...args) {
+        window.__argus_console.push({ level, text: args.map(String).join(' '), ts: Date.now() });
+        _origConsole[level].apply(console, args);
+      };
+    });
+
+    // Fetch all 4 endpoints in parallel.
+    // Promise.all waits for ALL fetches (including the 3 200 ms slow-critical)
+    // before setting the done marker so validate.js waitFor: '#all-fetches-done' works.
+    Promise.all([
+      fetch('/api/slow-warning').then(r => r.json()),
+      fetch('/api/slow-critical').then(r => r.json()),
+      fetch('/api/large-warning').then(r => r.json()),
+      fetch('/api/large-critical').then(r => r.json()),
+    ]).then(() => {
+      document.querySelector('#status').textContent = 'All fetches complete.';
+      const marker = document.createElement('div');
+      marker.id = 'all-fetches-done';
+      document.body.appendChild(marker);
+    }).catch(err => {
+      console.error('API performance fetch failed:', err.message);
+    });
+  </script>
+</body>
+</html>

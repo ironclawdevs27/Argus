@@ -107,6 +107,33 @@ app.get('/api/tracking', (_req, res) => {
   res.json({ tracking: true, env: IS_STAGING ? 'staging' : 'dev' });
 });
 
+// ── Network performance test endpoints (v3 Phase A2) ─────────────────────────
+// api-performance.html fetches all four of these in parallel.
+
+// Slow response — warning tier (1 500 ms > 1 000 ms threshold)
+app.get('/api/slow-warning', (_req, res) => {
+  setTimeout(() => res.json({ status: 'ok', delay: 1500, tier: 'warning' }), 1500);
+});
+
+// Slow response — critical tier (3 200 ms > 3 000 ms threshold)
+app.get('/api/slow-critical', (_req, res) => {
+  setTimeout(() => res.json({ status: 'ok', delay: 3200, tier: 'critical' }), 3200);
+});
+
+// Large payload — warning tier (~600 KB decodedBodySize > 500 KB threshold)
+// 600 items × ~1 014 chars each ≈ 610 KB uncompressed JSON
+app.get('/api/large-warning', (_req, res) => {
+  const items = Array.from({ length: 600 }, (_, i) => ({ id: i, v: 'x'.repeat(1000) }));
+  res.json({ items });
+});
+
+// Large payload — critical tier (~2.2 MB decodedBodySize > 2 MB threshold)
+// 2 200 items × ~1 014 chars each ≈ 2.23 MB uncompressed JSON
+app.get('/api/large-critical', (_req, res) => {
+  const items = Array.from({ length: 2200 }, (_, i) => ({ id: i, v: 'x'.repeat(1000) }));
+  res.json({ items });
+});
+
 // ── Performance test route (deliberate TTFB delay) ─────────────────────────────
 // Delays the response by 1 200 ms so TTFB exceeds the 800 ms budget.
 

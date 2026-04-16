@@ -137,6 +137,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'missing meta description, og tags, canonical; multiple h1s; generic title (v3 Phase A3)',
   },
+  // v3 Phase A2 — slow API + oversized payload fixture
+  {
+    path: '/api-performance.html',
+    name: 'API Performance',
+    critical: false,
+    waitFor: '#all-fetches-done',
+    expected: 'slow_api warning (>1000ms), slow_api critical (>3000ms), large_payload warning (>500KB), large_payload critical (>2MB)',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

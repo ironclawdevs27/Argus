@@ -128,7 +128,7 @@ function evalToArray(val) {
 // Performance API — collects network requests via PerformanceResourceTiming.
 // responseStatus (Chrome 109+) gives the actual HTTP status including 4xx/5xx.
 // Returns array directly (no JSON.stringify) so CDP serialises it once, not twice.
-const NET_SCRIPT = `() => window.performance.getEntriesByType('resource').map(function(e){return{url:e.name,status:e.responseStatus??0,method:'GET',resourceType:e.initiatorType,duration:Math.round(e.duration||0)}})`;
+const NET_SCRIPT = `() => window.performance.getEntriesByType('resource').map(function(e){return{url:e.name,status:e.responseStatus??0,method:'GET',resourceType:e.initiatorType,duration:Math.round(e.duration||0),transferSize:e.transferSize||0,decodedBodySize:e.decodedBodySize||0}})`;
 
 // Read in-page console capture array (populated by the interceptor in each fixture page).
 // Returns array directly so CDP serialises it once.
@@ -227,6 +227,32 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
     errors.push({ type: 'api_call_summary', uniqueEndpoints: uniqueCount,
       totalCalls: totalCount, duplicateEndpoints: dupCount, severity: 'info',
       message: `API summary: ${totalCount} calls to ${uniqueCount} unique endpoints` });
+  }
+
+  // Network performance analysis — slow/large API detection (v3 Phase A2)
+  for (const entry of networkReqs) {
+    const reqUrl = entry.url ?? '';
+    if (staticExt.test(reqUrl)) continue;
+    if (
+      !/\/(api|graphql|rest|v\d+)\//i.test(reqUrl) &&
+      !['xmlhttprequest', 'fetch', 'xhr'].includes((entry.resourceType ?? '').toLowerCase())
+    ) continue;
+    const dur   = entry.duration ?? 0;
+    const bytes = entry.decodedBodySize || entry.transferSize || 0;
+    if (dur >= 3000) {
+      errors.push({ type: 'slow_api', requestUrl: reqUrl, duration: Math.round(dur),
+        severity: 'critical', message: `Slow API ${Math.round(dur)} ms — ${reqUrl}` });
+    } else if (dur >= 1000) {
+      errors.push({ type: 'slow_api', requestUrl: reqUrl, duration: Math.round(dur),
+        severity: 'warning', message: `Slow API ${Math.round(dur)} ms — ${reqUrl}` });
+    }
+    if (bytes >= 2 * 1024 * 1024) {
+      errors.push({ type: 'large_payload', requestUrl: reqUrl, bytes,
+        severity: 'critical', message: `Oversized payload ${Math.round(bytes / 1024)} KB — ${reqUrl}` });
+    } else if (bytes >= 500 * 1024) {
+      errors.push({ type: 'large_payload', requestUrl: reqUrl, bytes,
+        severity: 'warning', message: `Oversized payload ${Math.round(bytes / 1024)} KB — ${reqUrl}` });
+    }
   }
 
   // CSS analysis (CSS_ANALYSIS_SCRIPT returns JSON.stringify(report);
@@ -526,6 +552,51 @@ async function runTests(mcp, stagingProc) {
       `best-practices score reported: ${lh.bestPractices ?? 'N/A'}/100`);
     soft(lh.failingAudits.length > 0,
       `failing audit items across all categories: ${lh.failingAudits.length}`);
+  }
+
+  // ── [17] Network performance — slow API + oversized payload (v3 Phase A2) ──
+  console.log('\n[17] Network Performance — slow API + large payload detection');
+  {
+    const { errors: perfErrors } = await crawlFixture(mcp, `${B}/api-performance.html`, {
+      critical: false,
+      waitFor: '#all-fetches-done',
+    });
+
+    // slow-warning: 1 500 ms > 1 000 ms threshold → severity 'warning'
+    assert(
+      perfErrors.some(e => e.type === 'slow_api' &&
+        (e.requestUrl ?? '').includes('/api/slow-warning') && e.severity === 'warning'),
+      `slow_api warning detected for /api/slow-warning (found: ${
+        perfErrors.filter(e => e.type === 'slow_api').map(e => `${e.requestUrl} ${e.severity} ${e.duration}ms`).join(', ') || 'none'
+      })`,
+    );
+
+    // slow-critical: 3 200 ms > 3 000 ms threshold → severity 'critical'
+    assert(
+      perfErrors.some(e => e.type === 'slow_api' &&
+        (e.requestUrl ?? '').includes('/api/slow-critical') && e.severity === 'critical'),
+      `slow_api critical detected for /api/slow-critical (found: ${
+        perfErrors.filter(e => e.type === 'slow_api').map(e => `${e.requestUrl} ${e.severity} ${e.duration}ms`).join(', ') || 'none'
+      })`,
+    );
+
+    // large-warning: ~600 KB > 500 KB threshold → severity 'warning'
+    assert(
+      perfErrors.some(e => e.type === 'large_payload' &&
+        (e.requestUrl ?? '').includes('/api/large-warning') && e.severity === 'warning'),
+      `large_payload warning detected for /api/large-warning (found: ${
+        perfErrors.filter(e => e.type === 'large_payload').map(e => `${e.requestUrl} ${e.severity} ${Math.round((e.bytes??0)/1024)}KB`).join(', ') || 'none'
+      })`,
+    );
+
+    // large-critical: ~2.2 MB > 2 MB threshold → severity 'critical'
+    assert(
+      perfErrors.some(e => e.type === 'large_payload' &&
+        (e.requestUrl ?? '').includes('/api/large-critical') && e.severity === 'critical'),
+      `large_payload critical detected for /api/large-critical (found: ${
+        perfErrors.filter(e => e.type === 'large_payload').map(e => `${e.requestUrl} ${e.severity} ${Math.round((e.bytes??0)/1024)}KB`).join(', ') || 'none'
+      })`,
+    );
   }
 
   // ── [15] Env comparison — GAPS 11–15 FIX (all 7 detections) ─────────────

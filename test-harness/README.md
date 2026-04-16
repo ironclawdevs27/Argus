@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-15 test blocks · 42 hard assertions · 9 detection categories · 16 fixture pages
+17 test blocks · 46 hard assertions · 10 detection categories · 18 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -36,6 +36,8 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 13 | `a11y-warning.html` | Lighthouse accessibility score 50–89 | Soft |
 | 14 | `a11y-critical.html` | Individual failing Lighthouse audit items surfaced | Soft |
 | 15 | `dev-home.html` vs `staging-home.html` | Network regression · new endpoint · missing endpoint · status change · new console errors · DOM diff · visual diff | Hard + Soft |
+| 16 | `a11y-critical.html` | Full Lighthouse suite — performance · SEO · best-practices scores reported | Soft |
+| 17 | `api-performance.html` | `slow_api` warning (>1 000 ms) · `slow_api` critical (>3 000 ms) · `large_payload` warning (>500 KB) · `large_payload` critical (>2 MB) | Hard |
 
 ---
 
@@ -62,10 +64,12 @@ test-harness/
 │   ├── perf-lcp.html               test 11 — LCP > 2500 ms (3 s image delay)
 │   ├── perf-cls.html               test 11 — CLS > 0.1 (layout shift after 200 ms)
 │   ├── perf-fid.html               test 11 — FID/TBT > 100 ms (600 ms busy-wait)
-│   ├── a11y-critical.html          tests 12 & 14 — many a11y violations
+│   ├── a11y-critical.html          tests 12, 14, 16 — many a11y violations + full Lighthouse suite
 │   ├── a11y-warning.html           test 13 — moderate a11y violations
 │   ├── dev-home.html               test 15 — env-comparison dev fixture
-│   └── staging-home.html           test 15 — env-comparison staging (regressions injected)
+│   ├── staging-home.html           test 15 — env-comparison staging (regressions injected)
+│   ├── seo-issues.html             — SEO meta/heading issues (v3 Phase A3 fixture)
+│   └── api-performance.html        test 17 — slow API + oversized payload (v3 Phase A2)
 └── static/
     └── button-styles.css       BEM card selectors in a button stylesheet
                                 → triggers component style leak detection
@@ -162,7 +166,7 @@ The validator will:
   ✓ DOM diff: .pricing section present on dev, missing on staging
 
 ────────────────────────────────────────────────────────
-Results: 42/42 hard assertions passed, 0 failed
+Results: 46/46 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```

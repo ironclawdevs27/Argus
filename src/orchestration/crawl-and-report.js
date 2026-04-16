@@ -38,6 +38,17 @@ const PERF_BUDGETS = {
   TTFB: 800,   // Time to First Byte — ms
 };
 
+// ── Network Performance Thresholds (v3 Phase A2) ──────────────────────────────
+const NETWORK_PERF_THRESHOLDS = {
+  slowWarning:   1000,           // ms  — API response time warning
+  slowCritical:  3000,           // ms  — API response time critical
+  sizeWarning:   500 * 1024,     // 500 KB — payload size warning
+  sizeCritical:  2 * 1024 * 1024, // 2 MB  — payload size critical
+};
+
+// PerformanceResourceTiming fields captured for network-perf analysis.
+const NETWORK_PERF_SCRIPT = `() => window.performance.getEntriesByType('resource').map(function(e){return{url:e.name,resourceType:e.initiatorType,duration:Math.round(e.duration||0),transferSize:e.transferSize||0,decodedBodySize:e.decodedBodySize||0}})`;
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BASE_URL = process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
 const OUTPUT_DIR = path.resolve(__dirname, '../../', config.outputDir);
@@ -404,6 +415,82 @@ function normalizeApiUrl(url) {
   }
 }
 
+// ── Network Performance Analysis (v3 Phase A2) ────────────────────────────────
+
+/**
+ * Detect slow API responses and oversized payloads using PerformanceResourceTiming.
+ * Only applies to API-like requests (skips static assets such as JS/CSS/images).
+ *
+ * @param {object[]} perfEntries - Entries from window.performance.getEntriesByType('resource')
+ * @param {string} pageUrl - Page URL (for error context)
+ * @returns {object[]} Bug entries
+ */
+function analyzeNetworkPerformance(perfEntries, pageUrl) {
+  const bugs = [];
+  const staticExt = /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|map|webp|avif)(\?|$)/i;
+
+  for (const entry of perfEntries) {
+    const reqUrl = entry.url ?? '';
+    if (staticExt.test(reqUrl)) continue;
+    if (
+      !/\/(api|graphql|rest|v\d+)\//i.test(reqUrl) &&
+      !['xmlhttprequest', 'fetch', 'xhr'].includes((entry.resourceType ?? '').toLowerCase())
+    ) continue;
+
+    const duration = entry.duration ?? 0;
+    // Prefer decodedBodySize (uncompressed) — transferSize is the wire size (may be compressed).
+    const payloadBytes = entry.decodedBodySize || entry.transferSize || 0;
+
+    // Slow response check
+    if (duration >= NETWORK_PERF_THRESHOLDS.slowCritical) {
+      bugs.push({
+        type:      'slow_api',
+        requestUrl: reqUrl,
+        duration:  Math.round(duration),
+        threshold: NETWORK_PERF_THRESHOLDS.slowCritical,
+        message:   `Slow API response ${Math.round(duration)} ms — ${reqUrl} (critical threshold: ${NETWORK_PERF_THRESHOLDS.slowCritical} ms)`,
+        severity:  'critical',
+        url:       pageUrl,
+      });
+    } else if (duration >= NETWORK_PERF_THRESHOLDS.slowWarning) {
+      bugs.push({
+        type:      'slow_api',
+        requestUrl: reqUrl,
+        duration:  Math.round(duration),
+        threshold: NETWORK_PERF_THRESHOLDS.slowWarning,
+        message:   `Slow API response ${Math.round(duration)} ms — ${reqUrl} (warning threshold: ${NETWORK_PERF_THRESHOLDS.slowWarning} ms)`,
+        severity:  'warning',
+        url:       pageUrl,
+      });
+    }
+
+    // Payload size check
+    if (payloadBytes >= NETWORK_PERF_THRESHOLDS.sizeCritical) {
+      bugs.push({
+        type:      'large_payload',
+        requestUrl: reqUrl,
+        bytes:     payloadBytes,
+        threshold: NETWORK_PERF_THRESHOLDS.sizeCritical,
+        message:   `Oversized API payload ${Math.round(payloadBytes / 1024)} KB — ${reqUrl} (critical threshold: 2 MB)`,
+        severity:  'critical',
+        url:       pageUrl,
+      });
+    } else if (payloadBytes >= NETWORK_PERF_THRESHOLDS.sizeWarning) {
+      bugs.push({
+        type:      'large_payload',
+        requestUrl: reqUrl,
+        bytes:     payloadBytes,
+        threshold: NETWORK_PERF_THRESHOLDS.sizeWarning,
+        message:   `Oversized API payload ${Math.round(payloadBytes / 1024)} KB — ${reqUrl} (warning threshold: 500 KB)`,
+        severity:  'warning',
+        url:       pageUrl,
+      });
+    }
+  }
+
+  return bugs;
+}
+
 // ── Per-Route Crawl ────────────────────────────────────────────────────────────
 
 /**
@@ -505,6 +592,22 @@ export async function crawlRoute(route, baseUrl, mcp) {
   // 6b. API frequency analysis — detect endpoints called multiple times
   const apiFrequencyBugs = analyzeApiFrequency(networkReqs ?? [], url);
   result.errors.push(...apiFrequencyBugs);
+
+  // 6c. Network performance analysis — slow responses + oversized payloads (v3 Phase A2)
+  try {
+    const perfRaw = await mcp.evaluate_script({ function: NETWORK_PERF_SCRIPT });
+    const perfResult = perfRaw?.result ?? perfRaw;
+    let perfEntries;
+    if (Array.isArray(perfResult)) {
+      perfEntries = perfResult;
+    } else {
+      perfEntries = JSON.parse(typeof perfResult === 'string' ? perfResult : '[]');
+    }
+    const networkPerfBugs = analyzeNetworkPerformance(Array.isArray(perfEntries) ? perfEntries : [], url);
+    result.errors.push(...networkPerfBugs);
+  } catch (err) {
+    console.warn(`[ARGUS] Network performance analysis skipped for ${url}: ${err.message}`);
+  }
 
   // 7. Extract injected uncaught exceptions
   const injectedErrors = await mcp.evaluate_script({ function:EXTRACT_ERROR_LISTENER });
