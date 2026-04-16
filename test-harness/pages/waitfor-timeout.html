@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>WaitFor Timeout — Argus Harness</title>
+  <!-- No script — the selector #never-appears is never added to the DOM -->
+</head>
+<body>
+  <main>
+    <h1>WaitFor Timeout Page</h1>
+    <p>
+      The selector <code>#never-appears</code> does not exist and will never be
+      added to the DOM.
+    </p>
+    <p>
+      Argus is configured with <code>waitFor: '#never-appears'</code> and a
+      10 s timeout for this route.  The wait_for call will time out and Argus
+      should produce a <code>load_failure</code> warning.
+    </p>
+    <p>
+      This is the opposite of <a href="waitfor-page.html">waitfor-page.html</a>
+      which tests the <em>success</em> path.  This page tests the
+      <em>failure</em> path.
+    </p>
+  </main>
+</body>
+</html>

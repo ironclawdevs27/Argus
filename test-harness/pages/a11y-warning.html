@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<!-- Missing lang attribute — one accessibility issue -->
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>A11y Warning — Argus Harness</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    button { padding: 8px 16px; background: #0070f3; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+    /* Moderately low contrast: #767676 on white — borderline WCAG AA */
+    .muted { color: #767676; }
+  </style>
+</head>
+<body>
+  <!--
+    This page has a smaller set of violations than a11y-critical.html,
+    aiming for a Lighthouse score in the 50–89 range (severity: warning).
+
+    Violations:
+      - No lang on <html>
+      - Two form inputs without labels
+      - One image without alt
+      - Muted text with borderline contrast
+  -->
+  <main>
+    <h1>Moderate A11y Issues</h1>
+    <p>This page has a few accessibility issues but not catastrophic ones.</p>
+
+    <nav aria-label="Site navigation">
+      <a href="#">Home</a>
+      <a href="#">About</a>
+    </nav>
+
+    <!-- Input without a label -->
+    <input type="text" placeholder="Your name">
+    <input type="search" placeholder="Search…">
+
+    <!-- Image without alt -->
+    <img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" width="80" height="80">
+
+    <p class="muted">Some supplementary text in muted colour (borderline contrast).</p>
+
+    <button type="button">OK</button>
+    <button type="button" aria-label="Close dialog">×</button>
+
+    <section>
+      <h2>A section with proper heading</h2>
+      <p>Most of this page is accessible — only a few things are missing.</p>
+    </section>
+  </main>
+</body>
+</html>

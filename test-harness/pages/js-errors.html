@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>JS Errors — Argus Harness</title>
+  <script>window.__argus_console=[];(function(){function h(l){var o=console[l];console[l]=function(){window.__argus_console.push({level:l,text:Array.prototype.slice.call(arguments).map(String).join(' ')});o.apply(console,arguments)};}['error','warn'].forEach(h);window.addEventListener('error',function(e){window.__argus_console.push({level:'error',text:e.message||'uncaught error'});});window.addEventListener('unhandledrejection',function(e){window.__argus_console.push({level:'error',text:(e.reason&&e.reason.message)||String(e.reason)||'unhandled rejection'});});})()</script>
+  <script>
+    // ── Fires immediately on script parse ─────────────────────────────────────
+    // Detected by list_console_messages (level = "error")
+    console.error('Deliberate console error: component failed to mount — missing required prop "userId"');
+
+    // Detected by list_console_messages (level = "warning")
+    console.warn('Deliberate console warning: deprecated API "componentWillMount" used in UserCard');
+
+    // ── Fires after a short delay (page already loaded) ────────────────────────
+    // Uncaught TypeError → Chrome DevTools records it as a console error
+    setTimeout(function () {
+      throw new TypeError('Deliberate uncaught TypeError: Cannot read properties of null (reading "dataset")');
+    }, 400);
+
+    // Unhandled promise rejection → Chrome DevTools records it as a console error
+    setTimeout(function () {
+      Promise.reject(new Error('Deliberate unhandled rejection: async fetch to /api/user returned 500'));
+    }, 500);
+  </script>
+</head>
+<body>
+  <main>
+    <h1>JS Error Fixtures</h1>
+    <p>
+      This page deliberately triggers four JS issues to validate Argus detection:
+    </p>
+    <ul>
+      <li><code>console.error</code> — component failed to mount</li>
+      <li><code>console.warn</code> — deprecated API warning</li>
+      <li><code>throw new TypeError</code> — uncaught exception (delayed 400 ms)</li>
+      <li><code>Promise.reject</code> — unhandled rejection (delayed 500 ms)</li>
+    </ul>
+    <p>
+      Expected Argus finding: at least one <strong>console</strong> error and
+      one <strong>console</strong> warning.
+    </p>
+  </main>
+</body>
+</html>

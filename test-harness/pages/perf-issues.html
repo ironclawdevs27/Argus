@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Perf Issues — Argus Harness</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Performance Issues Page</h1>
+    <p>
+      The harness server delays this page's HTTP response by <strong>1 200 ms</strong>
+      before sending it — pushing TTFB well above the 800 ms budget threshold.
+    </p>
+    <p>
+      Expected Argus finding: <code>performance_budget</code> violation for
+      <code>TTFB</code> (soft assertion — depends on Chrome trace availability).
+    </p>
+    <p>
+      Note: performance traces capture metrics at the time of the trace window,
+      not at navigation time.  TTFB may or may not appear depending on the
+      chrome-devtools-mcp version and Chrome's DevTools Protocol support.
+    </p>
+  </main>
+</body>
+</html>

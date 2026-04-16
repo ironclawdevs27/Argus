@@ -30,7 +30,7 @@
  * Runs entirely in the page context — no Node.js APIs available here.
  */
 export const CSS_ANALYSIS_SCRIPT = `
-(function() {
+() => {
   const report = {
     stylesheetSources: [],
     overriddenProperties: [],
@@ -181,15 +181,15 @@ export const CSS_ANALYSIS_SCRIPT = `
   // Skip for CSS Modules — hashed class names are intentionally scoped.
   // Only check BEM selectors in non-hashed, non-CSS-Modules stylesheets.
   const componentPatterns = [
-    /\.([\w-]+)__([\w-]+)/,         // BEM: .block__element
-    /\.([\w-]+)--([\w-]+)/,         // BEM modifier: .block--modifier
-    /\[data-component="([^"]+)"\]/,  // data-component attribute selectors
+    /\\.([\\w-]+)__([\\w-]+)/,         // BEM: .block__element
+    /\\.([\\w-]+)--([\\w-]+)/,         // BEM modifier: .block--modifier
+    /\\[data-component="([^"]+)"\\]/,  // data-component attribute selectors
   ];
 
   for (const { selector, source } of allRules) {
     if (!selector) continue;
     // Skip CSS Modules hashed selectors entirely
-    if (/\._?[A-Z][\\w]*_[\\w-]+_[A-Za-z0-9]{4,}/.test(selector)) continue;
+    if (/\\._?[A-Z][\\w]*_[\\w-]+_[A-Za-z0-9]{4,}/.test(selector)) continue;
     for (const pattern of componentPatterns) {
       const match = selector.match(pattern);
       if (!match) continue;
@@ -271,7 +271,7 @@ export const CSS_ANALYSIS_SCRIPT = `
   }
 
   return JSON.stringify(report);
-})();
+}
 `;
 
 /**

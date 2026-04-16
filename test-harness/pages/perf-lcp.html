@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Perf LCP — Argus Harness</title>
+  <style>
+    body  { margin: 0; font-family: system-ui, sans-serif; }
+    .hero { width: 100%; height: 420px; object-fit: cover; display: block; background: #eee; }
+    main  { padding: 1.5rem; max-width: 800px; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <!--
+    This <img> is the largest visible element on the page.
+    The server delays its response by 3 000 ms (/api/slow-image route).
+    Chrome marks LCP at the moment this image finishes rendering → ~3 000+ ms.
+    Argus performance budget: LCP < 2 500 ms → violation.
+
+    Soft assertion: Chrome performance trace must expose LCP metric.
+  -->
+  <img class="hero" src="/api/slow-image" alt="Hero image — loads after 3 s for LCP test">
+
+  <main>
+    <h2>LCP Test Page</h2>
+    <p>
+      The hero image above is served with a <strong>3 000 ms server delay</strong>.
+      It is the largest visible element, so Chrome will record LCP ≈ 3 000 ms —
+      exceeding the 2 500 ms budget.
+    </p>
+    <p>
+      Expected Argus finding: <code>performance_budget</code> LCP violation
+      (soft — depends on Chrome trace support).
+    </p>
+  </main>
+</body>
+</html>

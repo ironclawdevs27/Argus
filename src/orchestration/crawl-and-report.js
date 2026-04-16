@@ -365,7 +365,7 @@ export async function crawlRoute(route, baseUrl, mcp) {
   };
 
   // 1. Inject error listener before navigation (or immediately after)
-  await mcp.evaluate_script({ script: INJECT_ERROR_LISTENER });
+  await mcp.evaluate_script({ function:INJECT_ERROR_LISTENER });
 
   // 2. Navigate to the URL
   await mcp.navigate_page({ url });
@@ -386,9 +386,9 @@ export async function crawlRoute(route, baseUrl, mcp) {
   }
 
   // 4. Check for blank/error page
-  const titleResult = await mcp.evaluate_script({ script: 'document.title' });
+  const titleResult = await mcp.evaluate_script({ function:'document.title' });
   result.pageTitle = titleResult?.result ?? '';
-  const bodyText = await mcp.evaluate_script({ script: 'document.body?.innerText?.trim() ?? ""' });
+  const bodyText = await mcp.evaluate_script({ function:'document.body?.innerText?.trim() ?? ""' });
   result.isBlankPage = !bodyText?.result || bodyText.result.length < 50;
 
   if (result.isBlankPage) {
@@ -440,7 +440,7 @@ export async function crawlRoute(route, baseUrl, mcp) {
   result.errors.push(...apiFrequencyBugs);
 
   // 7. Extract injected uncaught exceptions
-  const injectedErrors = await mcp.evaluate_script({ script: EXTRACT_ERROR_LISTENER });
+  const injectedErrors = await mcp.evaluate_script({ function:EXTRACT_ERROR_LISTENER });
   try {
     const parsed = JSON.parse(injectedErrors?.result ?? '[]');
     for (const err of parsed) {
@@ -468,7 +468,7 @@ export async function crawlRoute(route, baseUrl, mcp) {
 
   // 10. CSS analysis (always runs — provides style health data)
   try {
-    const cssRaw = await mcp.evaluate_script({ script: CSS_ANALYSIS_SCRIPT });
+    const cssRaw = await mcp.evaluate_script({ function:CSS_ANALYSIS_SCRIPT });
     const cssResult = typeof cssRaw === 'object' ? (cssRaw?.result ?? cssRaw) : cssRaw;
     const cssBugs = parseCssAnalysisResult(cssResult, url);
     result.errors.push(...cssBugs);

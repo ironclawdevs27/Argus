@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>WaitFor — Argus Harness</title>
+  <script>
+    // The #late-content element is created and appended to the DOM after 2 seconds.
+    // This tests Argus's wait_for mechanism: the selector should be found within
+    // the 10 s timeout, so no load_failure error should be reported.
+    window.addEventListener('DOMContentLoaded', function () {
+      setTimeout(function () {
+        var div = document.createElement('div');
+        div.id = 'late-content';
+        div.innerHTML =
+          '<h2>Late-loaded content</h2>' +
+          '<p>This element was injected into the DOM 2 seconds after page load.</p>' +
+          '<p>Argus should detect it within the 10 s wait_for timeout.</p>';
+        document.body.appendChild(div);
+      }, 2000);
+    });
+  </script>
+</head>
+<body>
+  <main>
+    <h1>WaitFor Test Page</h1>
+    <p>
+      The element <code>#late-content</code> will be added to the DOM in
+      <strong>2 seconds</strong>.
+    </p>
+    <p>
+      Argus is configured with <code>waitFor: '#late-content'</code> and a 10 s
+      timeout — it should find the element and report <em>no</em>
+      <code>load_failure</code>.
+    </p>
+  </main>
+  <!-- #late-content is appended here by the script above -->
+</body>
+</html>

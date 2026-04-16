@@ -1,0 +1,62 @@
+/**
+ * button-styles.css
+ *
+ * INTENTIONAL BUG: This file is named "button-styles" but contains BEM
+ * selectors for the "card" component.  Argus CSS analysis detects this as a
+ * component style leak — card styles living in a file unrelated to cards.
+ *
+ * Expected Argus finding: css_component_leak (severity: warning)
+ *   Selector ".card__title" suggests component "card" but was found in
+ *   "button-styles.css"
+ */
+
+/* ── Actual button styles (these belong here) ─────────────────────────────── */
+.btn {
+  display: inline-block;
+  padding: 8px 16px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  border-radius: 4px;
+}
+
+.btn--primary {
+  background: #0070f3;
+  color: #fff;
+}
+
+.btn--secondary {
+  background: #6c757d;
+  color: #fff;
+}
+
+.btn--danger {
+  background: #dc3545;
+  color: #fff;
+}
+
+/* ── BEM card selectors (WRONG FILE — triggers component leak detection) ──── */
+.card__title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.card__body {
+  padding: 1rem;
+  line-height: 1.5;
+}
+
+.card__footer {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid #e0e0e0;
+}
+
+.card--featured {
+  border: 2px solid gold;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.card--compact .card__body {
+  padding: 0.5rem;
+}

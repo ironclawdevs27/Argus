@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>API Frequency — Argus Harness</title>
+  <script>
+    // Simulates a runaway loop, double-fetch bug, and intentional prefetch pair.
+    // All calls are fired synchronously so they all appear in a single page-load
+    // network capture — giving Argus clear frequency groups to classify.
+    window.addEventListener('DOMContentLoaded', function () {
+
+      // ── 6 calls to /api/data-loop → CRITICAL (runaway loop) ───────────────
+      // Simulates a React component in an infinite re-render with missing
+      // useEffect cleanup.
+      for (var i = 0; i < 6; i++) {
+        fetch('/api/data-loop').catch(function () {});
+      }
+
+      // ── 3 calls to /api/data-batch → WARNING (double-fetch bug) ──────────
+      // Simulates two sibling components each fetching the same resource plus
+      // one parent that also fetches it (missing shared state).
+      for (var j = 0; j < 3; j++) {
+        fetch('/api/data-batch').catch(function () {});
+      }
+
+      // ── 2 calls to /api/data-pair → INFO (verify intentional) ─────────────
+      // Simulates a prefetch on hover followed by the real fetch on click.
+      // Two calls might be intentional — Argus flags it as "info" for review.
+      for (var k = 0; k < 2; k++) {
+        fetch('/api/data-pair').catch(function () {});
+      }
+
+    });
+  </script>
+</head>
+<body>
+  <main>
+    <h1>API Frequency Fixtures</h1>
+    <p>Three endpoints called different numbers of times in one page load:</p>
+    <table>
+      <thead><tr><th>Endpoint</th><th>Calls</th><th>Expected Argus severity</th></tr></thead>
+      <tbody>
+        <tr><td>/api/data-loop</td><td>6×</td><td><strong>critical</strong> — runaway loop</td></tr>
+        <tr><td>/api/data-batch</td><td>3×</td><td><strong>warning</strong> — double-fetch</td></tr>
+        <tr><td>/api/data-pair</td><td>2×</td><td><strong>info</strong> — verify intentional</td></tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

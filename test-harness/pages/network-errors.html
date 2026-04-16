@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Network Errors — Argus Harness</title>
+  <script>
+    // Fires three fetch calls on page load — each returns a different error status.
+    // Chrome DevTools records all three as network requests that Argus analyses.
+    window.addEventListener('DOMContentLoaded', function () {
+      // HTTP 500 — always returns Internal Server Error
+      fetch('/api/always-500').catch(function () {});
+
+      // HTTP 401 — always returns Unauthorized (auth failure)
+      fetch('/api/protected').catch(function () {});
+
+      // HTTP 403 — always returns Forbidden (gap fix: 403 was untested)
+      fetch('/api/forbidden').catch(function () {});
+
+      // HTTP 404 — always returns Not Found
+      fetch('/api/missing').catch(function () {});
+    });
+  </script>
+</head>
+<body>
+  <main>
+    <h1>Network Error Fixtures</h1>
+    <p>Three fetch calls with deliberate HTTP error responses:</p>
+    <ul>
+      <li><code>GET /api/always-500</code> → HTTP 500 (expected: <strong>critical</strong>)</li>
+      <li><code>GET /api/protected</code> → HTTP 401 (expected: <strong>critical</strong> — auth failure)</li>
+      <li><code>GET /api/forbidden</code> → HTTP 403 (expected: <strong>critical</strong> — forbidden)</li>
+      <li><code>GET /api/missing</code> → HTTP 404 (expected: <strong>info</strong> on non-critical route)</li>
+    </ul>
+  </main>
+</body>
+</html>

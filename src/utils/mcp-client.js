@@ -22,14 +22,15 @@ const TOOL_TIMEOUT_MS = 30_000;
  * @returns {Promise<object>} Object with all MCP tool methods
  */
 export async function createMcpClient() {
+  // On Windows, npx is npx.cmd — shell:true resolves this cross-platform.
   const proc = spawn('npx', [
     '-y', 'chrome-devtools-mcp@latest',
     `--browser-url=${BROWSER_URL}`,
     '--headless=true',
-    '--isolated=true',
     '--viewport=1920x1080',
   ], {
     stdio: ['pipe', 'pipe', 'inherit'],
+    shell: true,
   });
 
   let messageId = 1;
@@ -117,7 +118,14 @@ export async function createMcpClient() {
         if (Array.isArray(content) && content.length > 0) {
           const item = content[0];
           if (item.type === 'text') {
-            try { return JSON.parse(item.text); } catch { return item.text; }
+            const text = item.text;
+            // chrome-devtools-mcp wraps evaluate_script results in a markdown code block:
+            // "Script ran on page and returned:\n```json\n<value>\n```"
+            const mdMatch = text.match(/```(?:json)?\n([\s\S]*?)\n```/);
+            if (mdMatch) {
+              try { return JSON.parse(mdMatch[1]); } catch { return mdMatch[1]; }
+            }
+            try { return JSON.parse(text); } catch { return text; }
           }
         }
         return result;

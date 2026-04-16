@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>CSS Issues — Argus Harness</title>
+
+  <!--
+    External stylesheet that contains BEM "card" selectors in a file named
+    "button-styles.css" — triggers css_component_leak detection.
+  -->
+  <link rel="stylesheet" href="/static/button-styles.css">
+
+  <style>
+    /*# sourceMappingURL=components.scss.map */
+
+    /* ── Base styles ────────────────────────────────────────────────────── */
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+
+    /* ── Inline style conflict fixture ───────────────────────────────────
+       The .inline-conflict element below has style="color:red; font-size:18px"
+       which overrides these stylesheet values → triggers react_inline_style_conflict.
+    */
+    .inline-conflict {
+      color: blue;
+      font-size: 16px;
+    }
+
+    /* ── !important override on header ───────────────────────────────────
+       Two rules for the same element with !important on the second one.
+       Triggers css_override with hasImportant=true (severity: warning).
+    */
+    header { background-color: #f0f0f0; }
+    header { background-color: #ff4444 !important; }
+
+    /* ── Cascade override on h1 ──────────────────────────────────────────
+       Same property declared twice on the same element from the same source.
+       Triggers css_override with hasImportant=false (severity: info).
+    */
+    h1 { color: #333; }
+    h1 { color: #c00; }
+
+    /* ── 11+ unused CSS rules ─────────────────────────────────────────────
+       None of these selectors exist in the DOM below — they all hit the
+       "no matching element" branch and inflate the unusedRules count above
+       the detection threshold of 10.
+       Triggers css_unused_rules (severity: info, or warning if count > 50).
+    */
+    .ghost-1  { color: pink; }
+    .ghost-2  { color: pink; }
+    .ghost-3  { color: pink; }
+    .ghost-4  { color: pink; }
+    .ghost-5  { color: pink; }
+    .ghost-6  { color: pink; }
+    .ghost-7  { color: pink; }
+    .ghost-8  { color: pink; }
+    .ghost-9  { color: pink; }
+    .ghost-10 { color: pink; }
+    .ghost-11 { color: pink; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>CSS Issues Page</h1>
+  </header>
+
+  <main>
+    <p>This page deliberately triggers five CSS quality issues:</p>
+    <ol>
+      <li><strong>!important override</strong> on <code>header</code> background</li>
+      <li><strong>Cascade override</strong> on <code>h1</code> color</li>
+      <li><strong>Inline style conflict</strong> — stylesheet says blue/16px, inline says red/18px</li>
+      <li><strong>11+ unused rules</strong> — <code>.ghost-1</code> … <code>.ghost-11</code> match nothing</li>
+      <li><strong>CSS Modules class names</strong> — hashed classes on the buttons below</li>
+      <li><strong>Component style leak</strong> — <code>.card__title</code> in <code>button-styles.css</code></li>
+    </ol>
+
+    <!--
+      CSS Modules hashed class names.
+      Matches pattern: _?ComponentName_classname_hash4chars+
+      Triggers css_modules_detected (info).
+    -->
+    <div class="_Button_primary_abc123">CSS Modules primary button</div>
+    <div class="_Button_secondary_def456">CSS Modules secondary button</div>
+
+    <!--
+      Inline style intentionally conflicts with .inline-conflict stylesheet rule.
+      Triggers react_inline_style_conflict (warning).
+    -->
+    <div class="inline-conflict" style="color: red; font-size: 18px;">
+      Inline style overrides stylesheet (red/18px wins over blue/16px)
+    </div>
+  </main>
+</body>
+</html>

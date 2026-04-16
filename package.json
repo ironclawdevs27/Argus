@@ -10,10 +10,14 @@
     "setup": "node -e \"import('fs').then(fs => fs.default.mkdirSync('./reports', { recursive: true }))\"",
     "crawl": "node src/orchestration/crawl-and-report.js",
     "compare": "node src/orchestration/env-comparison.js",
-    "server": "node src/server/index.js"
+    "server": "node src/server/index.js",
+    "harness": "node test-harness/server.js",
+    "harness:staging": "PORT=3101 node test-harness/server.js",
+    "test:harness": "node test-harness/validate.js"
   },
   "dependencies": {
     "@slack/web-api": "^7.3.4",
+    "chrome": "^0.1.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "pixelmatch": "^5.3.0",

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Home — Dev</title>
+  <script>window.__argus_console=[];(function(){function h(l){var o=console[l];console[l]=function(){window.__argus_console.push({level:l,text:Array.prototype.slice.call(arguments).map(String).join(' ')});o.apply(console,arguments)};}['error','warn'].forEach(h);window.addEventListener('error',function(e){window.__argus_console.push({level:'error',text:e.message||'uncaught error'});});window.addEventListener('unhandledrejection',function(e){window.__argus_console.push({level:'error',text:(e.reason&&e.reason.message)||String(e.reason)||'unhandled rejection'});});})()</script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; background: #fff; color: #222; }
+    .hero { background: #0070f3; color: #fff; padding: 3rem 2rem; border-radius: 8px; margin-bottom: 2rem; }
+    .hero h1 { margin: 0 0 0.5rem; font-size: 2.5rem; }
+    .cta { display: inline-block; padding: 12px 24px; background: #fff; color: #0070f3; border-radius: 4px; font-weight: 600; text-decoration: none; margin-top: 1rem; }
+    .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+    .feature { padding: 1.5rem; border: 1px solid #e0e0e0; border-radius: 8px; }
+    .feature h3 { margin: 0 0 0.5rem; color: #0070f3; }
+    .pricing { margin-top: 2rem; padding: 1.5rem; background: #f0f9ff; border-radius: 8px; }
+    .price { font-size: 2rem; font-weight: 700; color: #0070f3; }
+  </style>
+  <script>
+    window.addEventListener('DOMContentLoaded', function () {
+      // Succeeds on dev (200) — used for API regression comparison
+      fetch('/api/checkout').catch(function () {});
+      // Succeeds on dev (200) — used for status-change comparison
+      fetch('/api/analytics').catch(function () {});
+      // Only called on dev — creates "request missing on staging" signal (gap fix)
+      fetch('/api/feature-flags').catch(function () {});
+    });
+  </script>
+</head>
+<body>
+  <div class="hero">
+    <h1>Welcome to Acme App</h1>
+    <p>The best platform for managing your work. Fast, reliable, and easy to use.</p>
+    <a class="cta" href="#">Get started free</a>
+  </div>
+
+  <div class="features">
+    <div class="feature">
+      <h3>Feature One</h3>
+      <p>Streamline your workflow with automated pipelines and smart integrations.</p>
+    </div>
+    <div class="feature">
+      <h3>Feature Two</h3>
+      <p>Real-time collaboration — see changes from your team as they happen.</p>
+    </div>
+    <div class="feature">
+      <h3>Feature Three</h3>
+      <p>Advanced analytics and reporting to keep you informed at every step.</p>
+    </div>
+  </div>
+
+  <div class="pricing">
+    <h2>Pricing</h2>
+    <p>Simple and transparent. No hidden fees.</p>
+    <span class="price">$29</span><span>/month</span>
+    <p>Includes all features. Cancel any time.</p>
+  </div>
+
+  <!-- DEV identifier — used in env-comparison DOM diff -->
+  <footer data-env="dev">
+    <p>© 2026 Acme Corp — <strong>Development build</strong></p>
+  </footer>
+</body>
+</html>

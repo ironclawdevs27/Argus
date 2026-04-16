@@ -309,7 +309,7 @@ async function runCssAnalysisMode(mcp) {
       await new Promise(r => setTimeout(r, 2000));
 
       // CSS analysis
-      const cssRaw = await mcp.evaluate_script({ script: CSS_ANALYSIS_SCRIPT });
+      const cssRaw = await mcp.evaluate_script({ function:CSS_ANALYSIS_SCRIPT });
       const cssResult = typeof cssRaw === 'object' ? (cssRaw?.result ?? cssRaw) : cssRaw;
       const cssBugs = parseCssAnalysisResult(cssResult, url);
       routeResult.findings.push(...cssBugs);

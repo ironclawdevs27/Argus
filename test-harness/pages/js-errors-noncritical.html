@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>JS Errors (non-critical) — Argus Harness</title>
+  <script>window.__argus_console=[];(function(){function h(l){var o=console[l];console[l]=function(){window.__argus_console.push({level:l,text:Array.prototype.slice.call(arguments).map(String).join(' ')});o.apply(console,arguments)};}['error','warn'].forEach(h);window.addEventListener('error',function(e){window.__argus_console.push({level:'error',text:e.message||'uncaught error'});});window.addEventListener('unhandledrejection',function(e){window.__argus_console.push({level:'error',text:(e.reason&&e.reason.message)||String(e.reason)||'unhandled rejection'});});})()</script>
+  <script>
+    // Only console.error — no thrown exceptions.
+    // Because this route is non-critical (critical: false), the severity will
+    // be "warning" instead of "critical".
+    console.error('Non-critical route error: payment widget failed to initialise — fallback shown');
+    console.error('Non-critical route error: analytics script blocked by content security policy');
+  </script>
+</head>
+<body>
+  <main>
+    <h1>Non-Critical JS Errors</h1>
+    <p>
+      Two <code>console.error</code> calls on a non-critical route.<br>
+      Expected Argus severity: <strong>warning</strong> (not critical).
+    </p>
+  </main>
+</body>
+</html>

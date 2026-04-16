@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<!-- Missing lang attribute on <html> — accessibility violation -->
+<html>
+<head>
+  <!-- Missing <title> — accessibility violation -->
+  <style>
+    /* Very low contrast: #aaa on #bbb — fails WCAG AA */
+    .low-contrast { color: #aaa; background: #bbb; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <!--
+    This page deliberately violates as many Lighthouse accessibility rules as
+    possible to push the score below 50.
+
+    Violations present:
+      - No lang on <html>
+      - No <title> in <head>
+      - Images missing alt text
+      - Form inputs with no labels
+      - Buttons with no accessible text
+      - Duplicate IDs
+      - Low contrast text
+      - Clickable <div>s without role or keyboard support
+      - Empty <a> links
+  -->
+
+  <!-- Images with no alt attribute -->
+  <img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==">
+  <img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==">
+  <img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==">
+
+  <!-- Form inputs with no labels -->
+  <input type="text" placeholder="Enter name">
+  <input type="email" placeholder="Enter email">
+  <input type="password" placeholder="Password">
+  <select><option>Choose…</option></select>
+
+  <!-- Buttons with no text or aria-label -->
+  <button></button>
+  <button> </button>
+  <button type="submit"></button>
+
+  <!-- Empty links -->
+  <a href="#"></a>
+  <a href="#"> </a>
+
+  <!-- Duplicate IDs -->
+  <div id="main">First element with id="main"</div>
+  <div id="main">Duplicate id="main"</div>
+  <span id="title">First id="title"</span>
+  <span id="title">Duplicate id="title"</span>
+
+  <!-- Low contrast text -->
+  <p class="low-contrast">Very low contrast — nearly invisible text</p>
+  <p class="low-contrast">Another low contrast paragraph</p>
+
+  <!-- Fake interactive elements with no role / no keyboard support -->
+  <div onclick="void(0)">Clickable div, no role</div>
+  <div onclick="void(0)">Another clickable div</div>
+  <span onclick="void(0)">Clickable span</span>
+
+  <!-- Positive body text to avoid blank-page detection -->
+  <p>A11y critical test page — expects Lighthouse accessibility score below 50.</p>
+</body>
+</html>

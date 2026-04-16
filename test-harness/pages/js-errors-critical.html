@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>JS Errors (Critical Route) — Argus Harness</title>
+  <script>window.__argus_console=[];(function(){function h(l){var o=console[l];console[l]=function(){window.__argus_console.push({level:l,text:Array.prototype.slice.call(arguments).map(String).join(' ')});o.apply(console,arguments)};}['error','warn'].forEach(h);window.addEventListener('error',function(e){window.__argus_console.push({level:'error',text:e.message||'uncaught error'});});window.addEventListener('unhandledrejection',function(e){window.__argus_console.push({level:'error',text:(e.reason&&e.reason.message)||String(e.reason)||'unhandled rejection'});});})()</script>
+  <script>
+    // Same console.error calls as js-errors.html, but this route is configured
+    // with critical: true in harness-config.js.
+    // Expected severity: "critical" (not "warning").
+    console.error('Critical route error: auth token validation failed — user session will be terminated');
+    console.error('Critical route error: order processing module failed to initialise — no orders can be placed');
+  </script>
+</head>
+<body>
+  <main>
+    <h1>JS Errors on Critical Route</h1>
+    <p>
+      Two <code>console.error</code> calls on a route marked <code>critical: true</code>.
+    </p>
+    <p>
+      Expected Argus finding: console errors at severity <strong>critical</strong>
+      (on a non-critical route these would be "warning").
+    </p>
+    <p>This validates the severity escalation path in <code>classifyConsoleMessage()</code>.</p>
+  </main>
+</body>
+</html>

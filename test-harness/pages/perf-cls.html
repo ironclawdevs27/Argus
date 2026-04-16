@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Perf CLS — Argus Harness</title>
+  <style>
+    body    { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+    #shifter { height: 350px; background: #f44; color: #fff; display: flex;
+               align-items: center; justify-content: center; font-size: 1.5rem;
+               margin-bottom: 1rem; }
+  </style>
+  <script>
+    // After 200 ms, inject a 350 px tall element at the TOP of <body>,
+    // pushing all existing content down.  This is a textbook CLS trigger:
+    // visible elements shift unexpectedly after the user has started reading.
+    window.addEventListener('DOMContentLoaded', function () {
+      setTimeout(function () {
+        var shifter = document.createElement('div');
+        shifter.id = 'shifter';
+        shifter.textContent = 'Layout shifted — this block was injected after 200 ms';
+        document.body.insertBefore(shifter, document.getElementById('content'));
+      }, 200);
+    });
+  </script>
+</head>
+<body>
+  <div id="content">
+    <h1>CLS Test Page</h1>
+    <p>
+      A 350 px block is inserted above this text after 200 ms,
+      shifting the page layout and raising the Cumulative Layout Shift score.
+    </p>
+    <p>
+      Expected Argus finding: <code>performance_budget</code> CLS violation
+      (soft — depends on Chrome trace support for CLS metric).
+    </p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod
+    tempor incididunt ut labore et dolore magna aliqua. This content shifts down
+    when the red block is injected.</p>
+  </div>
+</body>
+</html>

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Home — Staging</title>
+  <script>window.__argus_console=[];(function(){function h(l){var o=console[l];console[l]=function(){window.__argus_console.push({level:l,text:Array.prototype.slice.call(arguments).map(String).join(' ')});o.apply(console,arguments)};}['error','warn'].forEach(h);window.addEventListener('error',function(e){window.__argus_console.push({level:'error',text:e.message||'uncaught error'});});window.addEventListener('unhandledrejection',function(e){window.__argus_console.push({level:'error',text:(e.reason&&e.reason.message)||String(e.reason)||'unhandled rejection'});});})()</script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; background: #fff; color: #222; }
+    /*
+      REGRESSION: hero background changed from #0070f3 (blue) to #d32f2f (red).
+      pixelmatch will flag this as a visual diff.
+    */
+    .hero { background: #d32f2f; color: #fff; padding: 3rem 2rem; border-radius: 8px; margin-bottom: 2rem; }
+    .hero h1 { margin: 0 0 0.5rem; font-size: 2.5rem; }
+    .cta { display: inline-block; padding: 12px 24px; background: #fff; color: #d32f2f; border-radius: 4px; font-weight: 600; text-decoration: none; margin-top: 1rem; }
+    .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+    .feature { padding: 1.5rem; border: 1px solid #e0e0e0; border-radius: 8px; }
+    .feature h3 { margin: 0 0 0.5rem; color: #d32f2f; }
+    /* REGRESSION: pricing section removed from staging */
+  </style>
+  <script>
+    window.addEventListener('DOMContentLoaded', function () {
+      // REGRESSION: /api/checkout returns 500 on staging — logs console.error (gap fix)
+      fetch('/api/checkout')
+        .then(function (r) {
+          if (!r.ok) console.error('Staging regression: /api/checkout returned ' + r.status + ' — checkout is broken');
+        })
+        .catch(function (e) { console.error('Staging error: checkout fetch failed — ' + e.message); });
+
+      // REGRESSION: /api/analytics returns 404 on staging — logs console.error (gap fix)
+      fetch('/api/analytics')
+        .then(function (r) {
+          if (!r.ok) console.error('Staging regression: /api/analytics returned ' + r.status + ' — analytics endpoint missing');
+        })
+        .catch(function () {});
+
+      // NEW ENDPOINT on staging only: /api/tracking (not called on dev-home)
+      fetch('/api/tracking').catch(function () {});
+
+      // NOTE: /api/feature-flags is intentionally NOT called here.
+      // dev-home calls it; staging does not → "request missing on staging" detection.
+    });
+  </script>
+</head>
+<body>
+  <div class="hero">
+    <h1>Welcome to Acme App</h1>
+    <p>The best platform for managing your work. Fast, reliable, and easy to use.</p>
+    <a class="cta" href="#">Get started free</a>
+  </div>
+
+  <div class="features">
+    <div class="feature">
+      <h3>Feature One</h3>
+      <p>Streamline your workflow with automated pipelines and smart integrations.</p>
+    </div>
+    <div class="feature">
+      <h3>Feature Two</h3>
+      <p>Real-time collaboration — see changes from your team as they happen.</p>
+    </div>
+    <div class="feature">
+      <h3>Feature Three</h3>
+      <p>Advanced analytics and reporting to keep you informed at every step.</p>
+    </div>
+  </div>
+
+  <!--
+    REGRESSION: Pricing section is MISSING on staging.
+    DOM diff will catch the absent .pricing block.
+  -->
+
+  <!-- STAGING identifier — used in env-comparison DOM diff -->
+  <footer data-env="staging">
+    <p>© 2026 Acme Corp — <strong>Staging build</strong></p>
+  </footer>
+</body>
+</html>
