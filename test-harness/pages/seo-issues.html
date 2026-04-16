@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<!-- Argus v3 — Phase A1/A3 fixture: SEO issues for Lighthouse SEO + DOM SEO checks -->
+<!-- Deliberately missing: meta description, canonical, og tags, has multiple h1s     -->
+<html>
+<head>
+  <title>P</title>
+  <!-- No <meta name="description"> -->
+  <!-- No <meta property="og:*"> -->
+  <!-- No <link rel="canonical"> -->
+  <!-- No <meta name="viewport"> -->
+  <style>body { font-family: sans-serif; padding: 20px; }</style>
+</head>
+<body>
+  <h1>First Heading</h1>
+  <h1>Second Heading — Multiple H1s</h1>
+  <h1>Third Heading — Three H1s on one page</h1>
+
+  <p>This page is intentionally missing SEO meta tags so Argus can detect:</p>
+  <ul>
+    <li>Missing <code>&lt;meta name="description"&gt;</code></li>
+    <li>Missing Open Graph tags</li>
+    <li>Missing <code>rel="canonical"</code></li>
+    <li>Multiple <code>&lt;h1&gt;</code> tags (3 on this page)</li>
+    <li>Generic/too-short <code>&lt;title&gt;</code> ("P")</li>
+    <li>Missing <code>&lt;meta name="viewport"&gt;</code></li>
+  </ul>
+
+  <!-- Broken internal link for link-checker testing -->
+  <a href="/this-page-does-not-exist-404">Broken internal link</a>
+
+  <script>
+    // In-page console interceptor (same pattern as other fixtures)
+    window.__argus_console = [];
+    const _origConsole = { log: console.log, error: console.error, warn: console.warn };
+    ['log','error','warn'].forEach(level => {
+      console[level] = function(...args) {
+        window.__argus_console.push({ level, text: args.map(String).join(' '), ts: Date.now() });
+        _origConsole[level].apply(console, args);
+      };
+    });
+  </script>
+</body>
+</html>

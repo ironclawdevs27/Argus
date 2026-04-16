@@ -14,7 +14,9 @@
  *
  * MCP Tools Used:
  *   navigate_page, list_console_messages, list_network_requests,
- *   get_network_request, take_screenshot, evaluate_script, wait_for
+ *   get_network_request, take_screenshot, evaluate_script, wait_for,
+ *   performance_start_trace, performance_stop_trace, performance_analyze_insight,
+ *   lighthouse_audit (all 4 categories: accessibility, performance, seo, best-practices)
  */
 
 import fs from 'fs';
@@ -174,49 +176,114 @@ async function checkPerformanceBudgets(mcp, url) {
   return violations;
 }
 
-// ── Accessibility Regression Gate ─────────────────────────────────────────────
+// ── Lighthouse Full Suite (v3 — Phase A1) ─────────────────────────────────────
 
 /**
- * Run a Lighthouse accessibility audit on the current page.
- * Flags any violations with score < 0.9 as bugs.
+ * Score thresholds per Lighthouse category.
+ * score is 0–1 from Lighthouse; we multiply by 100 for display.
+ */
+const LIGHTHOUSE_THRESHOLDS = {
+  accessibility:    { critical: 50, warning: 90 },
+  performance:      { critical: 50, warning: 90 },
+  seo:              { critical: 50, warning: 90 },
+  'best-practices': { critical: 50, warning: 90 },
+};
+
+/**
+ * Human-readable category labels for messages.
+ */
+const LIGHTHOUSE_LABELS = {
+  accessibility:    'Accessibility',
+  performance:      'Performance',
+  seo:              'SEO',
+  'best-practices': 'Best Practices',
+};
+
+/**
+ * Run a full Lighthouse audit on the current page across all four categories:
+ * accessibility, performance, SEO, and best-practices.
+ *
+ * Each category is scored independently:
+ *   score < threshold.critical → 'critical'
+ *   score < threshold.warning  → 'warning'
+ *
+ * Individual failing audit items are surfaced for every category so the
+ * report pinpoints exactly which rules failed.
  *
  * @param {object} mcp - MCP tool interface
  * @param {string} url - URL being tested
- * @returns {object[]} Accessibility violation errors
+ * @returns {Promise<object[]>} Lighthouse violation errors
  */
-async function checkAccessibility(mcp, url) {
+async function checkLighthouse(mcp, url) {
   const violations = [];
 
   try {
     const result = await mcp.lighthouse_audit({
-      categories: ['accessibility'],
+      categories: ['accessibility', 'performance', 'seo', 'best-practices'],
       url,
     });
 
-    const score = result?.categories?.accessibility?.score ?? result?.accessibility?.score;
-    const audits = result?.audits ?? {};
+    const categories = result?.categories ?? {};
+    const audits     = result?.audits     ?? {};
 
-    if (score != null && score < 0.9) {
-      violations.push({
-        type: 'accessibility',
-        message: `Lighthouse accessibility score ${Math.round(score * 100)}/100 (threshold: 90)`,
-        severity: score < 0.5 ? 'critical' : 'warning',
-        url,
-      });
-    }
+    // ── Per-category score check ───────────────────────────────────────────
+    for (const [catKey, thresholds] of Object.entries(LIGHTHOUSE_THRESHOLDS)) {
+      // Lighthouse returns categories keyed by the category ID
+      const catData = categories[catKey] ?? categories[catKey.replace('-', '_')];
+      const score   = catData?.score ?? result?.[catKey]?.score ?? null;
+      if (score == null) continue;
 
-    // Surface individual failing audits
-    for (const [auditId, audit] of Object.entries(audits)) {
-      if (audit.score === 0 && audit.details?.type !== 'manual') {
+      const pct   = Math.round(score * 100);
+      const label = LIGHTHOUSE_LABELS[catKey];
+
+      if (pct < thresholds.critical) {
         violations.push({
-          type: 'accessibility_audit',
-          auditId,
-          message: `A11y violation: ${audit.title} — ${audit.description}`,
+          type:     'lighthouse_score',
+          category: catKey,
+          score:    pct,
+          threshold: thresholds.critical,
+          message:  `Lighthouse ${label} score ${pct}/100 — critical (threshold: ${thresholds.critical})`,
+          severity: 'critical',
+          url,
+        });
+      } else if (pct < thresholds.warning) {
+        violations.push({
+          type:     'lighthouse_score',
+          category: catKey,
+          score:    pct,
+          threshold: thresholds.warning,
+          message:  `Lighthouse ${label} score ${pct}/100 — needs improvement (threshold: ${thresholds.warning})`,
           severity: 'warning',
           url,
         });
       }
     }
+
+    // ── Individual failing audit items ─────────────────────────────────────
+    // Surface every audit that scored 0 (hard failure) across all categories.
+    // Manual audits (type === 'manual') are skipped — they require human review.
+    for (const [auditId, audit] of Object.entries(audits)) {
+      if (audit.score !== 0) continue;
+      if (audit.details?.type === 'manual') continue;
+
+      // Determine which category this audit belongs to
+      const auditCategory = Object.entries(categories).find(([, cat]) =>
+        cat?.auditRefs?.some?.(ref => ref.id === auditId)
+      )?.[0] ?? 'unknown';
+
+      const label = LIGHTHOUSE_LABELS[auditCategory] ?? auditCategory;
+
+      violations.push({
+        type:         'lighthouse_audit',
+        category:     auditCategory,
+        auditId,
+        title:        audit.title,
+        message:      `[${label}] ${audit.title}${audit.description ? ' — ' + audit.description.slice(0, 120) : ''}`,
+        severity:     'warning',
+        url,
+      });
+    }
+
   } catch (err) {
     console.warn(`[ARGUS] Lighthouse audit skipped for ${url}: ${err.message}`);
   }
@@ -462,9 +529,9 @@ export async function crawlRoute(route, baseUrl, mcp) {
   const perfViolations = await checkPerformanceBudgets(mcp, url);
   result.errors.push(...perfViolations);
 
-  // 9. Accessibility gate
-  const a11yViolations = await checkAccessibility(mcp, url);
-  result.errors.push(...a11yViolations);
+  // 9. Full Lighthouse audit (v3: accessibility + performance + SEO + best-practices)
+  const lighthouseViolations = await checkLighthouse(mcp, url);
+  result.errors.push(...lighthouseViolations);
 
   // 10. CSS analysis (always runs — provides style health data)
   try {

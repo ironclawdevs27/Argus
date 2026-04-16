@@ -129,6 +129,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'lighthouse accessibility score 50–89 (soft)',
   },
+  // v3 Phase A1/A3 — SEO issues fixture
+  {
+    path: '/seo-issues.html',
+    name: 'SEO Issues',
+    critical: false,
+    waitFor: null,
+    expected: 'missing meta description, og tags, canonical; multiple h1s; generic title (v3 Phase A3)',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

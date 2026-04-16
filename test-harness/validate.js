@@ -265,18 +265,42 @@ async function measurePerf(mcp, url) {
   } catch { return {}; }
 }
 
-// ── Accessibility measurement ─────────────────────────────────────────────────
+// ── Full Lighthouse measurement (v3 — all 4 categories) ──────────────────────
 
-async function measureA11y(mcp, url) {
+async function measureLighthouse(mcp, url) {
   try {
-    const result       = await mcp.lighthouse_audit({ categories: ['accessibility'], url });
-    const score        = result?.categories?.accessibility?.score ?? result?.accessibility?.score;
-    const audits       = result?.audits ?? {};
+    const result = await mcp.lighthouse_audit({
+      categories: ['accessibility', 'performance', 'seo', 'best-practices'],
+      url,
+    });
+    const cats   = result?.categories ?? {};
+    const audits = result?.audits     ?? {};
+
+    const score = (key) => {
+      const s = cats[key]?.score ?? result?.[key]?.score ?? null;
+      return s != null ? Math.round(s * 100) : null;
+    };
+
     const failingAudits = Object.entries(audits)
       .filter(([, a]) => a.score === 0 && a.details?.type !== 'manual')
       .map(([id, a]) => ({ id, title: a.title ?? id }));
-    return { score: score != null ? Math.round(score * 100) : null, failingAudits };
-  } catch { return { score: null, failingAudits: [] }; }
+
+    return {
+      accessibility:  score('accessibility'),
+      performance:    score('performance'),
+      seo:            score('seo'),
+      bestPractices:  score('best-practices'),
+      failingAudits,
+    };
+  } catch {
+    return { accessibility: null, performance: null, seo: null, bestPractices: null, failingAudits: [] };
+  }
+}
+
+/** Backwards-compatible alias used by tests 12–14. */
+async function measureA11y(mcp, url) {
+  const r = await measureLighthouse(mcp, url);
+  return { score: r.accessibility, failingAudits: r.failingAudits };
 }
 
 // ── Visual diff (env-comparison) ──────────────────────────────────────────────
@@ -486,6 +510,22 @@ async function runTests(mcp, stagingProc) {
     const matched = failingAudits.filter(a => knownBadAudits.includes(a.id));
     soft(matched.length > 0,
       `Known audit violations found: ${matched.map(a => a.id).join(', ') || 'none matched'}`);
+  }
+
+  // ── [16] Full Lighthouse suite — v3 Phase A1 (all soft) ─────────────────
+  console.log('\n[16] Full Lighthouse suite — performance, SEO, best-practices, a11y (all soft)');
+  {
+    const lh = await measureLighthouse(mcp, `${B}/a11y-critical.html`);
+    soft(lh.accessibility != null,
+      `a11y score reported: ${lh.accessibility ?? 'N/A'}/100`);
+    soft(lh.performance != null,
+      `performance score reported: ${lh.performance ?? 'N/A'}/100`);
+    soft(lh.seo != null,
+      `SEO score reported: ${lh.seo ?? 'N/A'}/100`);
+    soft(lh.bestPractices != null,
+      `best-practices score reported: ${lh.bestPractices ?? 'N/A'}/100`);
+    soft(lh.failingAudits.length > 0,
+      `failing audit items across all categories: ${lh.failingAudits.length}`);
   }
 
   // ── [15] Env comparison — GAPS 11–15 FIX (all 7 detections) ─────────────
