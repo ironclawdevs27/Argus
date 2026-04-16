@@ -6,3 +6,8 @@ reports/*.png
 reports/*.jpg
 reports/*.webp
 reports/*.diff.png
+
+# Internal planning docs — keep local only
+session.md
+solution.md
+*-strategy.md
