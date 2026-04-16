@@ -134,7 +134,7 @@ The validator will:
 
 ```
 ╔══════════════════════════════════════════════════════╗
-║     ARGUS Test Harness Validator — full coverage    ║
+║     ARGUS Test Harness Validator — full coverage     ║
 ╚══════════════════════════════════════════════════════╝
 
 ▶ Starting dev fixture server on port 3100 ...
