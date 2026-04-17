@@ -36,6 +36,7 @@ import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../src/utils/css-an
 import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../src/utils/seo-analyzer.js';
 import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityConsole, analyzeSecurityNetwork } from '../src/utils/security-analyzer.js';
 import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../src/utils/content-analyzer.js';
+import { analyzeResponsive } from '../src/utils/responsive-analyzer.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
 
@@ -767,6 +768,35 @@ async function runTests(mcp, stagingProc) {
     assert(
       contentErrors.some(e => e.type === 'content_empty_list' && e.severity === 'warning'),
       `content_empty_list detected — .results-list with no <li> children (found types: ${[...new Set(contentErrors.map(e => e.type))].join(', ') || 'none'})`,
+    );
+  }
+
+  // ── [21] Responsive layout — v3 Phase A6 ────────────────────────────────
+  // Called directly (not via crawlFixture) — viewport changes must stay isolated.
+  console.log('\n[21] Responsive Layout — overflow at mobile/tablet, small touch targets at 375px');
+  {
+    const { findings } = await analyzeResponsive(mcp, `${B}/responsive-issues.html`);
+
+    // Horizontal overflow at ≤768 px → severity "critical"
+    const mobileOverflow = findings.filter(f =>
+      f.type === 'responsive_overflow' && f.viewport <= 768 && f.severity === 'critical');
+    assert(
+      mobileOverflow.length > 0,
+      `responsive_overflow critical at mobile/tablet viewport (found: ${
+        findings.filter(f => f.type === 'responsive_overflow')
+          .map(f => `${f.viewport}px ${f.severity}`).join(', ') || 'none'
+      })`,
+    );
+
+    // Small touch targets at 375 px → severity "warning"
+    const smallTargets = findings.filter(f =>
+      f.type === 'responsive_small_touch_target' && f.viewport === 375 && f.severity === 'warning');
+    assert(
+      smallTargets.length > 0,
+      `responsive_small_touch_target warning at 375px (found: ${
+        findings.filter(f => f.type === 'responsive_small_touch_target')
+          .map(f => `${f.count} target(s) at ${f.viewport}px`).join(', ') || 'none'
+      })`,
     );
   }
 

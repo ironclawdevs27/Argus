@@ -30,6 +30,7 @@ import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../utils/css-analyz
 import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../utils/seo-analyzer.js';
 import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityConsole, analyzeSecurityNetwork } from '../utils/security-analyzer.js';
 import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../utils/content-analyzer.js';
+import { analyzeResponsive } from '../utils/responsive-analyzer.js';
 
 // ── Performance Budgets ────────────────────────────────────────────────────────
 // Hard thresholds — exceeding any of these is a 'warning' severity bug.
@@ -721,6 +722,15 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
   for (const route of targetRoutes) {
     console.log(`[ARGUS] Crawling: ${route.name} → ${targetBaseUrl}${route.path}`);
     const result = await crawlRoute(route, targetBaseUrl, mcp);
+
+    // Responsive layout analysis (v3 Phase A6) — called after crawlRoute to avoid viewport pollution
+    try {
+      const { findings: responsiveFindings } = await analyzeResponsive(mcp, `${targetBaseUrl}${route.path}`);
+      result.errors.push(...responsiveFindings);
+    } catch (err) {
+      console.warn(`[ARGUS] Responsive analysis skipped for ${route.name}: ${err.message}`);
+    }
+
     report.routes.push(result);
 
     for (const err of result.errors) {

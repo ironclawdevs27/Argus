@@ -161,6 +161,14 @@ export const harnessRoutes = [
     waitFor: '#security-checks-done[data-ready]',
     expected: 'security_token_in_storage, security_token_in_url, security_eval_usage, security_sensitive_console, security_missing_csp, security_missing_xframe, security_cookie_no_httponly',
   },
+  // v3 Phase A6 — responsive layout fixture (analysed via analyzeResponsive, not crawlFixture)
+  {
+    path: '/responsive-issues.html',
+    name: 'Responsive Issues',
+    critical: false,
+    waitFor: null,
+    expected: 'responsive_overflow critical at ≤768px, responsive_small_touch_target warning at 375px',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

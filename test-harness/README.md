@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-20 test blocks · 63 hard assertions · 13 detection categories · 20 fixture pages
+21 test blocks · 65 hard assertions · 14 detection categories · 21 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -41,6 +41,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 18 | `seo-issues.html` | Missing `meta description` · missing OG tags · multiple `<h1>` · generic title · missing canonical · missing viewport | Hard |
 | 19 | `security-issues.html` | localStorage token · token in URL · `eval()` · sensitive console · missing CSP · missing X-Frame-Options · cookie no HttpOnly | Hard |
 | 20 | `content-issues.html` | `undefined`/`null` in visible text · placeholder text · broken image · empty data list | Hard |
+| 21 | `responsive-issues.html` | `responsive_overflow` critical at ≤768 px · `responsive_small_touch_target` warning at 375 px | Hard |
 
 ---
 
@@ -74,7 +75,8 @@ test-harness/
 │   ├── seo-issues.html             test 18 — SEO meta/heading issues (v3 Phase A3 fixture)
 │   ├── api-performance.html        test 17 — slow API + oversized payload (v3 Phase A2)
 │   ├── security-issues.html        test 19 — security checks (v3 Phase A4)
-│   └── content-issues.html         test 20 — content quality checks (v3 Phase A5)
+│   ├── content-issues.html         test 20 — content quality checks (v3 Phase A5)
+│   └── responsive-issues.html      test 21 — responsive overflow + touch targets (v3 Phase A6)
 └── static/
     └── button-styles.css       BEM card selectors in a button stylesheet
                                 → triggers component style leak detection

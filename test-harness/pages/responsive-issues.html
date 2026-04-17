@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Argus test fixture for responsive layout issues">
+  <title>Responsive Issues — Argus Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 16px; }
+    #overflow-box {
+      width: 900px;
+      background: #fde;
+      border: 2px solid #c66;
+      padding: 12px;
+      white-space: nowrap;
+    }
+    .touch-row { margin: 16px 0; display: flex; gap: 8px; align-items: center; }
+  </style>
+</head>
+<body>
+  <h1>Responsive Issues Test Page</h1>
+  <p>This page contains deliberate responsive layout issues for Argus detection testing.</p>
+
+  <!-- Fixed-width overflow: 900 px wide — causes horizontal page scroll at ≤768 px viewports.
+       No overflow-x: auto wrapper — overflow must reach document.documentElement. -->
+  <div id="overflow-box">
+    Fixed-width content block (900 px) — this element exceeds mobile and tablet viewport widths.
+  </div>
+
+  <!-- Small touch targets: both buttons are 30×30 px, below the 44×44 px minimum -->
+  <div class="touch-row">
+    <button id="tiny-close" style="width:30px;height:30px;font-size:11px;padding:0;">×</button>
+    <button id="tiny-info"  style="width:28px;height:28px;font-size:11px;padding:0;">?</button>
+    <span>These buttons are below the 44×44 px touch target minimum.</span>
+  </div>
+
+  <!-- Normal-sized button to confirm we don't flag compliant elements -->
+  <button id="ok-btn" style="width:120px;height:44px;">OK (compliant)</button>
+
+  <p>Argus checks interactive elements against WCAG 2.5.5 touch target guidelines (44×44 px minimum).</p>
+</body>
+</html>
