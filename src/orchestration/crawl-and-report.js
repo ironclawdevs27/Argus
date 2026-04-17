@@ -28,6 +28,7 @@ import { routes, config } from '../config/targets.js';
 import { postBugReport } from './slack-notifier.js';
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../utils/css-analyzer.js';
 import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../utils/seo-analyzer.js';
+import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityConsole, analyzeSecurityNetwork } from '../utils/security-analyzer.js';
 
 // ── Performance Budgets ────────────────────────────────────────────────────────
 // Hard thresholds — exceeding any of these is a 'warning' severity bug.
@@ -646,6 +647,19 @@ export async function crawlRoute(route, baseUrl, mcp) {
   } catch (err) {
     console.warn(`[ARGUS] SEO analysis skipped for ${url}: ${err.message}`);
   }
+
+  // 9c. Security checks (v3 Phase A4) — localStorage, eval(), cookies, headers, console, URL tokens
+  try {
+    const secRaw = await mcp.evaluate_script({ function: SECURITY_ANALYSIS_SCRIPT });
+    const secResult = typeof secRaw === 'object' ? (secRaw?.result ?? secRaw) : secRaw;
+    const secBugs = parseSecurityAnalysisResult(secResult, url);
+    result.errors.push(...secBugs);
+  } catch (err) {
+    console.warn(`[ARGUS] Security DOM analysis skipped for ${url}: ${err.message}`);
+  }
+  // Security: scan console messages and network URLs for sensitive data (uses step 5 & 6 data)
+  result.errors.push(...analyzeSecurityConsole(consoleMsgs, url));
+  result.errors.push(...analyzeSecurityNetwork(networkReqs, url));
 
   // 10. CSS analysis (always runs — provides style health data)
   try {

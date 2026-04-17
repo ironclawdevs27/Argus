@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Security issues fixture for Argus automated testing — deliberate security vulnerabilities.">
+  <meta property="og:title" content="Security Issues — Argus Harness">
+  <meta property="og:description" content="Deliberate security issues page for Argus v3 Phase A4 detection testing.">
+  <link rel="canonical" href="http://localhost:3100/security-issues.html">
+  <title>Security Issues — Argus Harness</title>
+  <script>window.__argus_console=[];(function(){function h(l){var o=console[l];console[l]=function(){window.__argus_console.push({level:l,text:Array.prototype.slice.call(arguments).map(String).join(' ')});o.apply(console,arguments)};}['error','warn','log'].forEach(h);window.addEventListener('error',function(e){window.__argus_console.push({level:'error',text:e.message||'uncaught error'});});window.addEventListener('unhandledrejection',function(e){window.__argus_console.push({level:'error',text:(e.reason&&e.reason.message)||String(e.reason)||'unhandled rejection'});});})()</script>
+  <script>
+    // [1] Store auth token in localStorage — triggers security_token_in_storage (critical)
+    localStorage.setItem('authToken', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IlRlc3QgVXNlciJ9.test');
+
+    // [2] Set a JS-accessible cookie (no HttpOnly) — triggers security_cookie_no_httponly (warning)
+    // path scoped to this page so it does not pollute document.cookie on other fixture pages
+    document.cookie = 'argus_test_session=abc123xyz; path=/security-issues.html; SameSite=Lax';
+
+    // [3] Log sensitive data to console — triggers security_sensitive_console (warning)
+    // Uses console.error so it is captured by the ['error'] interceptor
+    console.error('Security test: user test@example.com authenticated with token eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9');
+
+    // [4] eval() usage — triggers security_eval_usage (warning)
+    eval('1 + 1');
+
+    // [5] Fetch with sensitive parameter in URL — triggers security_token_in_url (critical)
+    // Signals completion via #security-checks-done so crawlFixture can waitFor it
+    fetch('/api/user-data?token=secretabc123def456')
+      .catch(function() {})
+      .finally(function() {
+        var el = document.getElementById('security-checks-done');
+        if (el) el.setAttribute('data-ready', 'true');
+      });
+  </script>
+</head>
+<body>
+  <main>
+    <h1>Security Issues Fixture</h1>
+    <p>This page has deliberate security issues for testing Argus v3 Phase A4 detection.</p>
+    <ul>
+      <li>localStorage token exposure (<code>authToken</code> key)</li>
+      <li>JS-accessible cookie (<code>argus_test_session</code>, no HttpOnly)</li>
+      <li>Sensitive data in console output (email + JWT token)</li>
+      <li><code>eval()</code> in inline script</li>
+      <li>API call with <code>?token=</code> in URL</li>
+      <li>Missing <code>Content-Security-Policy</code> response header</li>
+      <li>Missing <code>X-Frame-Options</code> response header</li>
+    </ul>
+    <div id="security-checks-done" style="display:none"></div>
+  </main>
+</body>
+</html>

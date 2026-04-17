@@ -34,6 +34,7 @@ import pixelmatch       from 'pixelmatch';
 import { createMcpClient }                         from '../src/utils/mcp-client.js';
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../src/utils/css-analyzer.js';
 import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../src/utils/seo-analyzer.js';
+import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityConsole, analyzeSecurityNetwork } from '../src/utils/security-analyzer.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
 
@@ -267,6 +268,20 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
       errors.push(...seoBugs);
     }
   } catch { /* SEO analysis unavailable */ }
+
+  // Security analysis — localStorage, eval(), cookies, headers, console sensitive data, URL tokens (v3 Phase A4)
+  try {
+    const secRaw = await mcp.evaluate_script({ function: SECURITY_ANALYSIS_SCRIPT });
+    const secInput = secRaw == null ? null
+      : typeof secRaw === 'object' && !Array.isArray(secRaw) ? secRaw
+      : parseEval(secRaw, null);
+    if (secInput) {
+      const secBugs = parseSecurityAnalysisResult(secInput, url);
+      errors.push(...secBugs);
+    }
+  } catch { /* Security DOM analysis unavailable */ }
+  errors.push(...analyzeSecurityConsole(consoleMsgs, url));
+  errors.push(...analyzeSecurityNetwork(networkReqs, url));
 
   // CSS analysis (CSS_ANALYSIS_SCRIPT returns JSON.stringify(report);
   // mcp-client.js parses that to an object; parseCssAnalysisResult handles both)
@@ -652,6 +667,60 @@ async function runTests(mcp, stagingProc) {
     assert(
       seoErrors.some(e => e.type === 'seo_missing_viewport'),
       `seo_missing_viewport detected (found types: ${[...new Set(seoErrors.map(e => e.type))].join(', ') || 'none'})`,
+    );
+  }
+
+  // ── [19] Security checks — v3 Phase A4 ──────────────────────────────────────
+  console.log('\n[19] Security Checks — localStorage token, eval(), sensitive console, token-in-URL, missing headers, cookie');
+  {
+    const { errors: secErrors } = await crawlFixture(mcp, `${B}/security-issues.html`, {
+      critical: false,
+      waitFor: '#security-checks-done[data-ready]',
+    });
+
+    // Clean up the localStorage item left by the fixture so subsequent test runs start clean
+    await mcp.evaluate_script({ function: "() => localStorage.removeItem('authToken')" });
+
+    // 1. localStorage auth token detected
+    assert(
+      secErrors.some(e => e.type === 'security_token_in_storage' && e.severity === 'critical'),
+      `security_token_in_storage detected — authToken key with JWT value (found types: ${[...new Set(secErrors.map(e => e.type))].join(', ') || 'none'})`,
+    );
+
+    // 2. Token in API request URL
+    assert(
+      secErrors.some(e => e.type === 'security_token_in_url' && e.severity === 'critical'),
+      `security_token_in_url detected — /api/user-data?token= (found: ${secErrors.filter(e => e.type === 'security_token_in_url').map(e => e.requestUrl).join(', ') || 'none'})`,
+    );
+
+    // 3. eval() usage in inline script
+    assert(
+      secErrors.some(e => e.type === 'security_eval_usage' && e.severity === 'warning'),
+      `security_eval_usage detected — inline eval() call (found types: ${[...new Set(secErrors.map(e => e.type))].join(', ') || 'none'})`,
+    );
+
+    // 4. Sensitive data in console output (email + JWT token in console.error)
+    assert(
+      secErrors.some(e => e.type === 'security_sensitive_console' && e.severity === 'warning'),
+      `security_sensitive_console detected — email + JWT in console.error (found types: ${[...new Set(secErrors.map(e => e.type))].join(', ') || 'none'})`,
+    );
+
+    // 5. Missing Content-Security-Policy response header
+    assert(
+      secErrors.some(e => e.type === 'security_missing_csp' && e.severity === 'warning'),
+      `security_missing_csp detected — no CSP header on security-issues.html (found types: ${[...new Set(secErrors.map(e => e.type))].join(', ') || 'none'})`,
+    );
+
+    // 6. Missing X-Frame-Options response header
+    assert(
+      secErrors.some(e => e.type === 'security_missing_xframe' && e.severity === 'warning'),
+      `security_missing_xframe detected — no X-Frame-Options on security-issues.html (found types: ${[...new Set(secErrors.map(e => e.type))].join(', ') || 'none'})`,
+    );
+
+    // 7. JS-accessible cookie (no HttpOnly) set via document.cookie
+    assert(
+      secErrors.some(e => e.type === 'security_cookie_no_httponly' && e.severity === 'warning'),
+      `security_cookie_no_httponly detected — argus_test_session cookie readable by JS (found types: ${[...new Set(secErrors.map(e => e.type))].join(', ') || 'none'})`,
     );
   }
 

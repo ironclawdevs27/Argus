@@ -19,6 +19,17 @@ const IS_STAGING = PORT === 3101;
 const app = express();
 app.use(express.json());
 
+// ── Security headers — all responses except the deliberate security-issues fixture (v3 Phase A4) ──
+// Permissive CSP (allows everything) so no existing fixture behaviour breaks.
+// security-issues.html intentionally omits these headers to trigger the detection.
+app.use((_req, res, next) => {
+  if (!_req.path.includes('security-issues')) {
+    res.setHeader('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:");
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  }
+  next();
+});
+
 // ── API routes (must come before static middleware) ────────────────────────────
 
 // Always returns 500 — used to test HTTP 5xx detection
@@ -105,6 +116,13 @@ app.get('/api/analytics', (_req, res) => {
 // Exists on both envs but returns different shapes — new endpoint in staging
 app.get('/api/tracking', (_req, res) => {
   res.json({ tracking: true, env: IS_STAGING ? 'staging' : 'dev' });
+});
+
+// ── Security test endpoint (v3 Phase A4) ──────────────────────────────────────
+// security-issues.html fetches this URL with a ?token= parameter to trigger
+// the security_token_in_url detection.
+app.get('/api/user-data', (_req, res) => {
+  res.json({ id: 1, name: 'Test User', role: 'member' });
 });
 
 // ── Network performance test endpoints (v3 Phase A2) ─────────────────────────

@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-18 test blocks · 52 hard assertions · 11 detection categories · 18 fixture pages
+19 test blocks · 59 hard assertions · 12 detection categories · 19 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -39,6 +39,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 16 | `a11y-critical.html` | Full Lighthouse suite — performance · SEO · best-practices scores reported | Soft |
 | 17 | `api-performance.html` | `slow_api` warning (>1 000 ms) · `slow_api` critical (>3 000 ms) · `large_payload` warning (>500 KB) · `large_payload` critical (>2 MB) | Hard |
 | 18 | `seo-issues.html` | Missing `meta description` · missing OG tags · multiple `<h1>` · generic title · missing canonical · missing viewport | Hard |
+| 19 | `security-issues.html` | localStorage token · token in URL · `eval()` · sensitive console · missing CSP · missing X-Frame-Options · cookie no HttpOnly | Hard |
 
 ---
 
@@ -69,8 +70,9 @@ test-harness/
 │   ├── a11y-warning.html           test 13 — moderate a11y violations
 │   ├── dev-home.html               test 15 — env-comparison dev fixture
 │   ├── staging-home.html           test 15 — env-comparison staging (regressions injected)
-│   ├── seo-issues.html             — SEO meta/heading issues (v3 Phase A3 fixture)
-│   └── api-performance.html        test 17 — slow API + oversized payload (v3 Phase A2)
+│   ├── seo-issues.html             test 18 — SEO meta/heading issues (v3 Phase A3 fixture)
+│   ├── api-performance.html        test 17 — slow API + oversized payload (v3 Phase A2)
+│   └── security-issues.html        test 19 — security checks (v3 Phase A4)
 └── static/
     └── button-styles.css       BEM card selectors in a button stylesheet
                                 → triggers component style leak detection
@@ -167,7 +169,7 @@ The validator will:
   ✓ DOM diff: .pricing section present on dev, missing on staging
 
 ────────────────────────────────────────────────────────
-Results: 52/52 hard assertions passed, 0 failed
+Results: 59/59 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```

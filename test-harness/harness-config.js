@@ -145,6 +145,14 @@ export const harnessRoutes = [
     waitFor: '#all-fetches-done',
     expected: 'slow_api warning (>1000ms), slow_api critical (>3000ms), large_payload warning (>500KB), large_payload critical (>2MB)',
   },
+  // v3 Phase A4 — security checks fixture
+  {
+    path: '/security-issues.html',
+    name: 'Security Issues',
+    critical: false,
+    waitFor: '#security-checks-done[data-ready]',
+    expected: 'security_token_in_storage, security_token_in_url, security_eval_usage, security_sensitive_console, security_missing_csp, security_missing_xframe, security_cookie_no_httponly',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */
