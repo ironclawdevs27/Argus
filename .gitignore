@@ -11,3 +11,6 @@ reports/*.diff.png
 session.md
 solution.md
 *-strategy.md
+
+# Claude Code local config — never commit
+.claude/
