@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-17 test blocks · 46 hard assertions · 10 detection categories · 18 fixture pages
+18 test blocks · 52 hard assertions · 11 detection categories · 18 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -38,6 +38,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 15 | `dev-home.html` vs `staging-home.html` | Network regression · new endpoint · missing endpoint · status change · new console errors · DOM diff · visual diff | Hard + Soft |
 | 16 | `a11y-critical.html` | Full Lighthouse suite — performance · SEO · best-practices scores reported | Soft |
 | 17 | `api-performance.html` | `slow_api` warning (>1 000 ms) · `slow_api` critical (>3 000 ms) · `large_payload` warning (>500 KB) · `large_payload` critical (>2 MB) | Hard |
+| 18 | `seo-issues.html` | Missing `meta description` · missing OG tags · multiple `<h1>` · generic title · missing canonical · missing viewport | Hard |
 
 ---
 
@@ -166,7 +167,7 @@ The validator will:
   ✓ DOM diff: .pricing section present on dev, missing on staging
 
 ────────────────────────────────────────────────────────
-Results: 46/46 hard assertions passed, 0 failed
+Results: 52/52 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```

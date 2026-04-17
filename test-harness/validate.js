@@ -33,6 +33,7 @@ import pixelmatch       from 'pixelmatch';
 
 import { createMcpClient }                         from '../src/utils/mcp-client.js';
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../src/utils/css-analyzer.js';
+import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../src/utils/seo-analyzer.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
 
@@ -254,6 +255,18 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
         severity: 'warning', message: `Oversized payload ${Math.round(bytes / 1024)} KB — ${reqUrl}` });
     }
   }
+
+  // SEO analysis — meta tags, OG, h1, title, canonical, viewport (v3 Phase A3)
+  try {
+    const seoRaw = await mcp.evaluate_script({ function: SEO_ANALYSIS_SCRIPT });
+    const seoInput = seoRaw == null ? null
+      : typeof seoRaw === 'object' && !Array.isArray(seoRaw) ? seoRaw
+      : parseEval(seoRaw, null);
+    if (seoInput) {
+      const seoBugs = parseSeoAnalysisResult(seoInput, url);
+      errors.push(...seoBugs);
+    }
+  } catch { /* SEO analysis unavailable */ }
 
   // CSS analysis (CSS_ANALYSIS_SCRIPT returns JSON.stringify(report);
   // mcp-client.js parses that to an object; parseCssAnalysisResult handles both)
@@ -596,6 +609,49 @@ async function runTests(mcp, stagingProc) {
       `large_payload critical detected for /api/large-critical (found: ${
         perfErrors.filter(e => e.type === 'large_payload').map(e => `${e.requestUrl} ${e.severity} ${Math.round((e.bytes??0)/1024)}KB`).join(', ') || 'none'
       })`,
+    );
+  }
+
+  // ── [18] SEO checks — v3 Phase A3 (DOM inspection) ──────────────────────
+  console.log('\n[18] SEO Checks — missing meta, OG tags, multiple h1, generic title');
+  {
+    const { errors: seoErrors } = await crawlFixture(mcp, `${B}/seo-issues.html`);
+
+    // Missing meta description
+    assert(
+      seoErrors.some(e => e.type === 'seo_missing_description'),
+      `seo_missing_description detected (found types: ${[...new Set(seoErrors.map(e => e.type))].join(', ') || 'none'})`,
+    );
+
+    // At least 2 OG tags missing at warning severity (og:title + og:description)
+    const missingOgWarnings = seoErrors.filter(e => e.type === 'seo_missing_og' && e.severity === 'warning');
+    assert(
+      missingOgWarnings.length >= 2,
+      `At least 2 OG warning tags missing — og:title + og:description (found ${missingOgWarnings.length}: ${missingOgWarnings.map(e => e.property).join(', ')})`,
+    );
+
+    // Multiple h1 tags (seo-issues.html has 3)
+    assert(
+      seoErrors.some(e => e.type === 'seo_multiple_h1'),
+      `seo_multiple_h1 detected — 3 h1 tags on page (found: ${seoErrors.filter(e => e.type === 'seo_multiple_h1').map(e => `h1Count=${e.h1Count}`).join(', ') || 'none'})`,
+    );
+
+    // Generic/too-short title ("P" = 1 char)
+    assert(
+      seoErrors.some(e => e.type === 'seo_generic_title'),
+      `seo_generic_title detected — title "P" is too short (found: ${seoErrors.filter(e => e.type === 'seo_generic_title').map(e => `"${e.titleText}" ${e.titleLength}c`).join(', ') || 'none'})`,
+    );
+
+    // Missing canonical
+    assert(
+      seoErrors.some(e => e.type === 'seo_missing_canonical'),
+      `seo_missing_canonical detected (found types: ${[...new Set(seoErrors.map(e => e.type))].join(', ') || 'none'})`,
+    );
+
+    // Missing viewport
+    assert(
+      seoErrors.some(e => e.type === 'seo_missing_viewport'),
+      `seo_missing_viewport detected (found types: ${[...new Set(seoErrors.map(e => e.type))].join(', ') || 'none'})`,
     );
   }
 

@@ -27,6 +27,7 @@ import 'dotenv/config';
 import { routes, config } from '../config/targets.js';
 import { postBugReport } from './slack-notifier.js';
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../utils/css-analyzer.js';
+import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../utils/seo-analyzer.js';
 
 // ── Performance Budgets ────────────────────────────────────────────────────────
 // Hard thresholds — exceeding any of these is a 'warning' severity bug.
@@ -635,6 +636,16 @@ export async function crawlRoute(route, baseUrl, mcp) {
   // 9. Full Lighthouse audit (v3: accessibility + performance + SEO + best-practices)
   const lighthouseViolations = await checkLighthouse(mcp, url);
   result.errors.push(...lighthouseViolations);
+
+  // 9b. SEO DOM checks (v3 Phase A3) — meta tags, Open Graph, h1, title, canonical, viewport
+  try {
+    const seoRaw = await mcp.evaluate_script({ function: SEO_ANALYSIS_SCRIPT });
+    const seoResult = typeof seoRaw === 'object' ? (seoRaw?.result ?? seoRaw) : seoRaw;
+    const seoBugs = parseSeoAnalysisResult(seoResult, url);
+    result.errors.push(...seoBugs);
+  } catch (err) {
+    console.warn(`[ARGUS] SEO analysis skipped for ${url}: ${err.message}`);
+  }
 
   // 10. CSS analysis (always runs — provides style health data)
   try {
