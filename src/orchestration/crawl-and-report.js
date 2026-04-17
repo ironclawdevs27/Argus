@@ -29,6 +29,7 @@ import { postBugReport } from './slack-notifier.js';
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../utils/css-analyzer.js';
 import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../utils/seo-analyzer.js';
 import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityConsole, analyzeSecurityNetwork } from '../utils/security-analyzer.js';
+import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../utils/content-analyzer.js';
 
 // ── Performance Budgets ────────────────────────────────────────────────────────
 // Hard thresholds — exceeding any of these is a 'warning' severity bug.
@@ -660,6 +661,16 @@ export async function crawlRoute(route, baseUrl, mcp) {
   // Security: scan console messages and network URLs for sensitive data (uses step 5 & 6 data)
   result.errors.push(...analyzeSecurityConsole(consoleMsgs, url));
   result.errors.push(...analyzeSecurityNetwork(networkReqs, url));
+
+  // 9d. Content quality checks (v3 Phase A5) — null/undefined text, placeholders, broken images, empty lists
+  try {
+    const contentRaw = await mcp.evaluate_script({ function: CONTENT_ANALYSIS_SCRIPT });
+    const contentResult = typeof contentRaw === 'object' ? (contentRaw?.result ?? contentRaw) : contentRaw;
+    const contentBugs = parseContentAnalysisResult(contentResult, url);
+    result.errors.push(...contentBugs);
+  } catch (err) {
+    console.warn(`[ARGUS] Content analysis skipped for ${url}: ${err.message}`);
+  }
 
   // 10. CSS analysis (always runs — provides style health data)
   try {

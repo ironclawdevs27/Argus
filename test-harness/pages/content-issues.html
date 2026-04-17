@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Content quality issues fixture for Argus automated testing.">
+  <meta property="og:title" content="Content Issues — Argus Harness">
+  <meta property="og:description" content="Deliberate content quality issues for Argus v3 Phase A5 detection testing.">
+  <link rel="canonical" href="http://localhost:3100/content-issues.html">
+  <title>Content Issues — Argus Harness</title>
+</head>
+<body>
+  <main>
+    <h1>Content Issues Fixture</h1>
+    <p>This page has deliberate content quality issues for testing Argus v3 Phase A5 detection.</p>
+
+    <section>
+      <h2>Data Binding Failures</h2>
+      <!-- [1] undefined / null rendered as visible text — triggers content_null_rendered -->
+      <p>Current user: <span id="username">undefined</span></p>
+      <p>Cart total: <span id="total">null</span></p>
+    </section>
+
+    <section>
+      <h2>About Our Company</h2>
+      <!-- [2] Placeholder text — triggers content_placeholder_text -->
+      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+    </section>
+
+    <section>
+      <h2>Product Gallery</h2>
+      <!-- [3] Broken image (src 404s) — triggers content_broken_image -->
+      <img src="/api/broken-image.jpg" alt="Product photo" width="200" height="150">
+    </section>
+
+    <section>
+      <h2>Search Results</h2>
+      <!-- [4] Empty data-oriented list — triggers content_empty_list -->
+      <ul class="results-list" aria-label="Search results"></ul>
+      <p>No results found.</p>
+    </section>
+
+    <!-- Marker set after all images have loaded/failed so crawlFixture waitFor fires correctly -->
+    <div id="content-checks-done" style="display:none"></div>
+  </main>
+
+  <script>
+    // Wait for all images to settle before signalling readiness
+    var imgs = Array.prototype.slice.call(document.querySelectorAll('img'));
+    var pending = imgs.filter(function(img) { return !img.complete; });
+    if (pending.length === 0) {
+      document.getElementById('content-checks-done').setAttribute('data-ready', 'true');
+    } else {
+      var done = 0;
+      pending.forEach(function(img) {
+        function mark() {
+          done++;
+          if (done === pending.length) {
+            document.getElementById('content-checks-done').setAttribute('data-ready', 'true');
+          }
+        }
+        img.addEventListener('load', mark);
+        img.addEventListener('error', mark);
+      });
+    }
+  </script>
+</body>
+</html>

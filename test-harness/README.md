@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-19 test blocks · 59 hard assertions · 12 detection categories · 19 fixture pages
+20 test blocks · 63 hard assertions · 13 detection categories · 20 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -40,6 +40,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 17 | `api-performance.html` | `slow_api` warning (>1 000 ms) · `slow_api` critical (>3 000 ms) · `large_payload` warning (>500 KB) · `large_payload` critical (>2 MB) | Hard |
 | 18 | `seo-issues.html` | Missing `meta description` · missing OG tags · multiple `<h1>` · generic title · missing canonical · missing viewport | Hard |
 | 19 | `security-issues.html` | localStorage token · token in URL · `eval()` · sensitive console · missing CSP · missing X-Frame-Options · cookie no HttpOnly | Hard |
+| 20 | `content-issues.html` | `undefined`/`null` in visible text · placeholder text · broken image · empty data list | Hard |
 
 ---
 
@@ -72,7 +73,8 @@ test-harness/
 │   ├── staging-home.html           test 15 — env-comparison staging (regressions injected)
 │   ├── seo-issues.html             test 18 — SEO meta/heading issues (v3 Phase A3 fixture)
 │   ├── api-performance.html        test 17 — slow API + oversized payload (v3 Phase A2)
-│   └── security-issues.html        test 19 — security checks (v3 Phase A4)
+│   ├── security-issues.html        test 19 — security checks (v3 Phase A4)
+│   └── content-issues.html         test 20 — content quality checks (v3 Phase A5)
 └── static/
     └── button-styles.css       BEM card selectors in a button stylesheet
                                 → triggers component style leak detection
@@ -169,7 +171,7 @@ The validator will:
   ✓ DOM diff: .pricing section present on dev, missing on staging
 
 ────────────────────────────────────────────────────────
-Results: 59/59 hard assertions passed, 0 failed
+Results: 63/63 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```

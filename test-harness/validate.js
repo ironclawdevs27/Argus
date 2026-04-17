@@ -35,6 +35,7 @@ import { createMcpClient }                         from '../src/utils/mcp-client
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../src/utils/css-analyzer.js';
 import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../src/utils/seo-analyzer.js';
 import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityConsole, analyzeSecurityNetwork } from '../src/utils/security-analyzer.js';
+import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../src/utils/content-analyzer.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
 
@@ -282,6 +283,18 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
   } catch { /* Security DOM analysis unavailable */ }
   errors.push(...analyzeSecurityConsole(consoleMsgs, url));
   errors.push(...analyzeSecurityNetwork(networkReqs, url));
+
+  // Content quality analysis — null/undefined text, placeholders, broken images, empty lists (v3 Phase A5)
+  try {
+    const contentRaw = await mcp.evaluate_script({ function: CONTENT_ANALYSIS_SCRIPT });
+    const contentInput = contentRaw == null ? null
+      : typeof contentRaw === 'object' && !Array.isArray(contentRaw) ? contentRaw
+      : parseEval(contentRaw, null);
+    if (contentInput) {
+      const contentBugs = parseContentAnalysisResult(contentInput, url);
+      errors.push(...contentBugs);
+    }
+  } catch { /* Content analysis unavailable */ }
 
   // CSS analysis (CSS_ANALYSIS_SCRIPT returns JSON.stringify(report);
   // mcp-client.js parses that to an object; parseCssAnalysisResult handles both)
@@ -721,6 +734,39 @@ async function runTests(mcp, stagingProc) {
     assert(
       secErrors.some(e => e.type === 'security_cookie_no_httponly' && e.severity === 'warning'),
       `security_cookie_no_httponly detected — argus_test_session cookie readable by JS (found types: ${[...new Set(secErrors.map(e => e.type))].join(', ') || 'none'})`,
+    );
+  }
+
+  // ── [20] Content quality checks — v3 Phase A5 ───────────────────────────────
+  console.log('\n[20] Content Quality — null/undefined text, placeholder, broken image, empty list');
+  {
+    const { errors: contentErrors } = await crawlFixture(mcp, `${B}/content-issues.html`, {
+      critical: false,
+      waitFor: '#content-checks-done[data-ready]',
+    });
+
+    // 1. undefined / null visible in DOM
+    assert(
+      contentErrors.some(e => e.type === 'content_null_rendered' && e.severity === 'warning'),
+      `content_null_rendered detected — "undefined" and "null" in visible text (found types: ${[...new Set(contentErrors.map(e => e.type))].join(', ') || 'none'})`,
+    );
+
+    // 2. Placeholder text ("Lorem ipsum")
+    assert(
+      contentErrors.some(e => e.type === 'content_placeholder_text' && e.severity === 'warning'),
+      `content_placeholder_text detected — "lorem ipsum" in body text (found types: ${[...new Set(contentErrors.map(e => e.type))].join(', ') || 'none'})`,
+    );
+
+    // 3. Broken image (naturalWidth === 0)
+    assert(
+      contentErrors.some(e => e.type === 'content_broken_image' && e.severity === 'warning'),
+      `content_broken_image detected — /api/broken-image.jpg (found: ${contentErrors.filter(e => e.type === 'content_broken_image').map(e => e.src).join(', ') || 'none'})`,
+    );
+
+    // 4. Empty data-oriented list
+    assert(
+      contentErrors.some(e => e.type === 'content_empty_list' && e.severity === 'warning'),
+      `content_empty_list detected — .results-list with no <li> children (found types: ${[...new Set(contentErrors.map(e => e.type))].join(', ') || 'none'})`,
     );
   }
 

@@ -145,6 +145,14 @@ export const harnessRoutes = [
     waitFor: '#all-fetches-done',
     expected: 'slow_api warning (>1000ms), slow_api critical (>3000ms), large_payload warning (>500KB), large_payload critical (>2MB)',
   },
+  // v3 Phase A5 — content quality checks fixture
+  {
+    path: '/content-issues.html',
+    name: 'Content Issues',
+    critical: false,
+    waitFor: '#content-checks-done[data-ready]',
+    expected: 'content_null_rendered, content_placeholder_text, content_broken_image, content_empty_list',
+  },
   // v3 Phase A4 — security checks fixture
   {
     path: '/security-issues.html',
