@@ -161,6 +161,14 @@ export const harnessRoutes = [
     waitFor: '#security-checks-done[data-ready]',
     expected: 'security_token_in_storage, security_token_in_url, security_eval_usage, security_sensitive_console, security_missing_csp, security_missing_xframe, security_cookie_no_httponly',
   },
+  // v3 Phase A3 — missing h1 fixture (zero h1s → seo_missing_h1)
+  {
+    path: '/seo-no-h1.html',
+    name: 'SEO No H1',
+    critical: false,
+    waitFor: null,
+    expected: 'seo_missing_h1 warning (zero h1 tags on page)',
+  },
   // v3 Phase A6 — responsive layout fixture (analysed via analyzeResponsive, not crawlFixture)
   {
     path: '/responsive-issues.html',

@@ -88,7 +88,7 @@ export function parseSeoAnalysisResult(rawResult, url) {
       type:     'seo_missing_og',
       property: 'og:image',
       message:  'Missing <meta property="og:image"> — social sharing image not set',
-      severity: 'info',
+      severity: 'warning',
       url,
     });
   }

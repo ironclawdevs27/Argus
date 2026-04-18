@@ -105,8 +105,10 @@ function parseEvalArray(raw) {
 /**
  * Build the emulate viewport string for chrome-devtools-mcp's emulate tool.
  * Format: '<width>x<height>x<dpr>[,mobile][,touch]'
- * mobile+touch enables Emulation.setDeviceMetricsOverride with mobile=true,
- * which correctly sets window.innerWidth = viewport width for mobile sizes.
+ * mobile+touch enables Emulation.setDeviceMetricsOverride with mobile=true.
+ * After emulation, window.innerWidth reflects the legacy layout viewport (~952px),
+ * NOT the device width. Use document.documentElement.clientWidth for the actual
+ * visual viewport width (see OVERFLOW_CHECK_SCRIPT and its comment above).
  */
 function viewportString(width, height) {
   const mobile = width <= 768 ? ',mobile,touch' : '';
@@ -159,8 +161,8 @@ export async function analyzeResponsive(mcp, url) {
         console.warn(`[ARGUS] Overflow check failed at ${bp.width}px: ${err.message}`);
       }
 
-      // ── Touch target check — only at 375 px ────────────────────────────
-      if (bp.width === 375) {
+      // ── Touch target check — at 375 px (mobile) and 768 px (tablet) ──────
+      if (bp.width === 375 || bp.width === 768) {
         try {
           const raw         = await mcp.evaluate_script({ function: TOUCH_TARGET_SCRIPT });
           const smallTargets = parseEvalArray(raw);

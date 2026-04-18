@@ -686,7 +686,7 @@ export async function crawlRoute(route, baseUrl, mcp) {
   // 11. Deduplicate
   result.errors = deduplicateErrors(result.errors);
 
-  // 11. Take screenshot
+  // 12. Take screenshot
   const screenshotPath = path.join(OUTPUT_DIR, `screenshot-${slugify(route.name)}-${Date.now()}.png`);
   const screenshotData = await mcp.take_screenshot({ format: 'png' });
   if (screenshotData?.data) {
@@ -725,8 +725,18 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
 
     // Responsive layout analysis (v3 Phase A6) — called after crawlRoute to avoid viewport pollution
     try {
-      const { findings: responsiveFindings } = await analyzeResponsive(mcp, `${targetBaseUrl}${route.path}`);
+      const { findings: responsiveFindings, screenshots: responsiveShots } = await analyzeResponsive(mcp, `${targetBaseUrl}${route.path}`);
       result.errors.push(...responsiveFindings);
+      // Write responsive screenshot grid to disk so Slack integration can upload it
+      const responsiveScreenshotPaths = {};
+      for (const [viewport, data] of Object.entries(responsiveShots)) {
+        const shotPath = path.join(OUTPUT_DIR, `screenshot-${slugify(route.name)}-responsive-${viewport}-${Date.now()}.png`);
+        fs.writeFileSync(shotPath, Buffer.from(data, 'base64'));
+        responsiveScreenshotPaths[viewport] = shotPath;
+      }
+      if (Object.keys(responsiveScreenshotPaths).length > 0) {
+        result.responsiveScreenshots = responsiveScreenshotPaths;
+      }
     } catch (err) {
       console.warn(`[ARGUS] Responsive analysis skipped for ${route.name}: ${err.message}`);
     }
@@ -807,6 +817,29 @@ async function dispatchToSlack(report) {
       url: routeResult.url,
       screenshotPath: routeResult.screenshot,
       details: { route: routeResult.route, errors: warnings },
+    });
+  }
+
+  // ── Responsive screenshots: mobile view for routes with responsive findings ──
+  // Sent as a separate warning-severity message so the 375px layout is visible
+  // alongside the text description (postBugReport accepts only one screenshotPath).
+  for (const routeResult of report.routes) {
+    const responsiveErrors = routeResult.errors.filter(e =>
+      e.type === 'responsive_overflow' || e.type === 'responsive_small_touch_target'
+    );
+    const mobileShot = routeResult.responsiveScreenshots?.['375x812'];
+    if (responsiveErrors.length === 0 || !mobileShot) continue;
+
+    const description = responsiveErrors.map(e => `• *[${e.type}]* ${errorText(e)}`).join('\n');
+    await postBugReport({
+      severity: 'warning',
+      title: `Responsive layout issues — ${routeResult.route} (mobile screenshot)`,
+      description: `${description}\n\n_375px mobile view attached. Full grid: ${
+        Object.keys(routeResult.responsiveScreenshots ?? {}).join(', ')
+      }_`,
+      url: routeResult.url,
+      screenshotPath: mobileShot,
+      details: { responsiveFindings: responsiveErrors },
     });
   }
 

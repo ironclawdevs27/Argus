@@ -652,11 +652,11 @@ async function runTests(mcp, stagingProc) {
       `seo_missing_description detected (found types: ${[...new Set(seoErrors.map(e => e.type))].join(', ') || 'none'})`,
     );
 
-    // At least 2 OG tags missing at warning severity (og:title + og:description)
+    // All 3 OG tags missing at warning severity (og:title + og:description + og:image)
     const missingOgWarnings = seoErrors.filter(e => e.type === 'seo_missing_og' && e.severity === 'warning');
     assert(
-      missingOgWarnings.length >= 2,
-      `At least 2 OG warning tags missing — og:title + og:description (found ${missingOgWarnings.length}: ${missingOgWarnings.map(e => e.property).join(', ')})`,
+      missingOgWarnings.length >= 3,
+      `All 3 OG warning tags missing — og:title + og:description + og:image (found ${missingOgWarnings.length}: ${missingOgWarnings.map(e => e.property).join(', ')})`,
     );
 
     // Multiple h1 tags (seo-issues.html has 3)
@@ -797,6 +797,32 @@ async function runTests(mcp, stagingProc) {
         findings.filter(f => f.type === 'responsive_small_touch_target')
           .map(f => `${f.count} target(s) at ${f.viewport}px`).join(', ') || 'none'
       })`,
+    );
+
+    // Small touch targets at 768 px (tablet) → severity "warning"
+    const smallTargets768 = findings.filter(f =>
+      f.type === 'responsive_small_touch_target' && f.viewport === 768 && f.severity === 'warning');
+    assert(
+      smallTargets768.length > 0,
+      `responsive_small_touch_target warning at 768px (found: ${
+        findings.filter(f => f.type === 'responsive_small_touch_target')
+          .map(f => `${f.count} target(s) at ${f.viewport}px`).join(', ') || 'none'
+      })`,
+    );
+  }
+
+  // ── [22] SEO missing h1 — v3 Phase A3 (zero h1 case) ────────────────────
+  console.log('\n[22] SEO Missing H1 — page with zero <h1> tags → seo_missing_h1 warning');
+  {
+    const { errors: seoErrors } = await crawlFixture(mcp, `${B}/seo-no-h1.html`);
+
+    assert(
+      seoErrors.some(e => e.type === 'seo_missing_h1'),
+      `seo_missing_h1 detected on zero-h1 page (found types: ${[...new Set(seoErrors.map(e => e.type))].join(', ') || 'none'})`,
+    );
+    assert(
+      seoErrors.filter(e => e.type === 'seo_missing_h1').every(e => e.severity === 'warning'),
+      `seo_missing_h1 → severity "warning"`,
     );
   }
 

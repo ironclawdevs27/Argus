@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<!-- Argus v3 — Phase A3 fixture: zero <h1> tags → seo_missing_h1 detection -->
+<!-- All other SEO signals are correct so only seo_missing_h1 fires.          -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Argus test fixture for the seo_missing_h1 detection — this page deliberately has no h1 element.">
+  <meta property="og:title" content="No H1 Fixture — Argus Harness">
+  <meta property="og:description" content="Test fixture for seo_missing_h1 detection.">
+  <meta property="og:image" content="http://localhost:3100/static/og-image.png">
+  <link rel="canonical" href="http://localhost:3100/seo-no-h1.html">
+  <title>No H1 Fixture — Argus Harness</title>
+  <style>body { font-family: sans-serif; padding: 20px; }</style>
+</head>
+<body>
+  <!-- Deliberately no <h1> tag — this is the only intentional SEO issue -->
+  <h2>Page Heading (h2, not h1)</h2>
+  <p>This page has all required SEO meta tags but is missing a primary <code>&lt;h1&gt;</code> heading.</p>
+  <p>Argus should detect exactly one finding: <strong>seo_missing_h1</strong> at warning severity.</p>
+
+  <script>
+    window.__argus_console = [];
+    const _origConsole = { log: console.log, error: console.error, warn: console.warn };
+    ['log','error','warn'].forEach(level => {
+      console[level] = function(...args) {
+        window.__argus_console.push({ level, text: args.map(String).join(' '), ts: Date.now() });
+        _origConsole[level].apply(console, args);
+      };
+    });
+  </script>
+</body>
+</html>

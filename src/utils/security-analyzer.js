@@ -44,6 +44,11 @@ export const SECURITY_ANALYSIS_SCRIPT = `async () => {
   } catch (e) {}
 
   // 3. JS-accessible cookies (visible to JS = no HttpOnly flag)
+  // Limitation: document.cookie only exposes cookies WITHOUT HttpOnly. HttpOnly cookies
+  // (most sensitive session tokens) are completely invisible here. The Secure flag also
+  // cannot be detected via JS — Secure-only cookies still appear in document.cookie.
+  // For HttpOnly detection, the only path is response headers (Set-Cookie inspection),
+  // which requires network-layer interception outside this DOM script.
   var jsCookies = [];
   try {
     jsCookies = document.cookie.split(';')
