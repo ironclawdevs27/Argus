@@ -14,7 +14,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 ## What Argus Catches
 
-Argus runs seven independent analysis engines on every page crawl. Every finding is classified by severity and routed to the right Slack channel automatically.
+Argus runs twelve independent analysis engines on every page crawl. Every finding is classified by severity and routed to the right Slack channel automatically.
 
 ### JavaScript Runtime
 
@@ -77,6 +77,75 @@ Argus runs seven independent analysis engines on every page crawl. Every finding
 | 🟡 Warning | Missing ARIA labels on interactive elements | Individual Lighthouse audit check |
 | 🟡 Warning | Keyboard navigation broken or unreachable elements | Individual Lighthouse audit check |
 
+### SEO *(v3 Phase A3)*
+
+| Severity | Bug / Issue | Detection Method |
+|---|---|---|
+| 🟡 Warning | Missing `<meta name="description">` | DOM inspection via `evaluate_script` |
+| 🟡 Warning | Missing Open Graph tags (`og:title`, `og:description`, `og:image`) | DOM inspection via `evaluate_script` |
+| 🟡 Warning | Multiple `<h1>` tags on one page | DOM inspection — `querySelectorAll('h1').length > 1` |
+| 🟡 Warning | Zero `<h1>` tags — page has no primary heading | DOM inspection — `querySelectorAll('h1').length === 0` |
+| 🟡 Warning | Generic page title (less than 10 characters, or default placeholder) | DOM inspection + length check |
+| 🟡 Warning | Missing `<link rel="canonical">` | DOM inspection via `evaluate_script` |
+| 🟡 Warning | Missing `<meta name="viewport">` | DOM inspection via `evaluate_script` |
+
+### Security *(v3 Phase A4)*
+
+| Severity | Bug / Issue | Detection Method |
+|---|---|---|
+| 🔴 Critical | Auth token found in `localStorage` or `sessionStorage` | `evaluate_script` walks storage keys for token patterns |
+| 🔴 Critical | Sensitive token in the page URL (query param or hash) | URL pattern match against current `window.location.href` |
+| 🔴 Critical | `eval()` call detected in page scripts | `evaluate_script` AST-style text scan of inline `<script>` tags |
+| 🟡 Warning | Sensitive data (`password`, `token`, `secret`) logged to the console | `list_console_messages` + keyword match |
+| 🟡 Warning | Missing `Content-Security-Policy` response header | `fetch(location.href)` inside the page → response headers check |
+| 🟡 Warning | Missing `X-Frame-Options` response header | Same headers fetch |
+| 🔵 Info | Cookie present without `HttpOnly` flag (limited detection — JS-visible cookies only) | `document.cookie` inspection |
+
+### Content Quality *(v3 Phase A5)*
+
+| Severity | Bug / Issue | Detection Method |
+|---|---|---|
+| 🟡 Warning | `null` or `undefined` rendered as visible text | DOM text scan for literal "null" / "undefined" strings |
+| 🟡 Warning | Lorem ipsum / placeholder copy still in production | DOM text scan for "lorem ipsum" and common placeholder strings |
+| 🟡 Warning | Broken image (404 or failed to load) | `evaluate_script` checks `img.naturalWidth === 0` on all images |
+| 🔵 Info | Empty data list — `<ul>`, `<ol>`, or `<select>` with no children | DOM structure check |
+
+### Responsive / Mobile *(v3 Phase A6)*
+
+| Severity | Bug / Issue | Detection Method |
+|---|---|---|
+| 🔴 Critical | Horizontal overflow at mobile / tablet viewport (≤ 768px) | `emulate` at 375px and 768px → `document.documentElement.scrollWidth > clientWidth` |
+| 🟡 Warning | Touch target smaller than 44×44 px at mobile or tablet viewport | CSS computed size check on interactive elements at 375px and 768px |
+| 🔵 Info | Responsive screenshot grid — snapshots at 375 / 768 / 1024 / 1440px | `emulate` at 4 breakpoints, screenshots dispatched to Slack |
+
+### Network Performance *(v3 Phase A2)*
+
+| Severity | Bug / Issue | Detection Method |
+|---|---|---|
+| 🔴 Critical | API response time > 3000ms | `PerformanceObserver` entries for `fetch` / XHR calls |
+| 🟡 Warning | API response time > 1000ms | Same observer, lower threshold |
+| 🔴 Critical | API response payload > 2 MB | `list_network_requests` → response body size |
+| 🟡 Warning | API response payload > 500 KB | Same, lower threshold |
+
+### Lighthouse Suite *(v3 Phase A1)*
+
+| Severity | Bug / Issue | Detection Method |
+|---|---|---|
+| 🔴 Critical | Lighthouse accessibility score < 50 / 100 | `lighthouse_audit` (accessibility category) |
+| 🟡 Warning | Lighthouse accessibility score 50–89 / 100 | `lighthouse_audit` |
+| 🟡 Warning | Lighthouse performance score < 90 / 100 | `lighthouse_audit` (performance category) |
+| 🟡 Warning | Lighthouse SEO score < 90 / 100 | `lighthouse_audit` (seo category) |
+| 🟡 Warning | Lighthouse best-practices score < 90 / 100 | `lighthouse_audit` (best-practices category) |
+| 🟡 Warning | Individual failing Lighthouse audit items | Surfaced per-audit from the full Lighthouse report |
+
+### Memory Leaks *(v3 Phase B1)*
+
+| Severity | Bug / Issue | Detection Method |
+|---|---|---|
+| 🔴 Critical | > 100 detached DOM nodes in V8 heap — severe leak | `take_memory_snapshot` → parse flat nodes array for "Detached Xxx" names |
+| 🟡 Warning | > 10 detached DOM nodes in V8 heap — probable leak | Same snapshot parse, lower threshold |
+| 🟡 Warning | Heap grew > 2 MB after navigate-away + navigate-back — probable per-load leak | `performance.memory.usedJSHeapSize` delta across round-trip (soft — GC-dependent) |
+
 ### Environment Regressions *(dev vs staging)*
 
 | Severity | Bug / Issue | Detection Method |
@@ -101,8 +170,14 @@ Argus watches your running application and automatically surfaces issues that te
 | **Environment Comparison** | Diffs dev vs staging: screenshots, DOM structure, network requests, console errors |
 | **CSS Analysis** | Detects cascade overrides, component style leaks, unused rules, React inline style conflicts |
 | **API Frequency Analysis** | Flags endpoints called more than once per page load (double-fetch, missing `useEffect` deps, infinite loops) |
+| **Network Performance** | `slow_api` > 1s/3s and `large_payload` > 500KB/2MB per API call |
+| **SEO Checks** | Missing meta description, OG tags, canonical, viewport, h1 — DOM-inspected on every route |
+| **Security Checks** | localStorage tokens, token-in-URL, `eval()`, sensitive console output, missing CSP/X-Frame-Options |
+| **Content Quality** | `null`/`undefined` rendered text, lorem ipsum, broken images, empty data lists |
+| **Responsive Analysis** | Overflow + touch target checks at 375/768px; screenshot grid at 4 breakpoints dispatched to Slack |
+| **Memory Leak Detection** | V8 heap snapshot → detached DOM node count; heap growth across navigate-away + navigate-back |
+| **Full Lighthouse Suite** | All 4 Lighthouse categories (performance, SEO, best-practices, accessibility) with per-audit items |
 | **Performance Budgets** | Enforces LCP < 2500ms, CLS < 0.1, FID < 100ms, TTFB < 800ms per route |
-| **Accessibility Gate** | Lighthouse audit per route; score < 90 = warning, score < 50 = critical |
 | **Slack Notifications** | Rich Block Kit reports with inline screenshots routed to `#bugs-critical`, `#bugs-warnings`, `#bugs-digest` |
 | **Slash Command** | `/argus-retest <url>` triggers an on-demand test from any Slack channel |
 | **CI Integration** | GitHub Actions workflow runs daily at 6 AM UTC and on every push to `main` |
@@ -295,13 +370,16 @@ Violations are reported as individual warning bugs with the measured value.
 
 ---
 
-## Accessibility Gate
+## Lighthouse Suite
 
-Runs a Lighthouse accessibility audit on every route:
+Runs all four Lighthouse categories on every route:
 
-- Score **< 90** → posted as `warning` to `#bugs-warnings`
-- Score **< 50** → posted as `critical` to `#bugs-critical`
-- Individual failing audits (e.g., missing alt text, low contrast) surfaced as separate findings
+- **Accessibility** — score < 50 → `critical`; score < 90 → `warning`
+- **Performance** — score < 90 → `warning`
+- **SEO** — score < 90 → `warning`
+- **Best Practices** — score < 90 → `warning`
+
+Individual failing audit items (e.g., missing alt text, low contrast, render-blocking resources) are surfaced as separate findings alongside the category score.
 
 ---
 
@@ -309,9 +387,9 @@ Runs a Lighthouse accessibility audit on every route:
 
 | Severity | Channel | When |
 |---|---|---|
-| `critical` | `#bugs-critical` | JS exceptions, HTTP 5xx, blank page, auth failure, API called 5+ times, Lighthouse < 50 |
-| `warning` | `#bugs-warnings` | Visual regression > 0.5%, HTTP 4xx, CSS overrides with `!important`, API called 3–4×, Lighthouse 50–89 |
-| `info` | `#bugs-digest` | Console warnings, unused CSS rules, API summaries, CSS Modules detection |
+| `critical` | `#bugs-critical` | JS exceptions, HTTP 5xx, blank page, auth failure, API called 5+ times, Lighthouse accessibility < 50, auth token in storage/URL, responsive overflow, slow API > 3s, payload > 2MB, > 100 detached DOM nodes |
+| `warning` | `#bugs-warnings` | Visual regression > 0.5%, HTTP 4xx, CSS overrides with `!important`, API called 3–4×, Lighthouse scores < 90, missing SEO/OG tags, missing security headers, placeholder content, touch targets too small, slow API > 1s, payload > 500KB, > 10 detached DOM nodes |
+| `info` | `#bugs-digest` | Console warnings, unused CSS rules, API summaries, CSS Modules detection, empty data lists, responsive screenshot grid |
 
 Each message includes:
 - Severity badge + affected URL + timestamp
@@ -415,7 +493,7 @@ argus/
 │   ├── config/
 │   │   └── targets.js                # Routes to test, thresholds, config
 │   ├── orchestration/
-│   │   ├── crawl-and-report.js       # Error detection pipeline
+│   │   ├── crawl-and-report.js       # Error detection pipeline (calls all analysis engines)
 │   │   ├── env-comparison.js         # Dev vs staging diff + CSS analysis mode
 │   │   └── slack-notifier.js         # Slack Block Kit dispatcher
 │   ├── server/
@@ -424,8 +502,21 @@ argus/
 │   │   └── interaction-handler.js    # Acknowledge + Retest button handler
 │   └── utils/
 │       ├── css-analyzer.js           # CSS analysis script injected into the browser
+│       ├── seo-analyzer.js           # SEO checks: meta, OG tags, h1, canonical, viewport (v3 A3)
+│       ├── security-analyzer.js      # Security: localStorage tokens, eval(), headers, cookies (v3 A4)
+│       ├── content-analyzer.js       # Content quality: null text, placeholders, broken images (v3 A5)
+│       ├── responsive-analyzer.js    # Responsive: overflow + touch targets at 4 breakpoints (v3 A6)
+│       ├── memory-analyzer.js        # Memory leaks: V8 heap snapshot + heap growth (v3 B1)
 │       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
+├── test-harness/                     # Fixture server + test runner (23 blocks, 71 hard assertions)
+│   ├── README.md
+│   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
+│   ├── harness-config.js             # Route definitions + expected findings
+│   ├── validate.js                   # Test runner
+│   ├── pages/                        # 23 fixture pages (one per detection category)
+│   └── static/
+│       └── button-styles.css         # BEM card selectors in button file → component leak
 └── reports/                          # Output: JSON reports + screenshots (gitignored)
     └── .gitkeep
 ```
@@ -440,6 +531,10 @@ argus/
 | Slack API | Bot API, not Incoming Webhooks | Bot API supports file uploads, message updates, interactive buttons, and threads |
 | File uploads | `files.getUploadURLExternal` + PUT + `files.completeUploadExternal` | `files.upload` is deprecated; pre-signed URL requires PUT — POST silently produces broken files |
 | CSS analysis | Script injected via `evaluate_script` | Runs in page context so it sees the live computed styles, CSS Modules hashes, and React fiber properties |
+| Responsive viewport | `emulate` (not `resize_page`) | `resize_page` only resizes the browser window and does not update CSS viewport width — `emulate` is the correct API |
+| Viewport width measurement | `document.documentElement.clientWidth` | After `emulate` with mobile flag, `window.innerWidth` returns the legacy layout viewport (~952px), not the device width |
+| V8 heap snapshot | `take_memory_snapshot({ filePath })` → read from disk | The MCP tool writes JSON to disk (not inline); parse with `JSON.parse(fs.readFileSync(filePath))` then delete the temp file |
+| Detached DOM detection | Walk flat `nodes` array for "Detached " prefix in strings table | Chrome serializes detached elements as "Detached HTMLDivElement" etc.; secondary check on `detachedness === 2` (Chrome 90+) |
 | CI MCP client | JSON-RPC over stdio | In CI there's no Claude Code agent — the headless client replaces it with the same API surface |
 | Node.js | v20.19+ | Minimum required by Chrome DevTools MCP |
 
