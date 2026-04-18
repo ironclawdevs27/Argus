@@ -169,6 +169,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'seo_missing_h1 warning (zero h1 tags on page)',
   },
+  // v3 Phase B1 — memory leak fixture (analysed via analyzeMemory, not crawlFixture)
+  {
+    path: '/memory-leak.html',
+    name: 'Memory Leak',
+    critical: false,
+    waitFor: null,
+    expected: 'memory_detached_dom_nodes warning (50 detached HTMLDivElement nodes in heap)',
+  },
   // v3 Phase A6 — responsive layout fixture (analysed via analyzeResponsive, not crawlFixture)
   {
     path: '/responsive-issues.html',

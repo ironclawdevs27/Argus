@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<!-- Argus v3 — Phase B1 fixture: 50 detached DOM nodes → memory_detached_dom_nodes detection -->
+<!-- All SEO signals correct so only the memory finding fires.                                  -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Argus v3 Phase B1 fixture — deliberately leaks 50 detached DOM nodes.">
+  <meta property="og:title" content="Memory Leak Fixture — Argus Harness">
+  <meta property="og:description" content="Test fixture for memory_detached_dom_nodes detection.">
+  <meta property="og:image" content="http://localhost:3100/static/og-image.png">
+  <link rel="canonical" href="http://localhost:3100/memory-leak.html">
+  <title>Memory Leak Fixture — Argus Harness</title>
+  <style>body { font-family: sans-serif; padding: 20px; }</style>
+</head>
+<body>
+  <h1>Memory Leak Test Page</h1>
+  <p id="status">Initializing…</p>
+  <p>
+    This page deliberately retains 50 detached DOM nodes in <code>window.__detachedNodes</code>.
+    The nodes are created, appended to the DOM, removed, and then kept in a JS reference so
+    the garbage collector cannot reclaim them. They appear in the V8 heap snapshot as
+    <strong>Detached HTMLDivElement</strong> nodes — the target of the
+    <code>memory_detached_dom_nodes</code> detection.
+  </p>
+
+  <script>
+    // 50 divs: appended to document, then removed, but retained in a global array.
+    // GC cannot collect them → "Detached HTMLDivElement" in the heap snapshot.
+    window.__detachedNodes = [];
+    for (var i = 0; i < 50; i++) {
+      var el = document.createElement('div');
+      el.id = 'leak-node-' + i;
+      el.className = 'argus-leak-node';
+      el.textContent = 'Leaked node ' + i;
+      el.dataset.leakIndex = String(i);
+      document.body.appendChild(el);
+      document.body.removeChild(el);       // remove from DOM tree…
+      window.__detachedNodes.push(el);    // …but keep JS reference → detached in heap
+    }
+    document.getElementById('status').textContent =
+      'Loaded: ' + window.__detachedNodes.length + ' detached nodes created.';
+  </script>
+</body>
+</html>

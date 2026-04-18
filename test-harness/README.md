@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-22 test blocks · 68 hard assertions · 14 detection categories · 22 fixture pages
+23 test blocks · 71 hard assertions · 15 detection categories · 23 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -43,6 +43,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 20 | `content-issues.html` | `undefined`/`null` in visible text · placeholder text · broken image · empty data list | Hard |
 | 21 | `responsive-issues.html` | `responsive_overflow` critical at ≤768 px · `responsive_small_touch_target` warning at 375 px and 768 px | Hard |
 | 22 | `seo-no-h1.html` | `seo_missing_h1` warning — zero `<h1>` tags on page | Hard |
+| 23 | `memory-leak.html` | `memory_detached_dom_nodes` warning — 50 detached `HTMLDivElement` nodes in heap · `memory_heap_growth` (soft) | Hard + Soft |
 
 ---
 
@@ -78,7 +79,8 @@ test-harness/
 │   ├── security-issues.html        test 19 — security checks (v3 Phase A4)
 │   ├── content-issues.html         test 20 — content quality checks (v3 Phase A5)
 │   ├── responsive-issues.html      test 21 — responsive overflow + touch targets (v3 Phase A6)
-│   └── seo-no-h1.html              test 22 — missing h1 heading (v3 Phase A3)
+│   ├── seo-no-h1.html              test 22 — missing h1 heading (v3 Phase A3)
+│   └── memory-leak.html            test 23 — detached DOM nodes + heap growth (v3 Phase B1)
 └── static/
     └── button-styles.css       BEM card selectors in a button stylesheet
                                 → triggers component style leak detection

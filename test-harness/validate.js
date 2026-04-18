@@ -37,6 +37,7 @@ import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../src/utils/seo-an
 import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityConsole, analyzeSecurityNetwork } from '../src/utils/security-analyzer.js';
 import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../src/utils/content-analyzer.js';
 import { analyzeResponsive } from '../src/utils/responsive-analyzer.js';
+import { analyzeMemory }    from '../src/utils/memory-analyzer.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
 
@@ -824,6 +825,35 @@ async function runTests(mcp, stagingProc) {
       seoErrors.filter(e => e.type === 'seo_missing_h1').every(e => e.severity === 'warning'),
       `seo_missing_h1 → severity "warning"`,
     );
+  }
+
+  // ── [23] Memory leak — detached DOM nodes (v3 Phase B1) ──────────────────
+  // Called directly like analyzeResponsive — it navigates on its own.
+  console.log('\n[23] Memory Leak — detached DOM nodes detected via heap snapshot');
+  {
+    const findings = await analyzeMemory(mcp, `${B}/memory-leak.html`);
+
+    const detachedFindings = findings.filter(f => f.type === 'memory_detached_dom_nodes');
+    assert(
+      detachedFindings.length > 0,
+      `memory_detached_dom_nodes detected (found types: ${findings.map(f => f.type).join(', ') || 'none'})`,
+    );
+    assert(
+      (detachedFindings[0]?.count ?? 0) > 10,
+      `detached node count > 10 (found: ${detachedFindings[0]?.count ?? 0})`,
+    );
+    assert(
+      detachedFindings.length === 0 || detachedFindings.every(f => f.severity === 'warning'),
+      `memory_detached_dom_nodes → severity "warning" (count 11–100)`,
+    );
+
+    // Heap growth is soft — depends on GC timing
+    const heapFindings = findings.filter(f => f.type === 'memory_heap_growth');
+    if (heapFindings.length > 0) {
+      soft(true,  `Heap growth detected: ${Math.round(heapFindings[0].growthBytes / 1024)} KB after navigate-away + back`);
+    } else {
+      soft(false, `Heap growth not detected (GC may have collected objects before measurement)`);
+    }
   }
 
   // ── [15] Env comparison — GAPS 11–15 FIX (all 7 detections) ─────────────

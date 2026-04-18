@@ -31,6 +31,7 @@ import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../utils/seo-analyz
 import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityConsole, analyzeSecurityNetwork } from '../utils/security-analyzer.js';
 import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../utils/content-analyzer.js';
 import { analyzeResponsive } from '../utils/responsive-analyzer.js';
+import { analyzeMemory } from '../utils/memory-analyzer.js';
 
 // ── Performance Budgets ────────────────────────────────────────────────────────
 // Hard thresholds — exceeding any of these is a 'warning' severity bug.
@@ -739,6 +740,14 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
       }
     } catch (err) {
       console.warn(`[ARGUS] Responsive analysis skipped for ${route.name}: ${err.message}`);
+    }
+
+    // Memory leak detection (v3 Phase B1) — snapshot + heap-growth check
+    try {
+      const memoryFindings = await analyzeMemory(mcp, `${targetBaseUrl}${route.path}`);
+      result.errors.push(...memoryFindings);
+    } catch (err) {
+      console.warn(`[ARGUS] Memory analysis skipped for ${route.name}: ${err.message}`);
     }
 
     report.routes.push(result);
