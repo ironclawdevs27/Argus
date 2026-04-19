@@ -60,3 +60,32 @@ export const apiContracts = [
   // { url: '/api/user', method: 'GET', schemaFile: './schemas/user.json' },
   // { url: '/api/products', method: 'GET', schemaFile: './schemas/products.json' },
 ];
+
+/**
+ * Auth session persistence (v3 Phase B2).
+ *
+ * When set, runCrawl() runs the login flow once before crawling, saves the
+ * session state (cookies + localStorage), and restores it before each route.
+ * This unlocks crawling of authenticated routes without re-logging in per page.
+ *
+ * Credentials MUST come from environment variables — never hardcode them here.
+ * Add ARGUS_AUTH_EMAIL and ARGUS_AUTH_PASSWORD to your .env file.
+ *
+ * Supported step actions: navigate, fill, click, waitFor, sleep
+ *
+ * Set to null to disable auth (public crawl only).
+ */
+export const auth = null;
+
+// Uncomment and configure for authenticated crawls:
+// export const auth = {
+//   sessionFile:      '.argus-session.json',
+//   sessionMaxAgeMs:  60 * 60 * 1000,   // 1 hour — re-login after this
+//   steps: [
+//     { action: 'navigate', path: '/login' },
+//     { action: 'fill',     selector: '#email',    value: process.env.ARGUS_AUTH_EMAIL    ?? '' },
+//     { action: 'fill',     selector: '#password', value: process.env.ARGUS_AUTH_PASSWORD ?? '' },
+//     { action: 'click',    selector: 'button[type="submit"]' },
+//     { action: 'waitFor',  selector: '[data-testid="dashboard"]', timeout: 15000 },
+//   ],
+// };

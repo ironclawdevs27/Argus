@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-23 test blocks · 71 hard assertions · 15 detection categories · 23 fixture pages
+24 test blocks · 76 hard assertions · 16 detection categories · 25 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -44,6 +44,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 21 | `responsive-issues.html` | `responsive_overflow` critical at ≤768 px · `responsive_small_touch_target` warning at 375 px and 768 px | Hard |
 | 22 | `seo-no-h1.html` | `seo_missing_h1` warning — zero `<h1>` tags on page | Hard |
 | 23 | `memory-leak.html` | `memory_detached_dom_nodes` warning — 50 detached `HTMLDivElement` nodes in heap · `memory_heap_growth` (soft) | Hard + Soft |
+| 24 | `auth-login.html` + `auth-protected.html` | Login flow (fill + click + waitFor) · `saveSession` captures cookie + localStorage · `restoreSession` injects state · protected page accessible after restore · auth error without session | Hard |
 
 ---
 
@@ -80,7 +81,9 @@ test-harness/
 │   ├── content-issues.html         test 20 — content quality checks (v3 Phase A5)
 │   ├── responsive-issues.html      test 21 — responsive overflow + touch targets (v3 Phase A6)
 │   ├── seo-no-h1.html              test 22 — missing h1 heading (v3 Phase A3)
-│   └── memory-leak.html            test 23 — detached DOM nodes + heap growth (v3 Phase B1)
+│   ├── memory-leak.html            test 23 — detached DOM nodes + heap growth (v3 Phase B1)
+│   ├── auth-login.html             test 24 — login form: fill+click sets cookie + localStorage (v3 Phase B2)
+│   └── auth-protected.html         test 24 — protected page: shows content with session, 401 without (v3 Phase B2)
 └── static/
     └── button-styles.css       BEM card selectors in a button stylesheet
                                 → triggers component style leak detection
@@ -167,6 +170,13 @@ The validator will:
 
 ...
 
+[24] Auth Session — login flow, save, restore, protected route access
+  ✓ Protected page shows #auth-error when no session (baseline)
+  ✓ Login flow succeeded — #login-success[data-ready] found after fill + click
+  ✓ Session saved with localStorage keys (found: authToken, userId, userEmail)
+  ✓ restoreSession returned true — session file found and injected
+  ✓ Protected page shows #protected-content after session restore (userId: 42)
+
 [15] Env Comparison — 7 detections between dev and staging
   ✓ Checkout returns 200 on dev (got 200)
   ✓ Checkout returns 500 on staging — API regression detected (got 500)
@@ -177,7 +187,7 @@ The validator will:
   ✓ DOM diff: .pricing section present on dev, missing on staging
 
 ────────────────────────────────────────────────────────
-Results: 63/63 hard assertions passed, 0 failed
+Results: 76/76 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```

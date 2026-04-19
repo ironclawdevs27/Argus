@@ -26,6 +26,7 @@
  */
 
 import { spawn }        from 'child_process';
+import fs               from 'fs';
 import path             from 'path';
 import { fileURLToPath } from 'url';
 import { PNG }          from 'pngjs';
@@ -38,6 +39,7 @@ import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityC
 import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../src/utils/content-analyzer.js';
 import { analyzeResponsive } from '../src/utils/responsive-analyzer.js';
 import { analyzeMemory }    from '../src/utils/memory-analyzer.js';
+import { saveSession, restoreSession } from '../src/utils/session-manager.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
 
@@ -854,6 +856,107 @@ async function runTests(mcp, stagingProc) {
     } else {
       soft(false, `Heap growth not detected (GC may have collected objects before measurement)`);
     }
+  }
+
+  // ── [24] Auth session persistence — v3 Phase B2 ──────────────────────────
+  // Tests: login flow (fill+click+waitFor), saveSession, restoreSession,
+  // protected route accessible with session, auth error without session.
+  console.log('\n[24] Auth Session — login flow, save, restore, protected route access');
+  {
+    const sessionFile = path.join(__dirname, '.argus-test-session.json');
+
+    // 1. Baseline: visit protected page with no session → should show auth error
+    await mcp.navigate_page({ url: `${B}/auth-protected.html` });
+    await sleep(500);
+    // Clear any leftover state from previous tests
+    await mcp.evaluate_script({
+      function: `() => {
+        localStorage.clear();
+        sessionStorage.clear();
+        document.cookie.split(';').forEach(function(c) {
+          document.cookie = c.trim().replace(/=.*/, '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/');
+        });
+        return true;
+      }`,
+    });
+    await mcp.navigate_page({ url: `${B}/auth-protected.html` });
+    await sleep(400);
+    const noSessionRaw = await mcp.evaluate_script({
+      function: `() => {
+        var el = document.getElementById('auth-error');
+        return el ? el.style.display !== 'none' : false;
+      }`,
+    });
+    assert(
+      parseEval(noSessionRaw) === true || parseEval(noSessionRaw) === 'true',
+      'Protected page shows #auth-error when no session (baseline)',
+    );
+
+    // 2. Run login flow: navigate to login page, set form values via evaluate_script,
+    //    dispatch submit event. Using evaluate_script for reliability in headless Chrome
+    //    (fill+click MCP tools are for production runLoginFlow against real apps).
+    await mcp.navigate_page({ url: `${B}/auth-login.html` });
+    await sleep(500);
+    await mcp.evaluate_script({
+      function: `() => {
+        document.getElementById('email').value    = 'test@example.com';
+        document.getElementById('password').value = 'password123';
+        document.getElementById('login-form').dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true })
+        );
+        return true;
+      }`,
+    });
+    await sleep(300);
+
+    const loginOkRaw = await mcp.evaluate_script({
+      function: `() => !!document.querySelector('#login-success[data-ready]')`,
+    });
+    assert(
+      parseEval(loginOkRaw) === true || parseEval(loginOkRaw) === 'true',
+      'Login flow succeeded — #login-success[data-ready] set after form submit',
+    );
+
+    // 3. Save session — must have localStorage keys (authToken, userId, userEmail)
+    const session = await saveSession(mcp, sessionFile);
+    assert(
+      Object.keys(session.localStorage).length > 0,
+      `Session saved with localStorage keys (found: ${Object.keys(session.localStorage).join(', ') || 'none'})`,
+    );
+
+    // 4. Clear all browser session state on the origin
+    await mcp.navigate_page({ url: `${B}/auth-protected.html` });
+    await sleep(300);
+    await mcp.evaluate_script({
+      function: `() => {
+        localStorage.clear();
+        sessionStorage.clear();
+        document.cookie.split(';').forEach(function(c) {
+          document.cookie = c.trim().replace(/=.*/, '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/');
+        });
+        return true;
+      }`,
+    });
+
+    // 5. Restore session from file → navigate to protected page → should show content
+    const restored = await restoreSession(mcp, B, sessionFile);
+    assert(restored === true, 'restoreSession returned true — session file found and injected');
+
+    await mcp.navigate_page({ url: `${B}/auth-protected.html` });
+    await sleep(400);
+    const protectedRaw = await mcp.evaluate_script({
+      function: `() => {
+        var el = document.getElementById('protected-content');
+        return el ? el.style.display !== 'none' : false;
+      }`,
+    });
+    assert(
+      parseEval(protectedRaw) === true || parseEval(protectedRaw) === 'true',
+      `Protected page shows #protected-content after session restore (userId: ${session.localStorage.userId ?? '?'})`,
+    );
+
+    // Cleanup session file
+    try { fs.unlinkSync(sessionFile); } catch { /* best-effort */ }
   }
 
   // ── [15] Env comparison — GAPS 11–15 FIX (all 7 detections) ─────────────

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Argus auth session test — login fixture">
+  <meta property="og:title" content="Auth Login — Argus Test">
+  <meta property="og:description" content="Login fixture for session persistence tests (v3 Phase B2)">
+  <meta property="og:image" content="/static/og-placeholder.png">
+  <link rel="canonical" href="http://localhost:3100/auth-login.html">
+  <title>Login — Argus Auth Session Test</title>
+  <style>
+    body { font-family: sans-serif; max-width: 400px; margin: 60px auto; padding: 20px; }
+    label { display: block; margin-top: 12px; font-weight: bold; font-size: 14px; }
+    input { display: block; width: 100%; margin: 4px 0 0; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+    button { margin-top: 16px; padding: 10px 20px; background: #0070f3; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 15px; }
+    button:hover { background: #005ecf; }
+    #login-error   { display: none; color: #d32f2f; margin-top: 12px; padding: 8px; background: #fdecea; border-radius: 4px; }
+    #login-success { display: none; color: #388e3c; margin-top: 12px; padding: 8px; background: #e8f5e9; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Sign In</h1>
+  <p style="color:#555;font-size:14px">Test credentials: <code>test@example.com</code> / <code>password123</code></p>
+
+  <form id="login-form">
+    <label for="email">Email</label>
+    <input type="email" id="email" name="email" placeholder="test@example.com" required>
+
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" placeholder="password123" required>
+
+    <button type="submit" id="submit-btn">Sign In</button>
+  </form>
+
+  <div id="login-error">Invalid credentials. Use test@example.com / password123.</div>
+
+  <!--
+    data-ready attribute is added by the script after successful login.
+    The test harness waits for '#login-success[data-ready]' to confirm completion.
+  -->
+  <div id="login-success">
+    <strong>✓ Signed in as <span id="logged-in-email"></span></strong><br>
+    Cookie <code>argus-session=valid</code> set. localStorage: authToken, userId, userEmail.
+  </div>
+
+  <script>
+    document.getElementById('login-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var email    = document.getElementById('email').value.trim();
+      var password = document.getElementById('password').value;
+
+      if (email === 'test@example.com' && password === 'password123') {
+        // Set a JS-accessible session cookie (not HttpOnly — intentional for test)
+        document.cookie = 'argus-session=valid; path=/; max-age=3600';
+
+        // Store auth token and user info in localStorage
+        localStorage.setItem('authToken', 'test-jwt-abc123');
+        localStorage.setItem('userId',    '42');
+        localStorage.setItem('userEmail', email);
+
+        document.getElementById('logged-in-email').textContent = email;
+        document.getElementById('login-error').style.display   = 'none';
+
+        var successEl = document.getElementById('login-success');
+        successEl.style.display = 'block';
+        // Signal for wait_for — added last so the harness knows state is fully written
+        successEl.setAttribute('data-ready', '');
+      } else {
+        document.getElementById('login-error').style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>

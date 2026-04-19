@@ -177,6 +177,22 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'memory_detached_dom_nodes warning (50 detached HTMLDivElement nodes in heap)',
   },
+  // v3 Phase B2 — auth session login fixture
+  {
+    path: '/auth-login.html',
+    name: 'Auth Login',
+    critical: false,
+    waitFor: null,
+    expected: 'login form submits, sets argus-session cookie + localStorage authToken, shows #login-success[data-ready]',
+  },
+  // v3 Phase B2 — auth session protected fixture
+  {
+    path: '/auth-protected.html',
+    name: 'Auth Protected',
+    critical: false,
+    waitFor: null,
+    expected: 'shows #protected-content when session present, #auth-error when no session',
+  },
   // v3 Phase A6 — responsive layout fixture (analysed via analyzeResponsive, not crawlFixture)
   {
     path: '/responsive-issues.html',

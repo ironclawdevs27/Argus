@@ -24,7 +24,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 
-import { routes, config } from '../config/targets.js';
+import { routes, config, auth } from '../config/targets.js';
 import { postBugReport } from './slack-notifier.js';
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../utils/css-analyzer.js';
 import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../utils/seo-analyzer.js';
@@ -32,6 +32,7 @@ import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityC
 import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../utils/content-analyzer.js';
 import { analyzeResponsive } from '../utils/responsive-analyzer.js';
 import { analyzeMemory } from '../utils/memory-analyzer.js';
+import { runLoginFlow, saveSession, restoreSession, hasSession } from '../utils/session-manager.js';
 
 // ── Performance Budgets ────────────────────────────────────────────────────────
 // Hard thresholds — exceeding any of these is a 'warning' severity bug.
@@ -720,8 +721,34 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
     routes: [],
   };
 
+  // Auth session persistence (v3 Phase B2) — login once, restore before each route
+  const sessionFile = auth?.sessionFile ?? '.argus-session.json';
+  if (auth?.steps?.length > 0) {
+    if (!hasSession(sessionFile, auth.sessionMaxAgeMs)) {
+      console.log(`[ARGUS] Auth: running login flow (${auth.steps.length} steps)...`);
+      try {
+        await runLoginFlow(mcp, targetBaseUrl, auth.steps);
+        await saveSession(mcp, sessionFile);
+      } catch (err) {
+        console.warn(`[ARGUS] Auth: login flow failed — crawl will proceed unauthenticated: ${err.message}`);
+      }
+    } else {
+      console.log(`[ARGUS] Auth: reusing existing session from ${sessionFile}`);
+    }
+  }
+
   for (const route of targetRoutes) {
     console.log(`[ARGUS] Crawling: ${route.name} → ${targetBaseUrl}${route.path}`);
+
+    // Restore session before each route so auth state is fresh for every crawl
+    if (auth?.steps?.length > 0) {
+      try {
+        await restoreSession(mcp, targetBaseUrl, sessionFile);
+      } catch (err) {
+        console.warn(`[ARGUS] Auth: session restore skipped for ${route.name}: ${err.message}`);
+      }
+    }
+
     const result = await crawlRoute(route, targetBaseUrl, mcp);
 
     // Responsive layout analysis (v3 Phase A6) — called after crawlRoute to avoid viewport pollution
