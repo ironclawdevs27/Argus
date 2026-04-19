@@ -18,13 +18,24 @@
 
 const DEFAULT_TIMEOUT = 10_000;
 
-async function runAssert(step, mcp, flowName, baseUrl) {
+function normalizeArray(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  if (Array.isArray(val.messages)) return val.messages;
+  if (Array.isArray(val.requests)) return val.requests;
+  if (Array.isArray(val.result))   return val.result;
+  return [];
+}
+
+async function runAssert(step, mcp, flowName, baseUrl, baselines) {
   const findings = [];
 
   switch (step.type) {
     case 'no_console_errors': {
-      const msgs = await mcp.list_console_messages();
-      const errors = (msgs ?? []).filter(m => (m.level ?? '').toLowerCase() === 'error');
+      const msgs = normalizeArray(await mcp.list_console_messages());
+      // Only consider messages produced during this flow — filter out pre-existing session noise.
+      const recent = msgs.slice(baselines?.consoleMsgCount ?? 0);
+      const errors = recent.filter(m => (m.level ?? '').toLowerCase() === 'error');
       if (errors.length > 0) {
         findings.push({
           type: 'flow_assert_failed',
@@ -39,8 +50,9 @@ async function runAssert(step, mcp, flowName, baseUrl) {
     }
 
     case 'no_network_errors': {
-      const reqs = await mcp.list_network_requests();
-      const failures = (reqs ?? []).filter(r => (r.status ?? 0) >= 400);
+      const reqs = normalizeArray(await mcp.list_network_requests());
+      const recent = reqs.slice(baselines?.networkReqCount ?? 0);
+      const failures = recent.filter(r => (r.status ?? 0) >= 400);
       if (failures.length > 0) {
         findings.push({
           type: 'flow_assert_failed',
@@ -55,15 +67,26 @@ async function runAssert(step, mcp, flowName, baseUrl) {
     }
 
     case 'element_visible': {
-      try {
-        await mcp.wait_for({ selector: step.selector, timeout: step.timeout ?? 5000 });
-      } catch {
+      // Poll via evaluate_script — wait_for doesn't reliably throw on timeout in headless MCP mode.
+      const timeout = step.timeout ?? 5000;
+      const start = Date.now();
+      let present = false;
+      do {
+        const raw = await mcp.evaluate_script({
+          function: `() => !!document.querySelector(${JSON.stringify(step.selector)})`,
+        });
+        present = !!(raw?.result ?? raw);
+        if (present) break;
+        await new Promise(r => setTimeout(r, 200));
+      } while (Date.now() - start < timeout);
+
+      if (!present) {
         findings.push({
           type: 'flow_assert_failed',
           flowName,
           assertType: step.type,
           selector: step.selector,
-          message: `[${flowName}] assert element_visible: "${step.selector}" not found in DOM`,
+          message: `[${flowName}] assert element_visible: "${step.selector}" not found in DOM within ${timeout}ms`,
           severity: step.severity ?? 'critical',
           url: baseUrl,
         });
@@ -155,6 +178,13 @@ export async function runFlow(flow, baseUrl, mcp) {
 
   if (!flow.steps?.length) return result;
 
+  // Snapshot console/network buffer lengths before the flow runs so assertions
+  // in this flow don't flag noise carried over from earlier work.
+  const baselines = {
+    consoleMsgCount: normalizeArray(await mcp.list_console_messages().catch(() => [])).length,
+    networkReqCount: normalizeArray(await mcp.list_network_requests().catch(() => [])).length,
+  };
+
   for (const step of flow.steps) {
     try {
       switch (step.action) {
@@ -187,7 +217,7 @@ export async function runFlow(flow, baseUrl, mcp) {
           break;
 
         case 'assert': {
-          const assertFindings = await runAssert(step, mcp, flow.name, baseUrl);
+          const assertFindings = await runAssert(step, mcp, flow.name, baseUrl, baselines);
           result.findings.push(...assertFindings);
           // Stop on critical assert failure — page state may be invalid for further steps
           if (assertFindings.some(f => f.severity === 'critical') && step.failFast !== false) {

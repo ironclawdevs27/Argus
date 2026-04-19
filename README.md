@@ -162,6 +162,18 @@ Argus runs twelve independent analysis engines on every page crawl. Every findin
 | original | Confirmed finding — present in both crawl runs | `mergeRunResults` finds the key in both run1 and run2 (`type::message[:100]::status` scheme); original severity kept |
 | 🔵 Info | Flaky finding — appeared in only one of two crawl runs | Present in run1 or run2 but not both; downgraded to `severity: 'info'`, labelled `:zap: _flaky_` in Slack digest |
 
+### User Flow Assertions *(v3 Phase B5)*
+
+| Severity | Bug / Issue | Detection Method |
+|---|---|---|
+| 🔴 Critical | Flow step failed — navigate/fill/click/waitFor threw mid-flow (page state unknown) | `flow-runner.js` wraps every step; any throw emits `flow_step_failed` and halts the flow |
+| 🔴 Critical | `element_visible` assert — expected selector absent within timeout | Polled via `evaluate_script` + `document.querySelector` (MCP `wait_for` doesn't reliably throw on timeout) |
+| 🟡 Warning | `no_console_errors` assert — console errors recorded *during* this flow (baseline-sliced, not session-wide) | Baseline snapshot of `list_console_messages` at flow start; only messages after that offset count |
+| 🟡 Warning | `no_network_errors` assert — 4xx/5xx request during this flow (baseline-sliced) | Baseline snapshot of `list_network_requests` at flow start; status ≥ 400 after offset |
+| 🟡 Warning | `url_contains` assert — URL does not include expected substring after flow completes | `evaluate_script` reads `window.location.href` |
+| 🟡 Warning | `element_not_visible` assert — selector unexpectedly present in DOM | `evaluate_script` → `!document.querySelector(...)` |
+| 🔴 Critical | `no_js_errors` assert — uncaught exceptions captured in `window.__argusErrors` during flow | Script parses the injected error buffer |
+
 ### Environment Regressions *(dev vs staging)*
 
 | Severity | Bug / Issue | Detection Method |
@@ -194,6 +206,7 @@ Argus watches your running application and automatically surfaces issues that te
 | **Memory Leak Detection** | V8 heap snapshot → detached DOM node count; heap growth across navigate-away + navigate-back |
 | **Historical Baselines** | Saves finding keys after each run; subsequent runs only alert on *new* issues; trend summary in Slack digest |
 | **Flakiness Detection** | Crawls each route twice per run; findings in both runs are confirmed (original severity); findings in only one run are marked flaky (`severity: info`, `:zap: _flaky_` label) |
+| **User Flow Assertions** | Named multi-step flows (`navigate/fill/click/press_key/waitFor/sleep/handle_dialog/assert`) with baseline-sliced `no_console_errors`, `no_network_errors`, `element_visible`, `url_contains`, `no_js_errors` asserts — runs end-to-end user journeys without writing Playwright specs |
 | **Full Lighthouse Suite** | All 4 Lighthouse categories (performance, SEO, best-practices, accessibility) with per-audit items |
 | **Performance Budgets** | Enforces LCP < 2500ms, CLS < 0.1, FID < 100ms, TTFB < 800ms per route |
 | **Slack Notifications** | Rich Block Kit reports with inline screenshots routed to `#bugs-critical`, `#bugs-warnings`, `#bugs-digest` |
@@ -528,6 +541,7 @@ argus/
 │       ├── session-manager.js        # Auth: saveSession, restoreSession, runLoginFlow (v3 B2)
 │       ├── baseline-manager.js       # Baselines: loadBaseline, saveBaseline, applyBaseline, appendTrend (v3 B3)
 │       ├── flakiness-detector.js     # Flakiness: mergeRunResults — confirmed vs flaky per double-crawl (v3 B4)
+│       ├── flow-runner.js            # User flow assertions: runFlow / runAllFlows — assert DSL (v3 B5)
 │       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
 ├── test-harness/                     # Fixture server + test runner (26 blocks, 87 hard assertions, 18 categories)
