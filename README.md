@@ -146,6 +146,15 @@ Argus runs twelve independent analysis engines on every page crawl. Every findin
 | 🟡 Warning | > 10 detached DOM nodes in V8 heap — probable leak | Same snapshot parse, lower threshold |
 | 🟡 Warning | Heap grew > 2 MB after navigate-away + navigate-back — probable per-load leak | `performance.memory.usedJSHeapSize` delta across round-trip (soft — GC-dependent) |
 
+### Historical Baselines & Trends *(v3 Phase B3)*
+
+| Severity | Bug / Issue | Detection Method |
+|---|---|---|
+| 🔴 Critical | New critical finding not present in the saved baseline — regression introduced since last run | `applyBaseline` compares finding keys (`type::message[:100]::status`) against `reports/baselines/baseline.json` |
+| 🟡 Warning | New warning finding not present in the baseline | Same key comparison, warning severity |
+| 🔵 Info | Pre-existing finding still present — no change since last run | Suppressed from real-time alerts; included in info digest only |
+| 🔵 Info | Run trend summary — new vs resolved counts, saved per run | Appended to `reports/baselines/trends.json`; surfaced as a trend line in Slack digest |
+
 ### Environment Regressions *(dev vs staging)*
 
 | Severity | Bug / Issue | Detection Method |
@@ -176,6 +185,7 @@ Argus watches your running application and automatically surfaces issues that te
 | **Content Quality** | `null`/`undefined` rendered text, lorem ipsum, broken images, empty data lists |
 | **Responsive Analysis** | Overflow + touch target checks at 375/768px; screenshot grid at 4 breakpoints dispatched to Slack |
 | **Memory Leak Detection** | V8 heap snapshot → detached DOM node count; heap growth across navigate-away + navigate-back |
+| **Historical Baselines** | Saves finding keys after each run; subsequent runs only alert on *new* issues; trend summary in Slack digest |
 | **Full Lighthouse Suite** | All 4 Lighthouse categories (performance, SEO, best-practices, accessibility) with per-audit items |
 | **Performance Budgets** | Enforces LCP < 2500ms, CLS < 0.1, FID < 100ms, TTFB < 800ms per route |
 | **Slack Notifications** | Rich Block Kit reports with inline screenshots routed to `#bugs-critical`, `#bugs-warnings`, `#bugs-digest` |
@@ -507,17 +517,22 @@ argus/
 │       ├── content-analyzer.js       # Content quality: null text, placeholders, broken images (v3 A5)
 │       ├── responsive-analyzer.js    # Responsive: overflow + touch targets at 4 breakpoints (v3 A6)
 │       ├── memory-analyzer.js        # Memory leaks: V8 heap snapshot + heap growth (v3 B1)
+│       ├── session-manager.js        # Auth: saveSession, restoreSession, runLoginFlow (v3 B2)
+│       ├── baseline-manager.js       # Baselines: loadBaseline, saveBaseline, applyBaseline, appendTrend (v3 B3)
 │       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
-├── test-harness/                     # Fixture server + test runner (23 blocks, 71 hard assertions)
+├── test-harness/                     # Fixture server + test runner (25 blocks, 82 hard assertions)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
 │   ├── validate.js                   # Test runner
-│   ├── pages/                        # 23 fixture pages (one per detection category)
+│   ├── pages/                        # 25 fixture pages (one per detection category)
 │   └── static/
 │       └── button-styles.css         # BEM card selectors in button file → component leak
 └── reports/                          # Output: JSON reports + screenshots (gitignored)
+    ├── baselines/
+    │   ├── baseline.json             # Per-route finding keys — created on first run
+    │   └── trends.json               # Append-only run history (new/resolved counts per run)
     └── .gitkeep
 ```
 
@@ -535,6 +550,8 @@ argus/
 | Viewport width measurement | `document.documentElement.clientWidth` | After `emulate` with mobile flag, `window.innerWidth` returns the legacy layout viewport (~952px), not the device width |
 | V8 heap snapshot | `take_memory_snapshot({ filePath })` → read from disk | The MCP tool writes JSON to disk (not inline); parse with `JSON.parse(fs.readFileSync(filePath))` then delete the temp file |
 | Detached DOM detection | Walk flat `nodes` array for "Detached " prefix in strings table | Chrome serializes detached elements as "Detached HTMLDivElement" etc.; secondary check on `detachedness === 2` (Chrome 90+) |
+| Baseline finding key | `type::message[:100]::status` | Excludes timestamps and dynamic URL path IDs; message truncated to 100 chars to handle slight wording variations; `::status` suffix only added when non-null |
+| Baseline alert filter | `isNew !== false` (not `=== true`) | Findings without `isNew` set (e.g. if baseline-manager not used) are still included in alerts — backwards-compatible |
 | CI MCP client | JSON-RPC over stdio | In CI there's no Claude Code agent — the headless client replaces it with the same API surface |
 | Node.js | v20.19+ | Minimum required by Chrome DevTools MCP |
 
