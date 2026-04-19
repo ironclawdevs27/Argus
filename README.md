@@ -155,6 +155,13 @@ Argus runs twelve independent analysis engines on every page crawl. Every findin
 | 🔵 Info | Pre-existing finding still present — no change since last run | Suppressed from real-time alerts; included in info digest only |
 | 🔵 Info | Run trend summary — new vs resolved counts, saved per run | Appended to `reports/baselines/trends.json`; surfaced as a trend line in Slack digest |
 
+### Flakiness Detection *(v3 Phase B4)*
+
+| Severity | Bug / Issue | Detection Method |
+|---|---|---|
+| original | Confirmed finding — present in both crawl runs | `mergeRunResults` finds the key in both run1 and run2 (`type::message[:100]::status` scheme); original severity kept |
+| 🔵 Info | Flaky finding — appeared in only one of two crawl runs | Present in run1 or run2 but not both; downgraded to `severity: 'info'`, labelled `:zap: _flaky_` in Slack digest |
+
 ### Environment Regressions *(dev vs staging)*
 
 | Severity | Bug / Issue | Detection Method |
@@ -186,6 +193,7 @@ Argus watches your running application and automatically surfaces issues that te
 | **Responsive Analysis** | Overflow + touch target checks at 375/768px; screenshot grid at 4 breakpoints dispatched to Slack |
 | **Memory Leak Detection** | V8 heap snapshot → detached DOM node count; heap growth across navigate-away + navigate-back |
 | **Historical Baselines** | Saves finding keys after each run; subsequent runs only alert on *new* issues; trend summary in Slack digest |
+| **Flakiness Detection** | Crawls each route twice per run; findings in both runs are confirmed (original severity); findings in only one run are marked flaky (`severity: info`, `:zap: _flaky_` label) |
 | **Full Lighthouse Suite** | All 4 Lighthouse categories (performance, SEO, best-practices, accessibility) with per-audit items |
 | **Performance Budgets** | Enforces LCP < 2500ms, CLS < 0.1, FID < 100ms, TTFB < 800ms per route |
 | **Slack Notifications** | Rich Block Kit reports with inline screenshots routed to `#bugs-critical`, `#bugs-warnings`, `#bugs-digest` |
@@ -519,9 +527,10 @@ argus/
 │       ├── memory-analyzer.js        # Memory leaks: V8 heap snapshot + heap growth (v3 B1)
 │       ├── session-manager.js        # Auth: saveSession, restoreSession, runLoginFlow (v3 B2)
 │       ├── baseline-manager.js       # Baselines: loadBaseline, saveBaseline, applyBaseline, appendTrend (v3 B3)
+│       ├── flakiness-detector.js     # Flakiness: mergeRunResults — confirmed vs flaky per double-crawl (v3 B4)
 │       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
-├── test-harness/                     # Fixture server + test runner (25 blocks, 82 hard assertions)
+├── test-harness/                     # Fixture server + test runner (26 blocks, 87 hard assertions, 18 categories)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
@@ -552,6 +561,8 @@ argus/
 | Detached DOM detection | Walk flat `nodes` array for "Detached " prefix in strings table | Chrome serializes detached elements as "Detached HTMLDivElement" etc.; secondary check on `detachedness === 2` (Chrome 90+) |
 | Baseline finding key | `type::message[:100]::status` | Excludes timestamps and dynamic URL path IDs; message truncated to 100 chars to handle slight wording variations; `::status` suffix only added when non-null |
 | Baseline alert filter | `isNew !== false` (not `=== true`) | Findings without `isNew` set (e.g. if baseline-manager not used) are still included in alerts — backwards-compatible |
+| Flakiness routing | `severity: 'info'` for flaky findings | Downgrading severity means existing `dispatchToSlack` routing sends them to the info digest with zero routing changes — only the `:zap: _flaky_` label needed |
+| Private `findingKey` per module | Each of `baseline-manager.js` and `flakiness-detector.js` has its own copy | Avoids coupling two independently-useful modules via a shared export for a trivial 3-line function |
 | CI MCP client | JSON-RPC over stdio | In CI there's no Claude Code agent — the headless client replaces it with the same API surface |
 | Node.js | v20.19+ | Minimum required by Chrome DevTools MCP |
 
