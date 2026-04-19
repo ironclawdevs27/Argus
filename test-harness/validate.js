@@ -42,6 +42,7 @@ import { analyzeMemory }    from '../src/utils/memory-analyzer.js';
 import { saveSession, restoreSession } from '../src/utils/session-manager.js';
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend } from '../src/utils/baseline-manager.js';
 import { mergeRunResults } from '../src/utils/flakiness-detector.js';
+import { runFlow }         from '../src/utils/flow-runner.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
 
@@ -1166,6 +1167,80 @@ async function runTests(mcp, stagingProc) {
   // [26e] Flaky count (one from each run)
   const flakyCount = merged.errors.filter(e => e.flaky === true).length;
   assert(flakyCount === 2, `Flaky count: ${flakyCount} (expected 2)`);
+
+  // ── [27] Flow runner — B5 user flow definitions ──────────────────────────
+  console.log('\n[27] Flow Runner (B5) — runFlow assertions');
+  {
+    // [27a] Empty flow → pass, no findings (pure function — no Chrome needed)
+    const emptyResult = await runFlow({ name: 'empty', steps: [] }, B, mcp);
+    assert(emptyResult.status === 'pass', 'Empty flow: status pass');
+    assert(emptyResult.findings.length === 0, 'Empty flow: 0 findings');
+
+    // [27b] Successful flow: navigate → fill → click → assert element_visible
+    const successResult = await runFlow({
+      name: 'Submit form',
+      steps: [
+        { action: 'navigate', path: '/flow-form.html' },
+        { action: 'fill',     selector: '#name',       value: 'Alice' },
+        { action: 'fill',     selector: '#email',      value: 'alice@example.com' },
+        { action: 'click',    selector: '#submit-btn' },
+        { action: 'sleep',    ms: 200 },
+        { action: 'assert',   type: 'element_visible', selector: '#form-success' },
+      ],
+    }, B, mcp);
+    assert(successResult.status === 'pass',
+      `Successful flow: status pass (steps: ${successResult.stepsCompleted}/${successResult.totalSteps})`);
+    assert(successResult.findings.length === 0,
+      `Successful flow: 0 findings (got: ${successResult.findings.map(f => f.type).join(', ') || 'none'})`);
+
+    // [27c] Assert element_visible failure → finding detected with correct type
+    const failResult = await runFlow({
+      name: 'Missing element',
+      steps: [
+        { action: 'navigate', path: '/flow-form.html' },
+        { action: 'assert',   type: 'element_visible', selector: '#does-not-exist', severity: 'warning' },
+      ],
+    }, B, mcp);
+    assert(failResult.findings.length >= 1,
+      `Assert element_visible failure: finding detected (got ${failResult.findings.length})`);
+    assert(failResult.findings[0]?.type === 'flow_assert_failed',
+      `Assert element_visible failure: type = flow_assert_failed`);
+
+    // [27d] Assert no_console_errors on clean form page → 0 findings
+    const noErrResult = await runFlow({
+      name: 'No console errors',
+      steps: [
+        { action: 'navigate', path: '/flow-form.html' },
+        { action: 'assert',   type: 'no_console_errors' },
+      ],
+    }, B, mcp);
+    assert(noErrResult.findings.length === 0,
+      `Assert no_console_errors on clean page: 0 findings (got ${noErrResult.findings.length})`);
+
+    // [27e] Assert url_contains — matching substring
+    const urlMatchResult = await runFlow({
+      name: 'URL match',
+      steps: [
+        { action: 'navigate', path: '/flow-form.html' },
+        { action: 'assert',   type: 'url_contains', value: 'flow-form' },
+      ],
+    }, B, mcp);
+    assert(urlMatchResult.findings.length === 0,
+      `Assert url_contains (match): 0 findings`);
+
+    // [27f] Assert url_contains — non-matching substring → finding detected
+    const urlFailResult = await runFlow({
+      name: 'URL no match',
+      steps: [
+        { action: 'navigate', path: '/flow-form.html' },
+        { action: 'assert',   type: 'url_contains', value: '/dashboard' },
+      ],
+    }, B, mcp);
+    assert(urlFailResult.findings.length >= 1,
+      `Assert url_contains (no match): finding detected (got ${urlFailResult.findings.length})`);
+    assert(urlFailResult.findings[0]?.type === 'flow_assert_failed',
+      `Assert url_contains (no match): type = flow_assert_failed`);
+  }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────

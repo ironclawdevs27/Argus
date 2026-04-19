@@ -24,7 +24,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 
-import { routes, config, auth } from '../config/targets.js';
+import { routes, config, auth, flows } from '../config/targets.js';
 import { postBugReport } from './slack-notifier.js';
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../utils/css-analyzer.js';
 import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../utils/seo-analyzer.js';
@@ -35,6 +35,7 @@ import { analyzeMemory } from '../utils/memory-analyzer.js';
 import { runLoginFlow, saveSession, restoreSession, hasSession } from '../utils/session-manager.js';
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend } from '../utils/baseline-manager.js';
 import { mergeRunResults } from '../utils/flakiness-detector.js';
+import { runAllFlows } from '../utils/flow-runner.js';
 
 // ── Performance Budgets ────────────────────────────────────────────────────────
 // Hard thresholds — exceeding any of these is a 'warning' severity bug.
@@ -762,6 +763,7 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
     baseUrl: targetBaseUrl,
     summary: { total: 0, critical: 0, warning: 0, info: 0 },
     routes: [],
+    flows: [],
   };
 
   // Auth session persistence (v3 Phase B2) — login once, restore before each route
@@ -799,6 +801,17 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
     for (const err of result.errors) {
       report.summary.total++;
       report.summary[err.severity] = (report.summary[err.severity] ?? 0) + 1;
+    }
+  }
+
+  // User flow testing (v3 Phase B5) — named interaction sequences from targets.js flows[]
+  if (flows?.length > 0) {
+    console.log(`[ARGUS] Running ${flows.length} user flow(s)...`);
+    const { results: flowResults, findings: flowFindings } = await runAllFlows(flows, targetBaseUrl, mcp);
+    report.flows = flowResults;
+    for (const finding of flowFindings) {
+      report.summary.total++;
+      report.summary[finding.severity] = (report.summary[finding.severity] ?? 0) + 1;
     }
   }
 
@@ -920,6 +933,32 @@ async function dispatchToSlack(report, diff) {
     });
   }
 
+  // ── Flow failures (v3 Phase B5): one message per failed flow ─────────────
+  for (const flowResult of (report.flows ?? [])) {
+    const flowCriticals = flowResult.findings.filter(f => f.severity === 'critical' && f.isNew !== false);
+    if (flowCriticals.length > 0) {
+      await postBugReport({
+        severity: 'critical',
+        title: `Flow "${flowResult.flowName}" failed — ${flowCriticals.length} critical issue(s)`,
+        description: flowCriticals.map(f => `• *[${f.type}]* ${errorText(f)}`).join('\n'),
+        url: report.baseUrl,
+        screenshotPath: null,
+        details: { flow: flowResult.flowName, errors: flowCriticals },
+      });
+    }
+    const flowWarnings = flowResult.findings.filter(f => f.severity === 'warning' && f.isNew !== false);
+    if (flowWarnings.length > 0) {
+      await postBugReport({
+        severity: 'warning',
+        title: `Flow "${flowResult.flowName}" — ${flowWarnings.length} warning(s)`,
+        description: flowWarnings.map(f => `• *[${f.type}]* ${errorText(f)}`).join('\n'),
+        url: report.baseUrl,
+        screenshotPath: null,
+        details: { flow: flowResult.flowName, errors: flowWarnings },
+      });
+    }
+  }
+
   // ── Info digest: one summary message across all routes ────────────────────
   const allInfos = report.routes.flatMap(r =>
     r.errors.filter(e => e.severity === 'info').map(e => ({ ...e, routeName: r.route }))
@@ -945,7 +984,19 @@ async function dispatchToSlack(report, diff) {
     }
   }
 
-  if (allInfos.length > 0) {
+  // Flow info findings in digest
+  for (const flowResult of (report.flows ?? [])) {
+    const flowInfos = flowResult.findings.filter(e => e.severity === 'info');
+    if (flowInfos.length === 0) continue;
+    digestLines.push(`*Flow: ${flowResult.flowName}* (${flowResult.stepsCompleted}/${flowResult.totalSteps} steps — ${flowResult.status})`);
+    for (const e of flowInfos) {
+      digestLines.push(`  • [${e.type}] ${errorText(e)}`);
+    }
+  }
+
+  const allFlowInfos = (report.flows ?? []).flatMap(f => f.findings.filter(e => e.severity === 'info'));
+
+  if (allInfos.length > 0 || allFlowInfos.length > 0) {
     const runDate = new Date(report.generatedAt).toLocaleString();
     const trendLine = diff
       ? diff.isFirstRun

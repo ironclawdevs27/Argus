@@ -77,6 +77,44 @@ export const apiContracts = [
  */
 export const auth = null;
 
+/**
+ * User flow definitions (v3 Phase B5).
+ *
+ * Each flow is a named sequence of steps executed end-to-end by flow-runner.js.
+ * Supported actions: navigate, fill, click, press_key, waitFor, sleep, handle_dialog, assert
+ * Assert types: no_console_errors, no_network_errors, element_visible, element_not_visible,
+ *               url_contains, no_js_errors
+ *
+ * Set to [] to disable (default).
+ */
+export const flows = [];
+
+// Uncomment and configure to test user journeys:
+// export const flows = [
+//   {
+//     name: 'Login flow',
+//     steps: [
+//       { action: 'navigate',  path: '/login' },
+//       { action: 'fill',      selector: '#email',    value: process.env.ARGUS_AUTH_EMAIL    ?? '' },
+//       { action: 'fill',      selector: '#password', value: process.env.ARGUS_AUTH_PASSWORD ?? '' },
+//       { action: 'click',     selector: 'button[type="submit"]' },
+//       { action: 'waitFor',   selector: '[data-testid="dashboard"]', timeout: 15000 },
+//       { action: 'assert',    type: 'no_console_errors' },
+//       { action: 'assert',    type: 'url_contains', value: '/dashboard' },
+//     ],
+//   },
+//   {
+//     name: 'Checkout flow',
+//     steps: [
+//       { action: 'navigate',  path: '/cart' },
+//       { action: 'click',     selector: '[data-testid="checkout-btn"]' },
+//       { action: 'waitFor',   selector: '[data-testid="payment-form"]' },
+//       { action: 'assert',    type: 'no_network_errors' },
+//       { action: 'assert',    type: 'element_visible', selector: '[data-testid="order-summary"]' },
+//     ],
+//   },
+// ];
+
 // Uncomment and configure for authenticated crawls:
 // export const auth = {
 //   sessionFile:      '.argus-session.json',

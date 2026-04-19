@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flow Form — Argus Test Fixture (v3 Phase B5)</title>
+  <style>
+    body { font-family: sans-serif; max-width: 400px; margin: 40px auto; padding: 0 20px; }
+    .field { margin-bottom: 16px; }
+    label { display: block; margin-bottom: 4px; font-weight: bold; }
+    input { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+    button { padding: 10px 20px; background: #0070f3; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    #form-success { display: none; color: green; margin-top: 16px; font-weight: bold; }
+    #form-error   { display: none; color: red;   margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <h1>Test Form</h1>
+  <div class="field">
+    <label for="name">Name</label>
+    <input id="name" type="text" placeholder="Your name">
+  </div>
+  <div class="field">
+    <label for="email">Email</label>
+    <input id="email" type="email" placeholder="your@email.com">
+  </div>
+  <!-- type="button" prevents form-submit event — onclick fires reliably via mcp.click -->
+  <button id="submit-btn" type="button" onclick="handleSubmit()">Submit</button>
+  <div id="form-success">Form submitted successfully!</div>
+  <div id="form-error"></div>
+
+  <script>
+    function handleSubmit() {
+      var name    = document.getElementById('name').value.trim();
+      var email   = document.getElementById('email').value.trim();
+      var success = document.getElementById('form-success');
+      var error   = document.getElementById('form-error');
+
+      success.style.display = 'none';
+      error.style.display   = 'none';
+
+      if (!name) {
+        error.textContent   = 'Name is required';
+        error.style.display = 'block';
+        return;
+      }
+      if (!email) {
+        error.textContent   = 'Email is required';
+        error.style.display = 'block';
+        return;
+      }
+
+      success.style.display = 'block';
+    }
+  </script>
+</body>
+</html>

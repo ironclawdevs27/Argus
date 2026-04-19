@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-26 test blocks · 87 hard assertions · 18 detection categories · 25 fixture pages
+27 test blocks · 97 hard assertions · 19 detection categories · 26 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -47,6 +47,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 24 | `auth-login.html` + `auth-protected.html` | Login flow (fill + click + waitFor) · `saveSession` captures cookie + localStorage · `restoreSession` injects state · protected page accessible after restore · auth error without session | Hard |
 | 25 | _(pure function — no fixture page)_ | Baseline manager: first-run detection · save+load round-trip · identical run returns 0 new/resolved · new finding → `isNew: true` · `appendTrend` persists resolved count | Hard |
 | 26 | _(pure function — no fixture page)_ | Flakiness detector: finding in both runs → confirmed (original severity, `flaky: false`) · run1-only → `flaky: true`, severity `info` · run2-only → `flaky: true`, severity `info` · confirmed/flaky counts | Hard |
+| 27 | `flow-form.html` | Flow runner (B5): empty flow → pass · fill+click+assert element_visible success · `element_visible` failure → `flow_assert_failed` · `no_console_errors` on clean page → 0 findings · `url_contains` match → 0 findings · `url_contains` no-match → finding detected | Hard |
 
 ---
 
@@ -85,7 +86,8 @@ test-harness/
 │   ├── seo-no-h1.html              test 22 — missing h1 heading (v3 Phase A3)
 │   ├── memory-leak.html            test 23 — detached DOM nodes + heap growth (v3 Phase B1)
 │   ├── auth-login.html             test 24 — login form: fill+click sets cookie + localStorage (v3 Phase B2)
-│   └── auth-protected.html         test 24 — protected page: shows content with session, 401 without (v3 Phase B2)
+│   ├── auth-protected.html         test 24 — protected page: shows content with session, 401 without (v3 Phase B2)
+│   └── flow-form.html              test 27 — two-field form with onclick handler: success + validation error (v3 Phase B5)
 └── static/
     └── button-styles.css       BEM card selectors in a button stylesheet
                                 → triggers component style leak detection
@@ -204,7 +206,7 @@ The validator will:
   ✓ Flaky count: 2 (expected 2)
 
 ────────────────────────────────────────────────────────
-Results: 87/87 hard assertions passed, 0 failed
+Results: 97/97 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```
