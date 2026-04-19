@@ -20,7 +20,7 @@ jobs:
   regression-check:
     name: Error Detection + Environment Comparison
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -52,7 +52,7 @@ jobs:
             --window-size=1920,1080 \
             about:blank &
           # Wait for Chrome to be ready
-          sleep 3
+          sleep 5
           echo "Chrome started with remote debugging on :9222"
 
       - name: Write MCP config for headless Chrome
@@ -80,6 +80,20 @@ jobs:
           echo "TARGET_DEV_URL=${{ vars.TARGET_DEV_URL || 'http://localhost:3000' }}" >> $GITHUB_ENV
           echo "TARGET_STAGING_URL=${{ inputs.target_url || vars.TARGET_STAGING_URL || secrets.TARGET_STAGING_URL }}" >> $GITHUB_ENV
 
+      - name: Restore baseline cache (B3 — persist findings across runs)
+        uses: actions/cache@v4
+        with:
+          path: reports/baselines/
+          # Unique key per run so the updated baseline is always saved.
+          # restore-keys cascade finds the most recent prior baseline for this branch.
+          key: argus-baselines-${{ github.ref_name }}-${{ github.run_number }}
+          restore-keys: |
+            argus-baselines-${{ github.ref_name }}-
+            argus-baselines-
+
+      - name: Ensure baseline directory exists
+        run: mkdir -p reports/baselines
+
       - name: Run ARGUS error detection crawl
         id: crawl
         env:
@@ -89,6 +103,10 @@ jobs:
           SLACK_CHANNEL_WARNINGS: ${{ secrets.SLACK_CHANNEL_WARNINGS }}
           SLACK_CHANNEL_DIGEST: ${{ secrets.SLACK_CHANNEL_DIGEST }}
           REPORT_OUTPUT_DIR: ./reports
+          # B2 auth: when auth is configured in src/config/targets.js, add
+          # ARGUS_AUTH_EMAIL and ARGUS_AUTH_PASSWORD to repo secrets and uncomment:
+          # ARGUS_AUTH_EMAIL: ${{ secrets.ARGUS_AUTH_EMAIL }}
+          # ARGUS_AUTH_PASSWORD: ${{ secrets.ARGUS_AUTH_PASSWORD }}
         run: |
           node -e "
             import('./src/orchestration/crawl-and-report.js').then(async ({ runCrawl }) => {
