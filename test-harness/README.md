@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-24 test blocks · 76 hard assertions · 16 detection categories · 25 fixture pages
+25 test blocks · 81 hard assertions · 17 detection categories · 25 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -45,6 +45,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 22 | `seo-no-h1.html` | `seo_missing_h1` warning — zero `<h1>` tags on page | Hard |
 | 23 | `memory-leak.html` | `memory_detached_dom_nodes` warning — 50 detached `HTMLDivElement` nodes in heap · `memory_heap_growth` (soft) | Hard + Soft |
 | 24 | `auth-login.html` + `auth-protected.html` | Login flow (fill + click + waitFor) · `saveSession` captures cookie + localStorage · `restoreSession` injects state · protected page accessible after restore · auth error without session | Hard |
+| 25 | _(pure function — no fixture page)_ | Baseline manager: first-run detection · save+load round-trip · identical run returns 0 new/resolved · new finding → `isNew: true` · `appendTrend` persists resolved count | Hard |
 
 ---
 
@@ -186,8 +187,16 @@ The validator will:
   ✓ More console errors on staging (2) than dev (0)
   ✓ DOM diff: .pricing section present on dev, missing on staging
 
+[25] Baseline Manager — applyBaseline, saveBaseline, loadBaseline, appendTrend
+  ✓ applyBaseline(null) → isFirstRun: true
+  ✓ First run — all findings marked isNew: true
+  ✓ loadBaseline returns non-null after saveBaseline
+  ✓ Identical run → newCount: 0, resolvedCount: 0 (both 0)
+  ✓ New finding detected — newCount: 1 (expected 1)
+  ✓ appendTrend round-trip — resolvedCount: 2 (expected 2), trends length: 1
+
 ────────────────────────────────────────────────────────
-Results: 76/76 hard assertions passed, 0 failed
+Results: 81/81 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```

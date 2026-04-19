@@ -40,6 +40,7 @@ import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../src/util
 import { analyzeResponsive } from '../src/utils/responsive-analyzer.js';
 import { analyzeMemory }    from '../src/utils/memory-analyzer.js';
 import { saveSession, restoreSession } from '../src/utils/session-manager.js';
+import { loadBaseline, saveBaseline, applyBaseline, appendTrend } from '../src/utils/baseline-manager.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
 
@@ -404,6 +405,21 @@ function visualDiff(devShot, stagingShot) {
 async function runTests(mcp, stagingProc) {
   const B  = HARNESS_DEV_URL;
   const BS = HARNESS_STAGING_URL;
+
+  // Clear any Chrome state left by a previous harness run (auth cookies, localStorage)
+  try {
+    await mcp.navigate_page({ url: B });
+    await mcp.evaluate_script({
+      function: `() => {
+        localStorage.clear();
+        sessionStorage.clear();
+        document.cookie.split(';').forEach(function(c) {
+          document.cookie = c.trim().replace(/=.*/, '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/');
+        });
+        return true;
+      }`,
+    });
+  } catch { /* best-effort — Chrome may not have the origin loaded yet */ }
 
   // ── [1] Clean page ────────────────────────────────────────────────────────
   console.log('\n[1] Clean page — expect: zero warnings / criticals');
@@ -957,6 +973,21 @@ async function runTests(mcp, stagingProc) {
 
     // Cleanup session file
     try { fs.unlinkSync(sessionFile); } catch { /* best-effort */ }
+
+    // Clear Chrome auth state so test [1] passes on the NEXT harness run
+    try {
+      await mcp.navigate_page({ url: B });
+      await mcp.evaluate_script({
+        function: `() => {
+          localStorage.clear();
+          sessionStorage.clear();
+          document.cookie.split(';').forEach(function(c) {
+            document.cookie = c.trim().replace(/=.*/, '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/');
+          });
+          return true;
+        }`,
+      });
+    } catch { /* best-effort */ }
   }
 
   // ── [15] Env comparison — GAPS 11–15 FIX (all 7 detections) ─────────────
@@ -1027,6 +1058,64 @@ async function runTests(mcp, stagingProc) {
   const { diffPct, error: diffErr } = visualDiff(devShot, stagingShot);
   soft(diffPct != null && diffPct > 0.5,
     `Visual diff: ${diffPct != null ? diffPct + '%' : `unavailable (${diffErr ?? 'no screenshot data'})`} pixels changed (threshold: 0.5%)`);
+
+  // ── [25] Baseline manager — pure function test (no Chrome) ────────────────
+  console.log('\n[25] Baseline Manager — applyBaseline, saveBaseline, loadBaseline, appendTrend');
+
+  const tmpDir      = path.join(__dirname, '.tmp-baseline-test');
+  const bFile       = path.join(tmpDir, 'baseline.json');
+  const tFile       = path.join(tmpDir, 'trends.json');
+  if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+
+  const fakeReport = {
+    generatedAt: new Date().toISOString(),
+    baseUrl: 'http://localhost:3100',
+    summary: { total: 2, critical: 1, warning: 1, info: 0 },
+    routes: [
+      {
+        route: '/home', url: 'http://localhost:3100/',
+        errors: [
+          { type: 'console', severity: 'critical', message: 'TypeError: x is null' },
+          { type: 'seo_missing_description', severity: 'warning', message: 'Missing meta description' },
+        ],
+      },
+    ],
+  };
+
+  // [25a] First run — isFirstRun true, all findings marked isNew
+  const diff1 = applyBaseline(fakeReport, null);
+  assert(diff1.isFirstRun === true, 'applyBaseline(null) → isFirstRun: true');
+  assert(fakeReport.routes[0].errors.every(f => f.isNew === true),
+    'First run — all findings marked isNew: true');
+
+  // [25b] Save + reload baseline round-trip
+  saveBaseline(bFile, fakeReport);
+  const loaded = loadBaseline(bFile);
+  assert(loaded !== null, 'loadBaseline returns non-null after saveBaseline');
+
+  // [25c] Same findings → newCount: 0, resolvedCount: 0
+  const fakeReport2 = JSON.parse(JSON.stringify(fakeReport)); // deep clone
+  const diff2 = applyBaseline(fakeReport2, loaded);
+  assert(diff2.newCount === 0 && diff2.resolvedCount === 0,
+    `Identical run → newCount: ${diff2.newCount}, resolvedCount: ${diff2.resolvedCount} (both 0)`);
+
+  // [25d] New finding detected as isNew: true
+  const fakeReport3 = JSON.parse(JSON.stringify(fakeReport));
+  fakeReport3.routes[0].errors.push({ type: 'blank_page', severity: 'critical', message: 'Page body empty' });
+  const diff3 = applyBaseline(fakeReport3, loaded);
+  assert(diff3.newCount === 1,
+    `New finding detected — newCount: ${diff3.newCount} (expected 1)`);
+
+  // [25e] appendTrend + resolved count from a reduced report
+  const fakeReport4 = { ...fakeReport, routes: [{ ...fakeReport.routes[0], errors: [] }] };
+  const diff4 = applyBaseline(fakeReport4, loaded);
+  appendTrend(tFile, { runAt: new Date().toISOString(), resolvedFindings: diff4.resolvedCount });
+  const trends = JSON.parse(fs.readFileSync(tFile, 'utf8'));
+  assert(trends.length === 1 && trends[0].resolvedFindings === 2,
+    `appendTrend round-trip — resolvedCount: ${diff4.resolvedCount} (expected 2), trends length: ${trends.length}`);
+
+  // Cleanup temp files
+  try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best-effort */ }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────

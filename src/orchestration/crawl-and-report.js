@@ -33,6 +33,7 @@ import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../utils/co
 import { analyzeResponsive } from '../utils/responsive-analyzer.js';
 import { analyzeMemory } from '../utils/memory-analyzer.js';
 import { runLoginFlow, saveSession, restoreSession, hasSession } from '../utils/session-manager.js';
+import { loadBaseline, saveBaseline, applyBaseline, appendTrend } from '../utils/baseline-manager.js';
 
 // ── Performance Budgets ────────────────────────────────────────────────────────
 // Hard thresholds — exceeding any of these is a 'warning' severity bug.
@@ -785,14 +786,37 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
     }
   }
 
+  // Historical baselines + trend tracking (v3 Phase B3)
+  const baselinePath = path.join(OUTPUT_DIR, 'baselines', 'baseline.json');
+  const trendsPath   = path.join(OUTPUT_DIR, 'baselines', 'trends.json');
+  const baseline     = loadBaseline(baselinePath);
+  const diff         = applyBaseline(report, baseline);
+  if (!diff.isFirstRun) {
+    console.log(`[ARGUS] Baseline diff: ${diff.newCount} new finding(s), ${diff.resolvedCount} resolved`);
+  } else {
+    console.log('[ARGUS] First run — no baseline to compare; all findings treated as new');
+  }
+
   // Write JSON report
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const reportPath = path.join(OUTPUT_DIR, `error-report-${timestamp}.json`);
   fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
   console.log(`[ARGUS] Report written: ${reportPath}`);
 
-  // Dispatch to Slack
-  await dispatchToSlack(report);
+  // Dispatch to Slack (only new findings trigger critical/warning alerts)
+  await dispatchToSlack(report, diff);
+
+  // Persist baseline + append trend entry
+  saveBaseline(baselinePath, report);
+  appendTrend(trendsPath, {
+    runAt:            report.generatedAt,
+    baseUrl:          report.baseUrl,
+    summary:          report.summary,
+    newFindings:      diff.newCount,
+    resolvedFindings: diff.resolvedCount,
+    routeCount:       report.routes.length,
+  });
+  console.log(`[ARGUS] Baseline saved → ${baselinePath}`);
 
   return report;
 }
@@ -815,12 +839,13 @@ function errorText(e) {
  * Warnings   → one message per route (grouped), first route's screenshot attached
  * Info       → single digest message summarising all routes (no screenshot)
  */
-async function dispatchToSlack(report) {
+async function dispatchToSlack(report, diff) {
   const { summary } = report;
 
   // ── Criticals: one Slack message per affected route ──────────────────────
+  // When a baseline exists, only alert on findings that are new this run.
   for (const routeResult of report.routes) {
-    const criticals = routeResult.errors.filter(e => e.severity === 'critical');
+    const criticals = routeResult.errors.filter(e => e.severity === 'critical' && e.isNew !== false);
     if (criticals.length === 0) continue;
 
     const description = criticals
@@ -839,7 +864,7 @@ async function dispatchToSlack(report) {
 
   // ── Warnings: one Slack message per affected route ────────────────────────
   for (const routeResult of report.routes) {
-    const warnings = routeResult.errors.filter(e => e.severity === 'warning');
+    const warnings = routeResult.errors.filter(e => e.severity === 'warning' && e.isNew !== false);
     if (warnings.length === 0) continue;
 
     const description = warnings
@@ -905,12 +930,19 @@ async function dispatchToSlack(report) {
 
   if (allInfos.length > 0) {
     const runDate = new Date(report.generatedAt).toLocaleString();
+    const trendLine = diff
+      ? diff.isFirstRun
+        ? '_Baseline established — future runs will show new / resolved counts._'
+        : `:chart_with_upwards_trend: ${diff.newCount} new  :white_check_mark: ${diff.resolvedCount} resolved since last baseline`
+      : '';
+
     await postBugReport({
       severity: 'info',
       title: `Argus crawl digest — ${report.baseUrl} (${runDate})`,
       description:
         `Summary: ${summary.total} findings across ${report.routes.length} routes\n` +
-        `:red_circle: ${summary.critical} critical  :large_yellow_circle: ${summary.warning} warnings  :large_blue_circle: ${summary.info} info\n\n` +
+        `:red_circle: ${summary.critical} critical  :large_yellow_circle: ${summary.warning} warnings  :large_blue_circle: ${summary.info} info\n` +
+        (trendLine ? trendLine + '\n' : '') + '\n' +
         (digestLines.length > 0 ? digestLines.join('\n') : '_No info-level findings._'),
       url: report.baseUrl,
       screenshotPath: null,
