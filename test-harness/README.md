@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-25 test blocks · 81 hard assertions · 17 detection categories · 25 fixture pages
+26 test blocks · 87 hard assertions · 18 detection categories · 25 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -46,6 +46,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 23 | `memory-leak.html` | `memory_detached_dom_nodes` warning — 50 detached `HTMLDivElement` nodes in heap · `memory_heap_growth` (soft) | Hard + Soft |
 | 24 | `auth-login.html` + `auth-protected.html` | Login flow (fill + click + waitFor) · `saveSession` captures cookie + localStorage · `restoreSession` injects state · protected page accessible after restore · auth error without session | Hard |
 | 25 | _(pure function — no fixture page)_ | Baseline manager: first-run detection · save+load round-trip · identical run returns 0 new/resolved · new finding → `isNew: true` · `appendTrend` persists resolved count | Hard |
+| 26 | _(pure function — no fixture page)_ | Flakiness detector: finding in both runs → confirmed (original severity, `flaky: false`) · run1-only → `flaky: true`, severity `info` · run2-only → `flaky: true`, severity `info` · confirmed/flaky counts | Hard |
 
 ---
 
@@ -195,8 +196,15 @@ The validator will:
   ✓ New finding detected — newCount: 1 (expected 1)
   ✓ appendTrend round-trip — resolvedCount: 2 (expected 2), trends length: 1
 
+[26] Flakiness Detector — mergeRunResults
+  ✓ Confirmed finding — flaky: false, severity: critical (original)
+  ✓ Run1-only finding → flaky: true, severity: info (was critical)
+  ✓ Run2-only finding → flaky: true, severity: info (was warning)
+  ✓ Confirmed count: 1 (expected 1)
+  ✓ Flaky count: 2 (expected 2)
+
 ────────────────────────────────────────────────────────
-Results: 81/81 hard assertions passed, 0 failed
+Results: 87/87 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```

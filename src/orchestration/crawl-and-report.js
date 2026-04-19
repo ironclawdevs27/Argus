@@ -34,6 +34,7 @@ import { analyzeResponsive } from '../utils/responsive-analyzer.js';
 import { analyzeMemory } from '../utils/memory-analyzer.js';
 import { runLoginFlow, saveSession, restoreSession, hasSession } from '../utils/session-manager.js';
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend } from '../utils/baseline-manager.js';
+import { mergeRunResults } from '../utils/flakiness-detector.js';
 
 // ── Performance Budgets ────────────────────────────────────────────────────────
 // Hard thresholds — exceeding any of these is a 'warning' severity bug.
@@ -700,6 +701,47 @@ export async function crawlRoute(route, baseUrl, mcp) {
   return result;
 }
 
+// ── Per-route crawl + analysis helper (used twice per route for B4 flakiness) ──
+
+async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
+  if (auth?.steps?.length > 0) {
+    try {
+      await restoreSession(mcp, targetBaseUrl, sessionFile);
+    } catch (err) {
+      console.warn(`[ARGUS] Auth: session restore skipped for ${route.name}: ${err.message}`);
+    }
+  }
+
+  const result = await crawlRoute(route, targetBaseUrl, mcp);
+
+  // Responsive layout analysis (v3 Phase A6) — after crawlRoute to avoid viewport pollution
+  try {
+    const { findings: responsiveFindings, screenshots: responsiveShots } = await analyzeResponsive(mcp, `${targetBaseUrl}${route.path}`);
+    result.errors.push(...responsiveFindings);
+    const responsiveScreenshotPaths = {};
+    for (const [viewport, data] of Object.entries(responsiveShots)) {
+      const shotPath = path.join(OUTPUT_DIR, `screenshot-${slugify(route.name)}-responsive-${viewport}-${Date.now()}.png`);
+      fs.writeFileSync(shotPath, Buffer.from(data, 'base64'));
+      responsiveScreenshotPaths[viewport] = shotPath;
+    }
+    if (Object.keys(responsiveScreenshotPaths).length > 0) {
+      result.responsiveScreenshots = responsiveScreenshotPaths;
+    }
+  } catch (err) {
+    console.warn(`[ARGUS] Responsive analysis skipped for ${route.name}: ${err.message}`);
+  }
+
+  // Memory leak detection (v3 Phase B1)
+  try {
+    const memoryFindings = await analyzeMemory(mcp, `${targetBaseUrl}${route.path}`);
+    result.errors.push(...memoryFindings);
+  } catch (err) {
+    console.warn(`[ARGUS] Memory analysis skipped for ${route.name}: ${err.message}`);
+  }
+
+  return result;
+}
+
 // ── Main Orchestration ─────────────────────────────────────────────────────────
 
 /**
@@ -739,43 +781,17 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
   }
 
   for (const route of targetRoutes) {
-    console.log(`[ARGUS] Crawling: ${route.name} → ${targetBaseUrl}${route.path}`);
+    // Flakiness detection (v3 Phase B4) — crawl each route twice; only confirmed findings keep severity
+    console.log(`[ARGUS] Crawling (run 1/2): ${route.name} → ${targetBaseUrl}${route.path}`);
+    const run1 = await crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile);
 
-    // Restore session before each route so auth state is fresh for every crawl
-    if (auth?.steps?.length > 0) {
-      try {
-        await restoreSession(mcp, targetBaseUrl, sessionFile);
-      } catch (err) {
-        console.warn(`[ARGUS] Auth: session restore skipped for ${route.name}: ${err.message}`);
-      }
-    }
+    console.log(`[ARGUS] Crawling (run 2/2): ${route.name} (flakiness check)`);
+    const run2 = await crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile);
 
-    const result = await crawlRoute(route, targetBaseUrl, mcp);
-
-    // Responsive layout analysis (v3 Phase A6) — called after crawlRoute to avoid viewport pollution
-    try {
-      const { findings: responsiveFindings, screenshots: responsiveShots } = await analyzeResponsive(mcp, `${targetBaseUrl}${route.path}`);
-      result.errors.push(...responsiveFindings);
-      // Write responsive screenshot grid to disk so Slack integration can upload it
-      const responsiveScreenshotPaths = {};
-      for (const [viewport, data] of Object.entries(responsiveShots)) {
-        const shotPath = path.join(OUTPUT_DIR, `screenshot-${slugify(route.name)}-responsive-${viewport}-${Date.now()}.png`);
-        fs.writeFileSync(shotPath, Buffer.from(data, 'base64'));
-        responsiveScreenshotPaths[viewport] = shotPath;
-      }
-      if (Object.keys(responsiveScreenshotPaths).length > 0) {
-        result.responsiveScreenshots = responsiveScreenshotPaths;
-      }
-    } catch (err) {
-      console.warn(`[ARGUS] Responsive analysis skipped for ${route.name}: ${err.message}`);
-    }
-
-    // Memory leak detection (v3 Phase B1) — snapshot + heap-growth check
-    try {
-      const memoryFindings = await analyzeMemory(mcp, `${targetBaseUrl}${route.path}`);
-      result.errors.push(...memoryFindings);
-    } catch (err) {
-      console.warn(`[ARGUS] Memory analysis skipped for ${route.name}: ${err.message}`);
+    const result = mergeRunResults(run1, run2);
+    const flakyCount = result.errors.filter(e => e.flaky).length;
+    if (flakyCount > 0) {
+      console.log(`[ARGUS] ${route.name}: ${flakyCount} finding(s) downgraded to info (flaky — appeared in only one run)`);
     }
 
     report.routes.push(result);
@@ -924,7 +940,8 @@ async function dispatchToSlack(report, diff) {
     if (routeInfos.length === 0) continue;
     digestLines.push(`*${routeResult.route}* (${routeResult.url})`);
     for (const e of routeInfos) {
-      digestLines.push(`  • [${e.type}] ${errorText(e)}`);
+      const flakyTag = e.flaky ? ' :zap: _flaky_' : '';
+      digestLines.push(`  • [${e.type}]${flakyTag} ${errorText(e)}`);
     }
   }
 

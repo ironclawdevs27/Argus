@@ -41,6 +41,7 @@ import { analyzeResponsive } from '../src/utils/responsive-analyzer.js';
 import { analyzeMemory }    from '../src/utils/memory-analyzer.js';
 import { saveSession, restoreSession } from '../src/utils/session-manager.js';
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend } from '../src/utils/baseline-manager.js';
+import { mergeRunResults } from '../src/utils/flakiness-detector.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
 
@@ -1116,6 +1117,55 @@ async function runTests(mcp, stagingProc) {
 
   // Cleanup temp files
   try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+
+  // ── [26] Flakiness detector — mergeRunResults (pure function, no Chrome) ──
+  console.log('\n[26] Flakiness Detector — mergeRunResults');
+
+  const flakyRun1 = {
+    route: '/home', url: 'http://localhost:3100/', screenshot: null,
+    errors: [
+      { type: 'console',    severity: 'critical', message: 'TypeError: x is null' }, // in both
+      { type: 'blank_page', severity: 'critical', message: 'Page body empty' },       // run1 only
+    ],
+  };
+  const flakyRun2 = {
+    route: '/home', url: 'http://localhost:3100/', screenshot: '/tmp/shot2.png',
+    errors: [
+      { type: 'console', severity: 'critical', message: 'TypeError: x is null' },    // in both
+      { type: 'network',  severity: 'warning',  message: 'HTTP 404 /api/foo' },      // run2 only
+    ],
+  };
+
+  const merged = mergeRunResults(flakyRun1, flakyRun2);
+
+  // [26a] Finding present in both runs → confirmed, original severity, flaky: false
+  const confirmedFinding = merged.errors.find(e => e.type === 'console');
+  assert(
+    confirmedFinding && confirmedFinding.flaky === false && confirmedFinding.severity === 'critical',
+    `Confirmed finding — flaky: false, severity: critical (original)`,
+  );
+
+  // [26b] Finding only in run1 → flaky: true, severity: 'info'
+  const flakyFromRun1 = merged.errors.find(e => e.type === 'blank_page');
+  assert(
+    flakyFromRun1 && flakyFromRun1.flaky === true && flakyFromRun1.severity === 'info',
+    `Run1-only finding → flaky: true, severity: info (was critical)`,
+  );
+
+  // [26c] Finding only in run2 → flaky: true, severity: 'info'
+  const flakyFromRun2 = merged.errors.find(e => e.type === 'network');
+  assert(
+    flakyFromRun2 && flakyFromRun2.flaky === true && flakyFromRun2.severity === 'info',
+    `Run2-only finding → flaky: true, severity: info (was warning)`,
+  );
+
+  // [26d] Confirmed count
+  const confirmedCount = merged.errors.filter(e => e.flaky === false).length;
+  assert(confirmedCount === 1, `Confirmed count: ${confirmedCount} (expected 1)`);
+
+  // [26e] Flaky count (one from each run)
+  const flakyCount = merged.errors.filter(e => e.flaky === true).length;
+  assert(flakyCount === 2, `Flaky count: ${flakyCount} (expected 2)`);
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
