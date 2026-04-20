@@ -1150,6 +1150,89 @@ async function runTests(mcp, stagingProc) {
   assert(trends.length === 1 && trends[0].resolvedFindings === 2,
     `appendTrend round-trip — resolvedCount: ${diff4.resolvedCount} (expected 2), trends length: ${trends.length}`);
 
+  // ── D4: flow baseline tests ───────────────────────────────────────────────
+  const bFile2 = path.join(tmpDir, 'baseline-flows.json');
+  const fakeReportWithFlows = {
+    ...fakeReport,
+    flows: [
+      {
+        flowName: 'login-flow',
+        status: 'fail',
+        stepsCompleted: 2,
+        totalSteps: 3,
+        findings: [
+          { type: 'flow_assert_failed', severity: 'critical',
+            message: '[login-flow] assert url_contains: URL does not contain "/dashboard"' },
+          { type: 'flow_assert_failed', severity: 'warning',
+            message: '[login-flow] assert no_console_errors: 1 error(s)' },
+        ],
+      },
+    ],
+  };
+
+  // [25f] First run with flow findings — flowNewCount correct, all isNew: true
+  const diffFlow1 = applyBaseline(JSON.parse(JSON.stringify(fakeReportWithFlows)), null);
+  assert(diffFlow1.isFirstRun === true,
+    '[25f] First run with flows → isFirstRun: true');
+  assert(diffFlow1.flowNewCount === 2,
+    `[25f] First run flowNewCount: ${diffFlow1.flowNewCount} (expected 2)`);
+  assert(diffFlow1.flowResolvedCount === 0,
+    `[25f] First run flowResolvedCount: ${diffFlow1.flowResolvedCount} (expected 0)`);
+  // annotate the canonical copy for save
+  applyBaseline(fakeReportWithFlows, null);
+  assert(fakeReportWithFlows.flows[0].findings.every(f => f.isNew === true),
+    '[25f] All flow findings marked isNew: true on first run');
+
+  // [25g] Save + load flow baseline round-trip
+  saveBaseline(bFile2, fakeReportWithFlows);
+  const loadedFlows = loadBaseline(bFile2);
+  assert(loadedFlows !== null,
+    '[25g] loadBaseline returns non-null after saveBaseline with flows');
+  assert(loadedFlows.flows instanceof Map,
+    '[25g] loaded.flows is a Map');
+  assert(loadedFlows.flows.has('login-flow'),
+    '[25g] loaded baseline contains "login-flow" key');
+  assert(loadedFlows.flows.get('login-flow').size === 2,
+    `[25g] login-flow baseline has 2 keys (got ${loadedFlows.flows.get('login-flow').size})`);
+
+  // [25h] Same flow findings → isNew: false, flowNewCount/flowResolvedCount: 0
+  const fakeReportSameFlows = JSON.parse(JSON.stringify(fakeReportWithFlows));
+  const diffFlow2 = applyBaseline(fakeReportSameFlows, loadedFlows);
+  assert(diffFlow2.flowNewCount === 0 && diffFlow2.flowResolvedCount === 0,
+    `[25h] Same flow findings → flowNewCount: ${diffFlow2.flowNewCount}, flowResolvedCount: ${diffFlow2.flowResolvedCount} (both 0)`);
+  assert(fakeReportSameFlows.flows[0].findings.every(f => f.isNew === false),
+    '[25h] Known flow findings marked isNew: false');
+
+  // [25i] New flow finding → flowNewCount: 1
+  const fakeReportNewFlowFinding = JSON.parse(JSON.stringify(fakeReportWithFlows));
+  fakeReportNewFlowFinding.flows[0].findings.push({
+    type: 'flow_step_failed', severity: 'critical',
+    message: '[login-flow] step "click" on ".submit-btn" failed: Element not found',
+  });
+  const diffFlow3 = applyBaseline(fakeReportNewFlowFinding, loadedFlows);
+  assert(diffFlow3.flowNewCount === 1,
+    `[25i] New flow finding → flowNewCount: ${diffFlow3.flowNewCount} (expected 1)`);
+
+  // [25j] Resolved flow finding → flowResolvedCount: 1
+  const fakeReportResolvedFlow = JSON.parse(JSON.stringify(fakeReportWithFlows));
+  fakeReportResolvedFlow.flows[0].findings = fakeReportResolvedFlow.flows[0].findings.slice(0, 1);
+  const diffFlow4 = applyBaseline(fakeReportResolvedFlow, loadedFlows);
+  assert(diffFlow4.flowResolvedCount === 1,
+    `[25j] Resolved flow finding → flowResolvedCount: ${diffFlow4.flowResolvedCount} (expected 1)`);
+
+  // [25k] Old baseline (no `flows` field) — backward compat: flow findings treated as new
+  const oldBaselineRaw = { savedAt: new Date().toISOString(), routes: { 'http://localhost:3100/': [] } };
+  fs.writeFileSync(bFile2, JSON.stringify(oldBaselineRaw, null, 2));
+  const loadedOld = loadBaseline(bFile2);
+  assert(loadedOld !== null,
+    '[25k] Old baseline (no flows field) loads successfully');
+  assert(loadedOld.flows instanceof Map && loadedOld.flows.size === 0,
+    '[25k] Old baseline flows defaults to empty Map');
+  const fakeReportForOld = JSON.parse(JSON.stringify(fakeReportWithFlows));
+  const diffOld = applyBaseline(fakeReportForOld, loadedOld);
+  assert(diffOld.flowNewCount === 2,
+    `[25k] Old baseline: all flow findings treated as new → flowNewCount: ${diffOld.flowNewCount} (expected 2)`);
+
   // Cleanup temp files
   try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best-effort */ }
 

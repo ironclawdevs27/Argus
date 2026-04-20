@@ -674,6 +674,9 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
   const diff         = applyBaseline(report, baseline);
   if (!diff.isFirstRun) {
     console.log(`[ARGUS] Baseline diff: ${diff.newCount} new finding(s), ${diff.resolvedCount} resolved`);
+    if (diff.flowNewCount > 0 || diff.flowResolvedCount > 0) {
+      console.log(`[ARGUS] Flow diff: ${diff.flowNewCount} new flow finding(s), ${diff.flowResolvedCount} resolved`);
+    }
   } else {
     console.log('[ARGUS] First run — no baseline to compare; all findings treated as new');
   }
@@ -690,12 +693,15 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
   // Persist baseline + append trend entry
   saveBaseline(baselinePath, report);
   appendTrend(trendsPath, {
-    runAt:            report.generatedAt,
-    baseUrl:          report.baseUrl,
-    summary:          report.summary,
-    newFindings:      diff.newCount,
-    resolvedFindings: diff.resolvedCount,
-    routeCount:       report.routes.length,
+    runAt:                 report.generatedAt,
+    baseUrl:               report.baseUrl,
+    summary:               report.summary,
+    newFindings:           diff.newCount,
+    resolvedFindings:      diff.resolvedCount,
+    routeCount:            report.routes.length,
+    flowCount:             report.flows?.length ?? 0,
+    flowNewFindings:       diff.flowNewCount ?? 0,
+    flowResolvedFindings:  diff.flowResolvedCount ?? 0,
   });
   console.log(`[ARGUS] Baseline saved → ${baselinePath}`);
 
@@ -853,7 +859,10 @@ async function dispatchToSlack(report, diff) {
     const trendLine = diff
       ? diff.isFirstRun
         ? '_Baseline established — future runs will show new / resolved counts._'
-        : `:chart_with_upwards_trend: ${diff.newCount} new  :white_check_mark: ${diff.resolvedCount} resolved since last baseline`
+        : `:chart_with_upwards_trend: ${diff.newCount} new  :white_check_mark: ${diff.resolvedCount} resolved since last baseline` +
+          ((diff.flowNewCount ?? 0) > 0 || (diff.flowResolvedCount ?? 0) > 0
+            ? `  _(flows: ${diff.flowNewCount ?? 0} new, ${diff.flowResolvedCount ?? 0} resolved)_`
+            : '')
       : '';
 
     await postBugReport({
