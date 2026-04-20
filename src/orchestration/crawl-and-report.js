@@ -441,15 +441,31 @@ async function crawlRouteCheap(route, baseUrl, mcp) {
   // 5. Console messages — sliced from per-route baseline (D5)
   const consoleMsgs = normalizeArray(await mcp.list_console_messages()).slice(consoleBaseline);
   for (const msg of consoleMsgs) {
+    const text = (msg.text ?? msg.message ?? '');
+    // CORS messages are handled exclusively in step 5b (D6.4)
+    if (text.toLowerCase().includes('has been blocked by cors policy')) continue;
     const severity = classifyConsoleMessage(msg, route.critical);
     if (severity !== null && msg.level !== 'log') {
       result.errors.push({
         type: 'console',
         level: msg.level,
-        message: msg.text ?? msg.message ?? String(msg),
+        message: text || String(msg),
         source: msg.source ?? null,
         line: msg.lineNumber ?? null,
         severity,
+        url,
+      });
+    }
+  }
+
+  // 5b. CORS error detection (D6.4) — always critical regardless of route type
+  for (const msg of consoleMsgs) {
+    const text = (msg.text ?? msg.message ?? '');
+    if (text.toLowerCase().includes('has been blocked by cors policy')) {
+      result.errors.push({
+        type:     'cors_error',
+        message:  text || 'CORS policy violation',
+        severity: 'critical',
         url,
       });
     }

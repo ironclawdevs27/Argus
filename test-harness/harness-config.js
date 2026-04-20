@@ -241,6 +241,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'long_task warning (120ms busy-loop > 50ms threshold)',
   },
+  // D6.4 — CORS error (cross-origin fetch blocked by CORS policy)
+  {
+    path: '/cors-error.html',
+    name: 'CORS Error',
+    critical: false,
+    waitFor: null,
+    expected: 'cors_error critical (fetch from localhost:3101 blocked by CORS policy)',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

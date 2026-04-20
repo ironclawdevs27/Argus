@@ -43,7 +43,7 @@ import { analyzeMemory }    from '../src/utils/memory-analyzer.js';
 import { saveSession, restoreSession } from '../src/utils/session-manager.js';
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend } from '../src/utils/baseline-manager.js';
 import { mergeRunResults } from '../src/utils/flakiness-detector.js';
-import { runFlow }         from '../src/utils/flow-runner.js';
+import { runFlow, normalizeArray } from '../src/utils/flow-runner.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
 
@@ -216,6 +216,9 @@ const EXTRACT_LONG_TASK_LISTENER = `() => JSON.stringify(window.__argusLongTasks
 
 async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {}) {
   const errors = [];
+
+  // Snapshot browser console count before navigation (for D6.4 CORS baseline slicing)
+  const consoleListBaseline = normalizeArray(await mcp.list_console_messages().catch(() => [])).length;
 
   // Inject listeners before navigation
   await mcp.evaluate_script({ function: INJECT_SYNC_XHR_LISTENER }).catch(() => {});   // D6.1
@@ -465,6 +468,21 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
         message:   `Long task: ${entry.duration}ms — blocks the main thread (threshold: 50ms)`,
         severity:  'warning',
       });
+    }
+  } catch { /* skip */ }
+
+  // CORS error detection (D6.4) — browser-generated errors not captured by in-page interceptor
+  try {
+    const browserMsgs = normalizeArray(await mcp.list_console_messages().catch(() => [])).slice(consoleListBaseline);
+    for (const msg of browserMsgs) {
+      const text = (msg.text ?? msg.message ?? '');
+      if (text.toLowerCase().includes('has been blocked by cors policy')) {
+        errors.push({
+          type:     'cors_error',
+          message:  text || 'CORS policy violation',
+          severity: 'critical',
+        });
+      }
     }
   } catch { /* skip */ }
 
@@ -1595,6 +1613,19 @@ async function runTests(mcp, stagingProc) {
       `All long_task findings have severity "warning"`);
     assert(longTasks.some(e => (e.duration ?? 0) >= 50),
       `At least one long task has duration >= 50ms (durations: ${longTasks.map(e => e.duration).join(', ')})`);
+  }
+
+  // ── [35] CORS error detection — D6.4 ─────────────────────────────────────
+  console.log('\n[35] CORS Error (D6.4) — cross-origin fetch blocked by CORS policy → cors_error critical');
+  {
+    const { errors: corsErrors } = await crawlFixture(mcp, `${B}/cors-error.html`);
+    const corsFindings = corsErrors.filter(e => e.type === 'cors_error');
+    assert(corsFindings.length > 0,
+      `cors_error finding detected (found types: ${[...new Set(corsErrors.map(e => e.type))].join(', ') || 'none'})`);
+    assert(corsFindings.every(e => e.severity === 'critical'),
+      `All cors_error findings have severity "critical"`);
+    assert(corsFindings.some(e => (e.message ?? '').toLowerCase().includes('cors policy')),
+      `cors_error message mentions "cors policy" (got "${corsFindings[0]?.message?.slice(0, 80)}")`);
   }
 }
 
