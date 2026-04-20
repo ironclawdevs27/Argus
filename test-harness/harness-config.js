@@ -217,6 +217,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: '2 broken_link warnings for nonexistent internal paths',
   },
+  // D6.1 — synchronous XHR blocks main thread
+  {
+    path: '/sync-xhr.html',
+    name: 'Sync XHR',
+    critical: false,
+    waitFor: null,
+    expected: 'sync_xhr warning (synchronous GET /api/data blocks main thread)',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

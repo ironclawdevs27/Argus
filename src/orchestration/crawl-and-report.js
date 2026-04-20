@@ -148,6 +148,27 @@ const INJECT_ERROR_LISTENER = `
 /** Extracts the injected errors from the page after settle time. */
 const EXTRACT_ERROR_LISTENER = `JSON.stringify(window.__argusErrors || [])`;
 
+// ── D6.1 — Synchronous XHR detection ─────────────────────────────────────────
+
+/** Patches XMLHttpRequest.prototype.open before navigation to record sync calls. */
+const INJECT_SYNC_XHR_LISTENER = `
+(function() {
+  if (window.__argusSyncXhrPatched) return;
+  window.__argusSyncXhrPatched = true;
+  window.__argusSyncXhrs = [];
+  var _open = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url, async) {
+    if (async === false) {
+      window.__argusSyncXhrs.push({ method: String(method || 'GET'), url: String(url) });
+    }
+    return _open.apply(this, arguments);
+  };
+})();
+`;
+
+/** Extracts the list of synchronous XHR calls recorded by the injected listener. */
+const EXTRACT_SYNC_XHR_LISTENER = `() => JSON.stringify(window.__argusSyncXhrs ?? [])`;
+
 // ── Performance Budget Enforcement ────────────────────────────────────────────
 
 /**
@@ -295,22 +316,15 @@ function analyzeNetworkPerformance(perfEntries, pageUrl) {
   return bugs;
 }
 
-// ── Per-Route Crawl ────────────────────────────────────────────────────────────
+// ── Per-Route Crawl (D3 split: cheap × 2 + expensive × 1) ────────────────────
 
 /**
- * Crawl a single route using Chrome DevTools MCP tools.
- *
- * NOTE: In Claude Code with MCP connected, Claude will call these MCP tools
- * directly. This function documents the expected call sequence and data shapes.
- * The MCP tool responses are passed in as parameters when Claude orchestrates
- * this flow.
- *
- * @param {object} route - Route definition from targets.js
- * @param {string} baseUrl - Base URL to prepend to route.path
- * @param {object} mcp - MCP tool callables (injected by Claude Code orchestration)
- * @returns {object} Route result object
+ * Cheap detections for one route — called TWICE per route for flakiness detection.
+ * Runs: console, network, JS errors, blank page, API frequency,
+ *       SEO, security, content, CSS, screenshot.
+ * Does NOT run: Lighthouse, perf budgets, network perf, redirect chain, broken links.
  */
-export async function crawlRoute(route, baseUrl, mcp) {
+async function crawlRouteCheap(route, baseUrl, mcp) {
   const url = `${baseUrl}${route.path}`;
   const result = {
     route: route.name,
@@ -323,22 +337,20 @@ export async function crawlRoute(route, baseUrl, mcp) {
   };
 
   // 0. Snapshot session-wide console/network counts BEFORE this route starts (D5).
-  //    list_console_messages / list_network_requests accumulate across all Chrome
-  //    navigations in the session; slicing from these offsets prevents route N from
-  //    inheriting route 1…N-1's messages as false positives.
   const consoleBaseline = normalizeArray(await mcp.list_console_messages().catch(() => [])).length;
   const networkBaseline = normalizeArray(await mcp.list_network_requests().catch(() => [])).length;
 
-  // 1. Inject error listener before navigation (or immediately after)
+  // 1. Inject error listener before navigation
   await mcp.evaluate_script({ function:INJECT_ERROR_LISTENER });
+  // 1b. Inject sync XHR listener (D6.1) — patches XMLHttpRequest.prototype.open
+  await mcp.evaluate_script({ function:INJECT_SYNC_XHR_LISTENER });
 
   // 2. Navigate to the URL
   await mcp.navigate_page({ url });
 
-  // 3. Wait for page settle (either selector or fixed delay)
+  // 3. Wait for page settle
   if (route.waitFor) {
     await mcp.wait_for({ selector: route.waitFor, timeout: 10000 }).catch(() => {
-      // selector didn't appear — page may have failed to load
       result.errors.push({
         type: 'load_failure',
         message: `Selector "${route.waitFor}" not found after 10s — page may not have loaded`,
@@ -350,13 +362,12 @@ export async function crawlRoute(route, baseUrl, mcp) {
     await new Promise(r => setTimeout(r, config.pageSettleMs));
   }
 
-  // 4. Check for blank/error page
+  // 4. Blank/error page check
   const titleResult = await mcp.evaluate_script({ function:'document.title' });
   result.pageTitle = String(unwrapEval(titleResult) ?? '');
   const bodyText = await mcp.evaluate_script({ function:'document.body?.innerText?.trim() ?? ""' });
   const bodyTextVal = String(unwrapEval(bodyText) ?? '');
   result.isBlankPage = !bodyTextVal || bodyTextVal.length < 50;
-
   if (result.isBlankPage) {
     result.errors.push({
       type: 'blank_page',
@@ -366,7 +377,7 @@ export async function crawlRoute(route, baseUrl, mcp) {
     });
   }
 
-  // 5. Capture console messages — sliced from per-route baseline to prevent leakage (D5)
+  // 5. Console messages — sliced from per-route baseline (D5)
   const consoleMsgs = normalizeArray(await mcp.list_console_messages()).slice(consoleBaseline);
   for (const msg of consoleMsgs) {
     const severity = classifyConsoleMessage(msg, route.critical);
@@ -383,7 +394,7 @@ export async function crawlRoute(route, baseUrl, mcp) {
     }
   }
 
-  // 6. Capture network requests — sliced from per-route baseline to prevent leakage (D5)
+  // 6. Network requests — sliced from per-route baseline (D5)
   const networkReqs = normalizeArray(await mcp.list_network_requests()).slice(networkBaseline);
   for (const req of networkReqs) {
     const severity = classifyNetworkRequest(req, route.critical);
@@ -401,42 +412,9 @@ export async function crawlRoute(route, baseUrl, mcp) {
     }
   }
 
-  // 6b. API frequency analysis — detect endpoints called multiple times
+  // 6b. API frequency analysis
   const apiFrequencyBugs = analyzeApiFrequency(networkReqs, url);
   result.errors.push(...apiFrequencyBugs);
-
-  // 6c. Network performance analysis — slow responses + oversized payloads (v3 Phase A2)
-  try {
-    const perfRaw = await mcp.evaluate_script({ function: NETWORK_PERF_SCRIPT });
-    const perfResult = unwrapEval(perfRaw);
-    let perfEntries;
-    if (Array.isArray(perfResult)) {
-      perfEntries = perfResult;
-    } else {
-      perfEntries = JSON.parse(typeof perfResult === 'string' ? perfResult : '[]');
-    }
-    const networkPerfBugs = analyzeNetworkPerformance(Array.isArray(perfEntries) ? perfEntries : [], url);
-    result.errors.push(...networkPerfBugs);
-  } catch (err) {
-    console.warn(`[ARGUS] Network performance analysis skipped for ${url}: ${err.message}`);
-  }
-
-  // 6d. Redirect chain detection — flag navigations with > 2 intermediate redirects (D2.1)
-  try {
-    const rdRaw   = await mcp.evaluate_script({ function: REDIRECT_COUNT_SCRIPT });
-    const rdCount = Number(unwrapEval(rdRaw) ?? 0);
-    if (rdCount > 2) {
-      result.errors.push({
-        type:    'redirect_chain',
-        count:   rdCount,
-        message: `Redirect chain length ${rdCount} — navigated through ${rdCount} redirects (threshold: > 2)`,
-        severity: 'warning',
-        url,
-      });
-    }
-  } catch (err) {
-    console.warn(`[ARGUS] Redirect chain check skipped for ${url}: ${err.message}`);
-  }
 
   // 7. Extract injected uncaught exceptions
   const injectedErrors = await mcp.evaluate_script({ function:EXTRACT_ERROR_LISTENER });
@@ -458,58 +436,139 @@ export async function crawlRoute(route, baseUrl, mcp) {
     // parse failure — injected listener may not have run
   }
 
-  // 8. Performance budget check
-  const perfViolations = await checkPerformanceBudgets(mcp, url);
-  result.errors.push(...perfViolations);
+  // 7b. Sync XHR detection (D6.1)
+  try {
+    const syncXhrRaw = await mcp.evaluate_script({ function: EXTRACT_SYNC_XHR_LISTENER });
+    const rawSyncXhr = unwrapEval(syncXhrRaw);
+    const syncXhrs   = JSON.parse(typeof rawSyncXhr === 'string' ? rawSyncXhr : '[]');
+    for (const entry of syncXhrs) {
+      result.errors.push({
+        type:       'sync_xhr',
+        method:     entry.method,
+        requestUrl: entry.url,
+        message:    `Synchronous XHR: ${entry.method} ${entry.url} — blocks the main thread`,
+        severity:   'warning',
+        url,
+      });
+    }
+  } catch {
+    // parse failure — listener may not have been active
+  }
 
-  // 9. Full Lighthouse audit (v3: accessibility + performance + SEO + best-practices)
-  const lighthouseViolations = await checkLighthouse(mcp, url);
-  result.errors.push(...lighthouseViolations);
-
-  // 9b. SEO DOM checks (v3 Phase A3) — meta tags, Open Graph, h1, title, canonical, viewport
+  // 9b. SEO DOM checks (v3 Phase A3)
   try {
     const seoRaw = await mcp.evaluate_script({ function: SEO_ANALYSIS_SCRIPT });
     const seoResult = unwrapEval(seoRaw);
-    const seoBugs = parseSeoAnalysisResult(seoResult, url);
-    result.errors.push(...seoBugs);
+    result.errors.push(...parseSeoAnalysisResult(seoResult, url));
   } catch (err) {
     console.warn(`[ARGUS] SEO analysis skipped for ${url}: ${err.message}`);
   }
 
-  // 9c. Security checks (v3 Phase A4) — localStorage, eval(), cookies, headers, console, URL tokens
+  // 9c. Security checks (v3 Phase A4)
   try {
     const secRaw = await mcp.evaluate_script({ function: SECURITY_ANALYSIS_SCRIPT });
     const secResult = unwrapEval(secRaw);
-    const secBugs = parseSecurityAnalysisResult(secResult, url);
-    result.errors.push(...secBugs);
+    result.errors.push(...parseSecurityAnalysisResult(secResult, url));
   } catch (err) {
     console.warn(`[ARGUS] Security DOM analysis skipped for ${url}: ${err.message}`);
   }
-  // Security: scan console messages and network URLs for sensitive data (uses step 5 & 6 data)
   result.errors.push(...analyzeSecurityConsole(consoleMsgs, url));
   result.errors.push(...analyzeSecurityNetwork(networkReqs, url));
 
-  // 9d. Content quality checks (v3 Phase A5) — null/undefined text, placeholders, broken images, empty lists
+  // 9d. Content quality checks (v3 Phase A5)
   try {
     const contentRaw = await mcp.evaluate_script({ function: CONTENT_ANALYSIS_SCRIPT });
     const contentResult = unwrapEval(contentRaw);
-    const contentBugs = parseContentAnalysisResult(contentResult, url);
-    result.errors.push(...contentBugs);
+    result.errors.push(...parseContentAnalysisResult(contentResult, url));
   } catch (err) {
     console.warn(`[ARGUS] Content analysis skipped for ${url}: ${err.message}`);
   }
 
-  // 10. CSS analysis (always runs — provides style health data)
+  // 10. CSS analysis
   try {
     const cssRaw = await mcp.evaluate_script({ function:CSS_ANALYSIS_SCRIPT });
     const cssResult = unwrapEval(cssRaw);
-    const cssBugs = parseCssAnalysisResult(cssResult, url);
-    result.errors.push(...cssBugs);
+    result.errors.push(...parseCssAnalysisResult(cssResult, url));
   } catch (err) {
     console.warn(`[ARGUS] CSS analysis skipped for ${url}: ${err.message}`);
   }
 
-  // 10b. Broken internal link detection — HEAD each same-origin <a href> in parallel (D2.3)
+  // 11. Deduplicate within this single cheap run
+  result.errors = deduplicateErrors(result.errors);
+
+  // 12. Screenshot
+  const screenshotPath = path.join(OUTPUT_DIR, `screenshot-${slugify(route.name)}-${Date.now()}.png`);
+  const screenshotData = await mcp.take_screenshot({ format: 'png' });
+  if (screenshotData?.data) {
+    fs.writeFileSync(screenshotPath, Buffer.from(screenshotData.data, 'base64'));
+    result.screenshot = screenshotPath;
+  }
+
+  return result;
+}
+
+/**
+ * Expensive/deterministic analyzers for one route — called ONCE per route (D3).
+ * Navigates to the URL, then runs: network perf, redirect chain,
+ * performance budgets, Lighthouse, broken internal links.
+ * Returns an array of finding objects (no result wrapper).
+ */
+async function crawlRouteExpensive(route, baseUrl, mcp) {
+  const url = `${baseUrl}${route.path}`;
+  const errors = [];
+
+  // Navigate to a fresh page load so perf trace and redirect count are accurate
+  try {
+    await mcp.navigate_page({ url });
+    if (route.waitFor) {
+      await mcp.wait_for({ selector: route.waitFor, timeout: 10000 }).catch(() => {});
+    } else {
+      await new Promise(r => setTimeout(r, config.pageSettleMs));
+    }
+  } catch (err) {
+    console.warn(`[ARGUS] Expensive crawl: navigation failed for ${url}: ${err.message}`);
+    return errors;
+  }
+
+  // 6c. Network performance analysis — slow responses + oversized payloads (v3 Phase A2)
+  try {
+    const perfRaw = await mcp.evaluate_script({ function: NETWORK_PERF_SCRIPT });
+    const perfResult = unwrapEval(perfRaw);
+    let perfEntries;
+    if (Array.isArray(perfResult)) {
+      perfEntries = perfResult;
+    } else {
+      perfEntries = JSON.parse(typeof perfResult === 'string' ? perfResult : '[]');
+    }
+    errors.push(...analyzeNetworkPerformance(Array.isArray(perfEntries) ? perfEntries : [], url));
+  } catch (err) {
+    console.warn(`[ARGUS] Network performance analysis skipped for ${url}: ${err.message}`);
+  }
+
+  // 6d. Redirect chain detection (D2.1)
+  try {
+    const rdRaw   = await mcp.evaluate_script({ function: REDIRECT_COUNT_SCRIPT });
+    const rdCount = Number(unwrapEval(rdRaw) ?? 0);
+    if (rdCount > 2) {
+      errors.push({
+        type:    'redirect_chain',
+        count:   rdCount,
+        message: `Redirect chain length ${rdCount} — navigated through ${rdCount} redirects (threshold: > 2)`,
+        severity: 'warning',
+        url,
+      });
+    }
+  } catch (err) {
+    console.warn(`[ARGUS] Redirect chain check skipped for ${url}: ${err.message}`);
+  }
+
+  // 8. Performance budget check
+  errors.push(...(await checkPerformanceBudgets(mcp, url)));
+
+  // 9. Full Lighthouse audit (accessibility + performance + SEO + best-practices)
+  errors.push(...(await checkLighthouse(mcp, url)));
+
+  // 10b. Broken internal link detection (D2.3)
   try {
     const linksRaw  = await mcp.evaluate_script({ function: INTERNAL_LINKS_SCRIPT });
     const rawLinks  = unwrapEval(linksRaw);
@@ -526,7 +585,7 @@ export async function crawlRoute(route, baseUrl, mcp) {
     );
     for (const { href, status } of headResults) {
       if (status === 404) {
-        result.errors.push({
+        errors.push({
           type:       'broken_link',
           requestUrl: href,
           status:     404,
@@ -540,21 +599,10 @@ export async function crawlRoute(route, baseUrl, mcp) {
     console.warn(`[ARGUS] Broken link check skipped for ${url}: ${err.message}`);
   }
 
-  // 11. Deduplicate
-  result.errors = deduplicateErrors(result.errors);
-
-  // 12. Take screenshot
-  const screenshotPath = path.join(OUTPUT_DIR, `screenshot-${slugify(route.name)}-${Date.now()}.png`);
-  const screenshotData = await mcp.take_screenshot({ format: 'png' });
-  if (screenshotData?.data) {
-    fs.writeFileSync(screenshotPath, Buffer.from(screenshotData.data, 'base64'));
-    result.screenshot = screenshotPath;
-  }
-
-  return result;
+  return errors;
 }
 
-// ── Per-route crawl + analysis helper (used twice per route for B4 flakiness) ──
+// ── Per-route crawl + analysis (D3: cheap×2 merge + expensive×1) ──────────────
 
 async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
   if (auth?.steps?.length > 0) {
@@ -565,9 +613,20 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
     }
   }
 
-  const result = await crawlRoute(route, targetBaseUrl, mcp);
+  // Cheap pass × 2: console, network, JS errors, SEO, security, content, CSS
+  console.log(`[ARGUS] ${route.name}: cheap run 1/2...`);
+  const cheapRun1 = await crawlRouteCheap(route, targetBaseUrl, mcp);
+  console.log(`[ARGUS] ${route.name}: cheap run 2/2 (flakiness check)...`);
+  const cheapRun2 = await crawlRouteCheap(route, targetBaseUrl, mcp);
+  const result    = mergeRunResults(cheapRun1, cheapRun2);
 
-  // Responsive layout analysis (v3 Phase A6) — after crawlRoute to avoid viewport pollution
+  // Expensive pass × 1: Lighthouse, perf budgets, network perf, redirect chain, broken links
+  console.log(`[ARGUS] ${route.name}: expensive analyzers (once)...`);
+  const expensiveErrors = await crawlRouteExpensive(route, targetBaseUrl, mcp);
+  result.errors.push(...expensiveErrors);
+  result.errors = deduplicateErrors(result.errors);
+
+  // Responsive layout analysis (v3 Phase A6) — once, after crawl to avoid viewport pollution
   try {
     const { findings: responsiveFindings, screenshots: responsiveShots } = await analyzeResponsive(mcp, `${targetBaseUrl}${route.path}`);
     result.errors.push(...responsiveFindings);
@@ -584,7 +643,7 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
     console.warn(`[ARGUS] Responsive analysis skipped for ${route.name}: ${err.message}`);
   }
 
-  // Memory leak detection (v3 Phase B1)
+  // Memory leak detection (v3 Phase B1) — once
   try {
     const memoryFindings = await analyzeMemory(mcp, `${targetBaseUrl}${route.path}`);
     result.errors.push(...memoryFindings);
@@ -635,17 +694,13 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
   }
 
   for (const route of targetRoutes) {
-    // Flakiness detection (v3 Phase B4) — crawl each route twice; only confirmed findings keep severity
-    console.log(`[ARGUS] Crawling (run 1/2): ${route.name} → ${targetBaseUrl}${route.path}`);
-    const run1 = await crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile);
+    // D3: cheap double-crawl (flakiness) + expensive single-crawl happen inside crawlAndAnalyzeRoute
+    console.log(`[ARGUS] Crawling: ${route.name} → ${targetBaseUrl}${route.path}`);
+    const result = await crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile);
 
-    console.log(`[ARGUS] Crawling (run 2/2): ${route.name} (flakiness check)`);
-    const run2 = await crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile);
-
-    const result = mergeRunResults(run1, run2);
     const flakyCount = result.errors.filter(e => e.flaky).length;
     if (flakyCount > 0) {
-      console.log(`[ARGUS] ${route.name}: ${flakyCount} finding(s) downgraded to info (flaky — appeared in only one run)`);
+      console.log(`[ARGUS] ${route.name}: ${flakyCount} finding(s) downgraded to info (flaky — appeared in only one cheap run)`);
     }
 
     report.routes.push(result);

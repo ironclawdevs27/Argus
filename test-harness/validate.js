@@ -145,11 +145,31 @@ const NET_SCRIPT = `() => window.performance.getEntriesByType('resource').map(fu
 // Returns array directly so CDP serialises it once.
 const CONSOLE_READ_SCRIPT = `() => (window.__argus_console||[])`;
 
+// D6.1 — Synchronous XHR detection (same logic as crawl-and-report.js)
+const INJECT_SYNC_XHR_LISTENER = `
+(function() {
+  if (window.__argusSyncXhrPatched) return;
+  window.__argusSyncXhrPatched = true;
+  window.__argusSyncXhrs = [];
+  var _open = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url, async) {
+    if (async === false) {
+      window.__argusSyncXhrs.push({ method: String(method || 'GET'), url: String(url) });
+    }
+    return _open.apply(this, arguments);
+  };
+})();
+`;
+const EXTRACT_SYNC_XHR_LISTENER = `() => JSON.stringify(window.__argusSyncXhrs ?? [])`;
+
 // ── Lightweight page crawler ──────────────────────────────────────────────────
 // Does NOT import crawl-and-report.js — avoids Slack initialisation side-effect.
 
 async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {}) {
   const errors = [];
+
+  // Inject sync XHR listener before navigation (D6.1) — patches XHR.prototype.open
+  await mcp.evaluate_script({ function: INJECT_SYNC_XHR_LISTENER }).catch(() => {});
 
   await mcp.navigate_page({ url });
 
@@ -348,6 +368,21 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
         errors.push({ type: 'broken_link', requestUrl: href, status: 404,
           severity: 'warning', message: `Broken internal link: ${href} (HTTP 404)` });
       }
+    }
+  } catch { /* skip */ }
+
+  // Sync XHR detection (D6.1)
+  try {
+    const syncXhrRaw = await mcp.evaluate_script({ function: EXTRACT_SYNC_XHR_LISTENER });
+    const syncXhrs   = evalToArray(syncXhrRaw);
+    for (const entry of syncXhrs) {
+      errors.push({
+        type:       'sync_xhr',
+        method:     entry.method ?? 'GET',
+        requestUrl: entry.url,
+        message:    `Synchronous XHR: ${entry.method ?? 'GET'} ${entry.url} — blocks the main thread`,
+        severity:   'warning',
+      });
     }
   } catch { /* skip */ }
 
@@ -1434,6 +1469,21 @@ async function runTests(mcp, stagingProc) {
       `Without slicing: ${errorsUnsliced.length} error(s) visible — prior-route leakage confirmed`);
     assert(errorsSliced.length === 0,
       `With D5 slicing: 0 errors on clean page (baseline ${consoleBaseline}, sliced ${cleanMsgs.length} msgs) — leakage prevented`);
+  }
+
+  // ── [32] Synchronous XHR detection — D6.1 ────────────────────────────────
+  console.log('\n[32] Sync XHR (D6.1) — synchronous XMLHttpRequest detected as warning');
+  {
+    const { errors: xhrErrors } = await crawlFixture(mcp, `${B}/sync-xhr.html`);
+    const syncXhrs = xhrErrors.filter(e => e.type === 'sync_xhr');
+    assert(syncXhrs.length > 0,
+      `sync_xhr finding detected (found types: ${[...new Set(xhrErrors.map(e => e.type))].join(', ') || 'none'})`);
+    assert(syncXhrs[0]?.severity === 'warning',
+      `sync_xhr → severity "warning" (got "${syncXhrs[0]?.severity}")`);
+    assert((syncXhrs[0]?.requestUrl ?? '').includes('/api/data'),
+      `sync_xhr requestUrl contains "/api/data" (got "${syncXhrs[0]?.requestUrl}")`);
+    assert(syncXhrs[0]?.method === 'GET',
+      `sync_xhr method is "GET" (got "${syncXhrs[0]?.method}")`);
   }
 }
 

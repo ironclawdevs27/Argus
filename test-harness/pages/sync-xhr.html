@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Sync XHR fixture for Argus D6.1 detection">
+  <title>Sync XHR Fixture — Argus D6.1</title>
+</head>
+<body>
+  <h1>Sync XHR Fixture</h1>
+  <p>This page makes a synchronous XMLHttpRequest to trigger the D6.1 detection.</p>
+  <div id="result" data-ready="true">Pending...</div>
+  <script>
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', '/api/data', false); // third arg false = synchronous — blocks main thread
+      xhr.send(null);
+      document.getElementById('result').textContent = 'Done: ' + xhr.status;
+    } catch (e) {
+      document.getElementById('result').textContent = 'XHR error: ' + e.message;
+    }
+  </script>
+</body>
+</html>
