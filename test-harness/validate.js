@@ -32,7 +32,8 @@ import { fileURLToPath } from 'url';
 import { PNG }          from 'pngjs';
 import pixelmatch       from 'pixelmatch';
 
-import { createMcpClient }                         from '../src/utils/mcp-client.js';
+import { createMcpClient, unwrapEval }              from '../src/utils/mcp-client.js';
+import { checkLighthouse }                         from '../src/utils/lighthouse-checker.js';
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../src/utils/css-analyzer.js';
 import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../src/utils/seo-analyzer.js';
 import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityConsole, analyzeSecurityNetwork } from '../src/utils/security-analyzer.js';
@@ -249,17 +250,17 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
     ) continue;
     const dur   = entry.duration ?? 0;
     const bytes = entry.decodedBodySize || entry.transferSize || 0;
-    if (dur >= 3000) {
+    if (dur > 3000) {
       errors.push({ type: 'slow_api', requestUrl: reqUrl, duration: Math.round(dur),
         severity: 'critical', message: `Slow API ${Math.round(dur)} ms — ${reqUrl}` });
-    } else if (dur >= 1000) {
+    } else if (dur > 1000) {
       errors.push({ type: 'slow_api', requestUrl: reqUrl, duration: Math.round(dur),
         severity: 'warning', message: `Slow API ${Math.round(dur)} ms — ${reqUrl}` });
     }
-    if (bytes >= 2 * 1024 * 1024) {
+    if (bytes > 2 * 1024 * 1024) {
       errors.push({ type: 'large_payload', requestUrl: reqUrl, bytes,
         severity: 'critical', message: `Oversized payload ${Math.round(bytes / 1024)} KB — ${reqUrl}` });
-    } else if (bytes >= 500 * 1024) {
+    } else if (bytes > 500 * 1024) {
       errors.push({ type: 'large_payload', requestUrl: reqUrl, bytes,
         severity: 'warning', message: `Oversized payload ${Math.round(bytes / 1024)} KB — ${reqUrl}` });
     }
@@ -316,6 +317,39 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
       errors.push(...cssBugs);
     }
   } catch { /* CSS analysis unavailable */ }
+
+  // Redirect chain detection (D2.1) — Navigation Timing redirectCount
+  try {
+    const rdRaw   = await mcp.evaluate_script({ function: `() => window.performance.getEntriesByType('navigation')[0]?.redirectCount ?? 0` });
+    const rdCount = Number(unwrapEval(rdRaw) ?? 0);
+    if (rdCount > 2) {
+      errors.push({ type: 'redirect_chain', count: rdCount, severity: 'warning',
+        message: `Redirect chain length ${rdCount} (threshold: > 2)` });
+    }
+  } catch { /* skip */ }
+
+  // Broken internal link detection (D2.3) — HEAD each same-origin <a href>
+  try {
+    const INTERNAL_LINKS_SCRIPT = `() => { try { var orig = window.location.origin; return Array.from(document.querySelectorAll('a[href]')).map(function(a){ return a.href; }).filter(function(h){ if (!h || h.indexOf('#') === 0 || h.indexOf('mailto:') === 0 || h.indexOf('tel:') === 0) return false; try { return new URL(h).origin === orig; } catch { return false; } }); } catch(e) { return []; } }`;
+    const linksRaw  = await mcp.evaluate_script({ function: INTERNAL_LINKS_SCRIPT });
+    const links     = [...new Set(evalToArray(linksRaw).filter(Boolean))];
+    const headResults = await Promise.all(
+      links.map(async href => {
+        try {
+          const res = await fetch(href, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
+          return { href, status: res.status };
+        } catch {
+          return { href, status: 0 };
+        }
+      })
+    );
+    for (const { href, status } of headResults) {
+      if (status === 404) {
+        errors.push({ type: 'broken_link', requestUrl: href, status: 404,
+          severity: 'warning', message: `Broken internal link: ${href} (HTTP 404)` });
+      }
+    }
+  } catch { /* skip */ }
 
   return { errors, networkReqs, consoleMsgs };
 }
@@ -1240,6 +1274,52 @@ async function runTests(mcp, stagingProc) {
       `Assert url_contains (no match): finding detected (got ${urlFailResult.findings.length})`);
     assert(urlFailResult.findings[0]?.type === 'flow_assert_failed',
       `Assert url_contains (no match): type = flow_assert_failed`);
+  }
+
+  // ── [28] Redirect chain detection — D2.1 ─────────────────────────────────
+  console.log('\n[28] Redirect Chain — 3-hop chain (start→hop1→hop2→end) → redirect_chain warning');
+  {
+    const { errors: rdErrors } = await crawlFixture(mcp, `${B}/redirect-chain-start`);
+    const chains = rdErrors.filter(e => e.type === 'redirect_chain');
+    assert(chains.length > 0,
+      `redirect_chain detected after 3-hop redirect (found types: ${[...new Set(rdErrors.map(e => e.type))].join(', ') || 'none'})`);
+    assert((chains[0]?.count ?? 0) > 2,
+      `redirect_chain count > 2 (got ${chains[0]?.count ?? 'N/A'})`);
+    assert(chains[0]?.severity === 'warning',
+      `redirect_chain → severity "warning"`);
+  }
+
+  // ── [29] Broken internal links — D2.3 ────────────────────────────────────
+  console.log('\n[29] Broken Links — 2 internal 404s detected, valid link and skipped links ignored');
+  {
+    const { errors: blErrors } = await crawlFixture(mcp, `${B}/broken-links.html`);
+    const broken = blErrors.filter(e => e.type === 'broken_link');
+    assert(broken.length === 2,
+      `2 broken_link findings detected (got ${broken.length}: ${broken.map(e => e.requestUrl).join(', ') || 'none'})`);
+    assert(broken.every(e => e.severity === 'warning'),
+      `All broken_link findings → severity "warning"`);
+    assert(broken.every(e => e.status === 404),
+      `All broken_link findings have status 404`);
+    assert(!broken.some(e => (e.requestUrl ?? '').includes('/clean.html')),
+      `Valid link /clean.html NOT in broken list`);
+  }
+
+  // ── [30] checkLighthouse direct test — D2.5 ──────────────────────────────
+  console.log('\n[30] checkLighthouse (D2.5) — production function returns array with required field shapes');
+  {
+    const violations = await checkLighthouse(mcp, `${B}/a11y-critical.html`);
+    assert(Array.isArray(violations),
+      `checkLighthouse returns an array (got ${typeof violations})`);
+    if (violations.length > 0) {
+      assert(violations.every(v => v.type && v.message && v.severity && v.url),
+        `All violations have required fields: type, message, severity, url (${violations.length} violation(s))`);
+    }
+    const scoreViolations = violations.filter(v => v.type === 'lighthouse_score');
+    const auditViolations = violations.filter(v => v.type === 'lighthouse_audit');
+    soft(scoreViolations.length > 0,
+      `checkLighthouse score violations: ${scoreViolations.length} (category score below threshold)`);
+    soft(auditViolations.length > 0,
+      `checkLighthouse audit violations: ${auditViolations.length} (individual failing audits)`);
   }
 }
 

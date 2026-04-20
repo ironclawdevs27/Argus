@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!-- Argus D2.1 fixture: terminal page of a 3-hop redirect chain -->
+<!-- Navigating to /redirect-chain-start triggers: start→hop1→hop2→this page -->
+<!-- window.performance.getEntriesByType('navigation')[0].redirectCount === 3 (> 2 threshold) -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Terminal page for Argus redirect chain detection fixture.">
+  <meta property="og:title" content="Redirect Chain End">
+  <meta property="og:description" content="Terminal page after a 3-hop redirect chain.">
+  <link rel="canonical" href="http://localhost:3100/redirect-chain-end.html">
+  <title>Redirect Chain End</title>
+  <style>body { font-family: sans-serif; padding: 20px; }</style>
+</head>
+<body>
+  <h1>Redirect Chain End</h1>
+  <p>You arrived here after a 3-hop redirect chain.</p>
+  <p>Argus should have detected <code>redirect_chain</code> with count 3 (&gt; 2 threshold).</p>
+  <div id="redirect-chain-content">Page loaded successfully.</div>
+</body>
+</html>

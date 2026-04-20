@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<!-- Argus D2.3 fixture: broken internal link detection -->
+<!-- 2 broken internal links (404), 1 valid, plus anchors/mailto/tel/external that must be skipped -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Broken internal links fixture for Argus D2.3 detection.">
+  <meta property="og:title" content="Broken Links Fixture">
+  <meta property="og:description" content="Page with broken and valid internal links for Argus testing.">
+  <link rel="canonical" href="http://localhost:3100/broken-links.html">
+  <title>Broken Links</title>
+  <style>body { font-family: sans-serif; padding: 20px; }</style>
+</head>
+<body>
+  <h1>Broken Links Fixture</h1>
+  <p>2 broken internal links (404), 1 valid, and 4 links that should be skipped.</p>
+
+  <!-- Valid internal link — exists as a static fixture -->
+  <a href="/clean.html">Clean page (valid, 200)</a>
+
+  <!-- Broken internal links — paths that do not exist → Express returns 404 -->
+  <a href="/nonexistent-argus-d23-a.html">Broken link 1 (404)</a>
+  <a href="/nonexistent-argus-d23-b.html">Broken link 2 (404)</a>
+
+  <!-- Must be skipped by the broken-link checker -->
+  <a href="#section-anchor">Anchor link (skip — starts with #)</a>
+  <a href="mailto:test@example.com">Email (skip — mailto:)</a>
+  <a href="tel:+15550000000">Phone (skip — tel:)</a>
+  <a href="https://example.com/external">External (skip — different origin)</a>
+</body>
+</html>

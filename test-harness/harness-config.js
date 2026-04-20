@@ -201,6 +201,22 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'responsive_overflow critical at ≤768px, responsive_small_touch_target warning at 375px',
   },
+  // D2.1 — redirect chain detection (3 hops: start→hop1→hop2→end)
+  {
+    path: '/redirect-chain-start',
+    name: 'Redirect Chain',
+    critical: false,
+    waitFor: null,
+    expected: 'redirect_chain warning (redirectCount: 3, threshold: > 2)',
+  },
+  // D2.3 — broken internal link detection (2 broken, 1 valid, 4 skipped)
+  {
+    path: '/broken-links.html',
+    name: 'Broken Links',
+    critical: false,
+    waitFor: null,
+    expected: '2 broken_link warnings for nonexistent internal paths',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

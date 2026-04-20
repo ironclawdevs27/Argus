@@ -39,6 +39,7 @@ import { runAllFlows } from '../utils/flow-runner.js';
 import { analyzeApiFrequency } from '../utils/api-frequency.js';
 import { slugify } from '../utils/slug.js';
 import { unwrapEval } from '../utils/mcp-client.js';
+import { checkLighthouse } from '../utils/lighthouse-checker.js';
 
 // ── Performance Budgets ────────────────────────────────────────────────────────
 // Hard thresholds — exceeding any of these is a 'warning' severity bug.
@@ -199,121 +200,24 @@ async function checkPerformanceBudgets(mcp, url) {
   return violations;
 }
 
-// ── Lighthouse Full Suite (v3 — Phase A1) ─────────────────────────────────────
+// ── Redirect Chain Detection Script (D2.1) ────────────────────────────────────
+// Navigation Timing API — redirectCount is the number of HTTP redirects followed
+// before the final document was received. Present in all modern browsers.
+const REDIRECT_COUNT_SCRIPT = `() => window.performance.getEntriesByType('navigation')[0]?.redirectCount ?? 0`;
 
-/**
- * Score thresholds per Lighthouse category.
- * score is 0–1 from Lighthouse; we multiply by 100 for display.
- */
-const LIGHTHOUSE_THRESHOLDS = {
-  accessibility:    { critical: 50, warning: 90 },
-  performance:      { critical: 50, warning: 90 },
-  seo:              { critical: 50, warning: 90 },
-  'best-practices': { critical: 50, warning: 90 },
-};
-
-/**
- * Human-readable category labels for messages.
- */
-const LIGHTHOUSE_LABELS = {
-  accessibility:    'Accessibility',
-  performance:      'Performance',
-  seo:              'SEO',
-  'best-practices': 'Best Practices',
-};
-
-/**
- * Run a full Lighthouse audit on the current page across all four categories:
- * accessibility, performance, SEO, and best-practices.
- *
- * Each category is scored independently:
- *   score < threshold.critical → 'critical'
- *   score < threshold.warning  → 'warning'
- *
- * Individual failing audit items are surfaced for every category so the
- * report pinpoints exactly which rules failed.
- *
- * @param {object} mcp - MCP tool interface
- * @param {string} url - URL being tested
- * @returns {Promise<object[]>} Lighthouse violation errors
- */
-async function checkLighthouse(mcp, url) {
-  const violations = [];
-
+// ── Internal Link Collection Script (D2.3) ────────────────────────────────────
+// Returns absolute hrefs for same-origin <a> links, skipping anchors/mailto/tel.
+const INTERNAL_LINKS_SCRIPT = `() => {
   try {
-    const result = await mcp.lighthouse_audit({
-      categories: ['accessibility', 'performance', 'seo', 'best-practices'],
-      url,
-    });
-
-    const categories = result?.categories ?? {};
-    const audits     = result?.audits     ?? {};
-
-    // ── Per-category score check ───────────────────────────────────────────
-    for (const [catKey, thresholds] of Object.entries(LIGHTHOUSE_THRESHOLDS)) {
-      // Lighthouse returns categories keyed by the category ID
-      const catData = categories[catKey] ?? categories[catKey.replace('-', '_')];
-      const score   = catData?.score ?? result?.[catKey]?.score ?? null;
-      if (score == null) continue;
-
-      const pct   = Math.round(score * 100);
-      const label = LIGHTHOUSE_LABELS[catKey];
-
-      if (pct < thresholds.critical) {
-        violations.push({
-          type:     'lighthouse_score',
-          category: catKey,
-          score:    pct,
-          threshold: thresholds.critical,
-          message:  `Lighthouse ${label} score ${pct}/100 — critical (threshold: ${thresholds.critical})`,
-          severity: 'critical',
-          url,
-        });
-      } else if (pct < thresholds.warning) {
-        violations.push({
-          type:     'lighthouse_score',
-          category: catKey,
-          score:    pct,
-          threshold: thresholds.warning,
-          message:  `Lighthouse ${label} score ${pct}/100 — needs improvement (threshold: ${thresholds.warning})`,
-          severity: 'warning',
-          url,
-        });
-      }
-    }
-
-    // ── Individual failing audit items ─────────────────────────────────────
-    // Surface every audit that scored 0 (hard failure) across all categories.
-    // Manual audits (type === 'manual') are skipped — they require human review.
-    for (const [auditId, audit] of Object.entries(audits)) {
-      if (audit.score !== 0) continue;
-      if (audit.details?.type === 'manual') continue;
-
-      // Determine which category this audit belongs to
-      const auditCategory = Object.entries(categories).find(([, cat]) =>
-        cat?.auditRefs?.some?.(ref => ref.id === auditId)
-      )?.[0] ?? 'unknown';
-
-      const label = LIGHTHOUSE_LABELS[auditCategory] ?? auditCategory;
-
-      violations.push({
-        type:         'lighthouse_audit',
-        category:     auditCategory,
-        auditId,
-        title:        audit.title,
-        message:      `[${label}] ${audit.title}${audit.description ? ' — ' + audit.description.slice(0, 120) : ''}`,
-        severity:     'warning',
-        url,
+    var orig = window.location.origin;
+    return Array.from(document.querySelectorAll('a[href]'))
+      .map(function(a) { return a.href; })
+      .filter(function(h) {
+        if (!h || h.indexOf('#') === 0 || h.indexOf('mailto:') === 0 || h.indexOf('tel:') === 0) return false;
+        try { return new URL(h).origin === orig; } catch { return false; }
       });
-    }
-
-  } catch (err) {
-    console.warn(`[ARGUS] Lighthouse audit skipped for ${url}: ${err.message}`);
-  }
-
-  return violations;
-}
-
+  } catch (e) { return []; }
+}`;
 
 // ── Network Performance Analysis (v3 Phase A2) ────────────────────────────────
 
@@ -342,7 +246,7 @@ function analyzeNetworkPerformance(perfEntries, pageUrl) {
     const payloadBytes = entry.decodedBodySize || entry.transferSize || 0;
 
     // Slow response check
-    if (duration >= NETWORK_PERF_THRESHOLDS.slowCritical) {
+    if (duration > NETWORK_PERF_THRESHOLDS.slowCritical) {
       bugs.push({
         type:      'slow_api',
         requestUrl: reqUrl,
@@ -352,7 +256,7 @@ function analyzeNetworkPerformance(perfEntries, pageUrl) {
         severity:  'critical',
         url:       pageUrl,
       });
-    } else if (duration >= NETWORK_PERF_THRESHOLDS.slowWarning) {
+    } else if (duration > NETWORK_PERF_THRESHOLDS.slowWarning) {
       bugs.push({
         type:      'slow_api',
         requestUrl: reqUrl,
@@ -365,7 +269,7 @@ function analyzeNetworkPerformance(perfEntries, pageUrl) {
     }
 
     // Payload size check
-    if (payloadBytes >= NETWORK_PERF_THRESHOLDS.sizeCritical) {
+    if (payloadBytes > NETWORK_PERF_THRESHOLDS.sizeCritical) {
       bugs.push({
         type:      'large_payload',
         requestUrl: reqUrl,
@@ -375,7 +279,7 @@ function analyzeNetworkPerformance(perfEntries, pageUrl) {
         severity:  'critical',
         url:       pageUrl,
       });
-    } else if (payloadBytes >= NETWORK_PERF_THRESHOLDS.sizeWarning) {
+    } else if (payloadBytes > NETWORK_PERF_THRESHOLDS.sizeWarning) {
       bugs.push({
         type:      'large_payload',
         requestUrl: reqUrl,
@@ -509,6 +413,23 @@ export async function crawlRoute(route, baseUrl, mcp) {
     console.warn(`[ARGUS] Network performance analysis skipped for ${url}: ${err.message}`);
   }
 
+  // 6d. Redirect chain detection — flag navigations with > 2 intermediate redirects (D2.1)
+  try {
+    const rdRaw   = await mcp.evaluate_script({ function: REDIRECT_COUNT_SCRIPT });
+    const rdCount = Number(unwrapEval(rdRaw) ?? 0);
+    if (rdCount > 2) {
+      result.errors.push({
+        type:    'redirect_chain',
+        count:   rdCount,
+        message: `Redirect chain length ${rdCount} — navigated through ${rdCount} redirects (threshold: > 2)`,
+        severity: 'warning',
+        url,
+      });
+    }
+  } catch (err) {
+    console.warn(`[ARGUS] Redirect chain check skipped for ${url}: ${err.message}`);
+  }
+
   // 7. Extract injected uncaught exceptions
   const injectedErrors = await mcp.evaluate_script({ function:EXTRACT_ERROR_LISTENER });
   try {
@@ -577,6 +498,37 @@ export async function crawlRoute(route, baseUrl, mcp) {
     result.errors.push(...cssBugs);
   } catch (err) {
     console.warn(`[ARGUS] CSS analysis skipped for ${url}: ${err.message}`);
+  }
+
+  // 10b. Broken internal link detection — HEAD each same-origin <a href> in parallel (D2.3)
+  try {
+    const linksRaw  = await mcp.evaluate_script({ function: INTERNAL_LINKS_SCRIPT });
+    const rawLinks  = unwrapEval(linksRaw);
+    const links     = [...new Set(Array.isArray(rawLinks) ? rawLinks.filter(Boolean) : [])];
+    const headResults = await Promise.all(
+      links.map(async href => {
+        try {
+          const res = await fetch(href, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
+          return { href, status: res.status };
+        } catch {
+          return { href, status: 0 };
+        }
+      })
+    );
+    for (const { href, status } of headResults) {
+      if (status === 404) {
+        result.errors.push({
+          type:       'broken_link',
+          requestUrl: href,
+          status:     404,
+          message:    `Broken internal link: ${href} (HTTP 404)`,
+          severity:   'warning',
+          url,
+        });
+      }
+    }
+  } catch (err) {
+    console.warn(`[ARGUS] Broken link check skipped for ${url}: ${err.message}`);
   }
 
   // 11. Deduplicate

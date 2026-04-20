@@ -152,6 +152,19 @@ app.get('/api/large-critical', (_req, res) => {
   res.json({ items });
 });
 
+// ── Redirect chain test routes (D2.1) ─────────────────────────────────────────
+// 3-hop chain: start→hop1→hop2→redirect-chain-end.html
+// Navigation Timing redirectCount will be 3, which is > 2 (the detection threshold).
+app.get('/redirect-chain-start', (_req, res) => {
+  res.redirect(301, '/redirect-chain-hop1');
+});
+app.get('/redirect-chain-hop1', (_req, res) => {
+  res.redirect(301, '/redirect-chain-hop2');
+});
+app.get('/redirect-chain-hop2', (_req, res) => {
+  res.redirect(301, '/redirect-chain-end.html');
+});
+
 // ── Performance test route (deliberate TTFB delay) ─────────────────────────────
 // Delays the response by 1 200 ms so TTFB exceeds the 800 ms budget.
 
