@@ -31,6 +31,8 @@
  */
 
 import fs from 'fs';
+import { runFlow } from './flow-runner.js';
+import { unwrapEval } from './mcp-client.js';
 
 // ── Capture Script ─────────────────────────────────────────────────────────────
 
@@ -101,54 +103,19 @@ function buildRestoreScript(state) {
 /**
  * Execute a login flow defined as a steps array in `targets.js`.
  *
- * Supported step actions:
- *   navigate  — navigate to a URL; use `url` for absolute or `path` for relative to baseUrl
- *   fill      — type a value into an input (selector + value)
- *   click     — click an element (selector)
- *   waitFor   — wait for a CSS selector to appear (selector, optional timeout ms)
- *   sleep     — pause execution (ms field)
+ * Delegates to flow-runner.js runFlow — same step DSL (navigate, fill, click,
+ * press_key, waitFor, sleep, handle_dialog, assert). The full superset of actions
+ * is available here, not just the original subset.
  *
- * @param {object} mcp      - MCP tool interface (fill, click, wait_for, navigate_page)
- * @param {string} baseUrl  - Base URL prepended to path-only navigate steps
- * @param {object[]} steps  - Step definitions
+ * Use explicit `sleep` steps or `waitFor` steps for timing between actions —
+ * the automatic 300ms inter-step delay from the old implementation is removed.
+ *
+ * @param {object} mcp      - MCP tool interface
+ * @param {string} baseUrl  - Base URL prepended to path-relative navigate steps
+ * @param {object[]} steps  - Step definitions (same DSL as flows[] in targets.js)
  */
 export async function runLoginFlow(mcp, baseUrl, steps) {
-  for (const step of steps) {
-    switch (step.action) {
-      case 'navigate':
-        await mcp.navigate_page({
-          url: step.url ?? (step.path ? `${baseUrl}${step.path}` : step.url),
-        });
-        break;
-
-      case 'fill':
-        await mcp.fill({ selector: step.selector, value: step.value ?? '' });
-        break;
-
-      case 'click':
-        await mcp.click({ selector: step.selector });
-        break;
-
-      case 'waitFor':
-        await mcp.wait_for({
-          selector: step.selector,
-          timeout:  step.timeout ?? 10000,
-        });
-        break;
-
-      case 'sleep':
-        await new Promise(r => setTimeout(r, step.ms ?? 500));
-        break;
-
-      default:
-        console.warn(`[ARGUS] Session manager: unknown login step action "${step.action}"`);
-    }
-
-    // Brief pause between steps so UI transitions settle
-    if (step.action !== 'sleep') {
-      await new Promise(r => setTimeout(r, step.delay ?? 300));
-    }
-  }
+  await runFlow({ name: 'login', steps }, baseUrl, mcp);
 }
 
 // ── Session Save ───────────────────────────────────────────────────────────────
@@ -163,7 +130,7 @@ export async function runLoginFlow(mcp, baseUrl, steps) {
  */
 export async function saveSession(mcp, sessionFile) {
   const raw = await mcp.evaluate_script({ function: SESSION_CAPTURE_SCRIPT });
-  const val = raw?.result ?? raw;
+  const val = unwrapEval(raw);
 
   let parsed;
   try {

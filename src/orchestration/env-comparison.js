@@ -22,6 +22,8 @@ import { comparisonRoutes, config } from '../config/targets.js';
 import { compareScreenshots, diffDomSnapshots, diffNetworkRequests, diffConsoleMessages } from '../utils/diff.js';
 import { postBugReport } from './slack-notifier.js';
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../utils/css-analyzer.js';
+import { analyzeApiFrequency } from '../utils/api-frequency.js';
+import { slugify } from '../utils/slug.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEV_URL = process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
@@ -409,79 +411,6 @@ async function dispatchCssAnalysisToSlack(report) {
 }
 
 /**
- * API frequency analysis — re-exported here for use in CSS analysis mode.
- * (Duplicate of the one in crawl-and-report.js — kept local to avoid circular imports)
- */
-function analyzeApiFrequency(networkReqs, pageUrl) {
-  const staticExtensions = /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|map|webp|avif)(\?|$)/i;
-  const apiCalls = networkReqs.filter(req => {
-    const u = req.url ?? '';
-    if (staticExtensions.test(u)) return false;
-    return (
-      /\/(api|graphql|rest|v\d+|_next\/data|trpc)\//i.test(u) ||
-      req.resourceType === 'XHR' || req.resourceType === 'Fetch' ||
-      req.initiatorType === 'xmlhttprequest' || req.initiatorType === 'fetch'
-    );
-  });
-
-  const groups = {};
-  for (const req of apiCalls) {
-    const method = (req.method ?? 'GET').toUpperCase();
-    const normalized = normalizeApiUrl(req.url);
-    const key = `${method}::${normalized}`;
-    if (!groups[key]) groups[key] = { method, normalizedUrl: normalized, calls: [] };
-    groups[key].calls.push({ url: req.url, status: req.status });
-  }
-
-  const bugs = [];
-  for (const group of Object.values(groups)) {
-    const count = group.calls.length;
-    if (count <= 1) continue;
-    let severity = 'info';
-    if (count >= 5) severity = 'critical';
-    else if (count >= 3) severity = 'warning';
-    bugs.push({
-      type: 'api_duplicate_call',
-      method: group.method,
-      endpoint: group.normalizedUrl,
-      callCount: count,
-      calls: group.calls,
-      message: `API called ${count}x: ${group.method} ${group.normalizedUrl}${count >= 5 ? ' — possible infinite loop' : count >= 3 ? ' — likely double-fetch (check useEffect deps)' : ' — called twice'}`,
-      severity,
-      url: pageUrl,
-    });
-  }
-
-  const uniqueCount = Object.keys(groups).length;
-  const totalCount = apiCalls.length;
-  const dupeCount = Object.values(groups).filter(g => g.calls.length > 1).length;
-  if (totalCount > 0) {
-    bugs.push({
-      type: 'api_call_summary',
-      uniqueEndpoints: uniqueCount,
-      totalCalls: totalCount,
-      duplicateEndpoints: dupeCount,
-      message: `API summary: ${totalCount} calls to ${uniqueCount} unique endpoints${dupeCount > 0 ? ` (${dupeCount} called more than once)` : ''}`,
-      severity: 'info',
-      url: pageUrl,
-    });
-  }
-  return bugs;
-}
-
-function normalizeApiUrl(url) {
-  try {
-    const u = new URL(url);
-    const pathname = u.pathname
-      .replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '/{id}')
-      .replace(/\/\d+/g, '/{id}');
-    return `${u.hostname}${pathname}`;
-  } catch {
-    return url.replace(/[?#].*/, '').replace(/\/\d+/g, '/{id}');
-  }
-}
-
-/**
  * Dispatch comparison diffs to Slack.
  * Critical diffs (e.g., a 200→500 status regression) get immediate notification.
  * Screenshot diffs get posted with both images and the diff overlay.
@@ -524,12 +453,6 @@ async function dispatchComparisonToSlack(report) {
       });
     }
   }
-}
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-function slugify(str) {
-  return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
 // ── CLI Entry ──────────────────────────────────────────────────────────────────

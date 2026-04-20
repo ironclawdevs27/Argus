@@ -18,6 +18,7 @@
 import fs   from 'fs';
 import os   from 'os';
 import path from 'path';
+import { unwrapEval } from './mcp-client.js';
 
 // ── Thresholds ─────────────────────────────────────────────────────────────────
 
@@ -109,7 +110,7 @@ function parseV8Snapshot(snapshot) {
 async function getHeapSize(mcp) {
   try {
     const raw    = await mcp.evaluate_script({ function: HEAP_SIZE_SCRIPT });
-    const val    = raw?.result ?? raw;
+    const val    = unwrapEval(raw);
     const parsed = typeof val === 'string' ? JSON.parse(val) : val;
     return typeof parsed?.usedJSHeapSize === 'number' ? parsed.usedJSHeapSize : null;
   } catch {

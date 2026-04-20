@@ -36,6 +36,9 @@ import { runLoginFlow, saveSession, restoreSession, hasSession } from '../utils/
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend } from '../utils/baseline-manager.js';
 import { mergeRunResults } from '../utils/flakiness-detector.js';
 import { runAllFlows } from '../utils/flow-runner.js';
+import { analyzeApiFrequency } from '../utils/api-frequency.js';
+import { slugify } from '../utils/slug.js';
+import { unwrapEval } from '../utils/mcp-client.js';
 
 // ── Performance Budgets ────────────────────────────────────────────────────────
 // Hard thresholds — exceeding any of these is a 'warning' severity bug.
@@ -311,118 +314,6 @@ async function checkLighthouse(mcp, url) {
   return violations;
 }
 
-// ── API Frequency Analysis ─────────────────────────────────────────────────────
-
-/**
- * Detect API endpoints called more than once in a single page load.
- * Groups by normalized URL + method. Flags duplicates with severity based
- * on call count and whether it looks like an accidental double-fetch.
- *
- * @param {object[]} networkReqs - All network requests from list_network_requests
- * @param {string} pageUrl - Page URL (for error reporting)
- * @returns {object[]} Bug entries for duplicate/excessive API calls
- */
-function analyzeApiFrequency(networkReqs, pageUrl) {
-  const bugs = [];
-
-  // Only examine XHR/fetch calls — filter out static assets
-  const staticExtensions = /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|map|webp|avif)(\?|$)/i;
-  const apiCalls = networkReqs.filter(req => {
-    const u = req.url ?? '';
-    if (staticExtensions.test(u)) return false;
-    // Include if it has /api/, /graphql, /v1/, /v2/, or is XHR/fetch type
-    return (
-      /\/(api|graphql|rest|v\d+|_next\/data|trpc)\//i.test(u) ||
-      req.resourceType === 'XHR' ||
-      req.resourceType === 'Fetch' ||
-      req.initiatorType === 'xmlhttprequest' ||
-      req.initiatorType === 'fetch'
-    );
-  });
-
-  // Group by method + normalized URL (strip query string for grouping key,
-  // but keep it in the report so you can see the exact calls made)
-  const groups = {};
-  for (const req of apiCalls) {
-    const method = (req.method ?? 'GET').toUpperCase();
-    const normalized = normalizeApiUrl(req.url);
-    const key = `${method}::${normalized}`;
-    if (!groups[key]) {
-      groups[key] = { method, normalizedUrl: normalized, calls: [], key };
-    }
-    groups[key].calls.push({
-      url: req.url,
-      status: req.status,
-      duration: req.duration ?? req.time ?? null,
-      initiator: req.initiator ?? null,
-    });
-  }
-
-  // Report groups with more than one call
-  for (const group of Object.values(groups)) {
-    const count = group.calls.length;
-    if (count <= 1) continue;
-
-    // Determine severity:
-    //   2 calls  → info (might be intentional: prefetch + actual)
-    //   3–4 calls → warning (likely a bug: double render, missing dependency array)
-    //   5+ calls  → critical (runaway loop, missing cleanup)
-    let severity = 'info';
-    if (count >= 5) severity = 'critical';
-    else if (count >= 3) severity = 'warning';
-
-    const durations = group.calls
-      .map(c => c.duration)
-      .filter(Boolean)
-      .map(d => `${Math.round(d)}ms`);
-
-    bugs.push({
-      type: 'api_duplicate_call',
-      method: group.method,
-      endpoint: group.normalizedUrl,
-      callCount: count,
-      calls: group.calls,
-      durations,
-      message: `API called ${count}x in one page load: ${group.method} ${group.normalizedUrl}${count >= 5 ? ' — possible infinite loop or missing cleanup' : count >= 3 ? ' — likely double-fetch bug (check useEffect deps or component re-mounts)' : ' — called twice (verify this is intentional)'}`,
-      severity,
-      url: pageUrl,
-    });
-  }
-
-  // Also report total unique API calls as an info summary
-  const uniqueCount = Object.keys(groups).length;
-  const totalCount = apiCalls.length;
-  if (totalCount > 0) {
-    bugs.push({
-      type: 'api_call_summary',
-      uniqueEndpoints: uniqueCount,
-      totalCalls: totalCount,
-      duplicateEndpoints: Object.values(groups).filter(g => g.calls.length > 1).length,
-      message: `API summary: ${totalCount} calls to ${uniqueCount} unique endpoints${Object.values(groups).filter(g => g.calls.length > 1).length > 0 ? ` (${Object.values(groups).filter(g => g.calls.length > 1).length} called more than once)` : ''}`,
-      severity: 'info',
-      url: pageUrl,
-    });
-  }
-
-  return bugs;
-}
-
-/**
- * Normalize an API URL for grouping: strip query params, collapse IDs.
- * e.g. /api/users/123/posts?page=2 → /api/users/{id}/posts
- */
-function normalizeApiUrl(url) {
-  try {
-    const u = new URL(url);
-    // Collapse numeric segments and UUIDs to {id}
-    const pathname = u.pathname
-      .replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '/{id}')
-      .replace(/\/\d+/g, '/{id}');
-    return `${u.hostname}${pathname}`;
-  } catch {
-    return url.replace(/[?#].*/, '').replace(/\/\d+/g, '/{id}');
-  }
-}
 
 // ── Network Performance Analysis (v3 Phase A2) ────────────────────────────────
 
@@ -605,7 +496,7 @@ export async function crawlRoute(route, baseUrl, mcp) {
   // 6c. Network performance analysis — slow responses + oversized payloads (v3 Phase A2)
   try {
     const perfRaw = await mcp.evaluate_script({ function: NETWORK_PERF_SCRIPT });
-    const perfResult = perfRaw?.result ?? perfRaw;
+    const perfResult = unwrapEval(perfRaw);
     let perfEntries;
     if (Array.isArray(perfResult)) {
       perfEntries = perfResult;
@@ -648,7 +539,7 @@ export async function crawlRoute(route, baseUrl, mcp) {
   // 9b. SEO DOM checks (v3 Phase A3) — meta tags, Open Graph, h1, title, canonical, viewport
   try {
     const seoRaw = await mcp.evaluate_script({ function: SEO_ANALYSIS_SCRIPT });
-    const seoResult = typeof seoRaw === 'object' ? (seoRaw?.result ?? seoRaw) : seoRaw;
+    const seoResult = unwrapEval(seoRaw);
     const seoBugs = parseSeoAnalysisResult(seoResult, url);
     result.errors.push(...seoBugs);
   } catch (err) {
@@ -658,7 +549,7 @@ export async function crawlRoute(route, baseUrl, mcp) {
   // 9c. Security checks (v3 Phase A4) — localStorage, eval(), cookies, headers, console, URL tokens
   try {
     const secRaw = await mcp.evaluate_script({ function: SECURITY_ANALYSIS_SCRIPT });
-    const secResult = typeof secRaw === 'object' ? (secRaw?.result ?? secRaw) : secRaw;
+    const secResult = unwrapEval(secRaw);
     const secBugs = parseSecurityAnalysisResult(secResult, url);
     result.errors.push(...secBugs);
   } catch (err) {
@@ -671,7 +562,7 @@ export async function crawlRoute(route, baseUrl, mcp) {
   // 9d. Content quality checks (v3 Phase A5) — null/undefined text, placeholders, broken images, empty lists
   try {
     const contentRaw = await mcp.evaluate_script({ function: CONTENT_ANALYSIS_SCRIPT });
-    const contentResult = typeof contentRaw === 'object' ? (contentRaw?.result ?? contentRaw) : contentRaw;
+    const contentResult = unwrapEval(contentRaw);
     const contentBugs = parseContentAnalysisResult(contentResult, url);
     result.errors.push(...contentBugs);
   } catch (err) {
@@ -681,7 +572,7 @@ export async function crawlRoute(route, baseUrl, mcp) {
   // 10. CSS analysis (always runs — provides style health data)
   try {
     const cssRaw = await mcp.evaluate_script({ function:CSS_ANALYSIS_SCRIPT });
-    const cssResult = typeof cssRaw === 'object' ? (cssRaw?.result ?? cssRaw) : cssRaw;
+    const cssResult = unwrapEval(cssRaw);
     const cssBugs = parseCssAnalysisResult(cssResult, url);
     result.errors.push(...cssBugs);
   } catch (err) {
@@ -1017,12 +908,6 @@ async function dispatchToSlack(report, diff) {
       details: { summary, infos: allInfos },
     });
   }
-}
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-function slugify(str) {
-  return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
 // ── CLI Entry ──────────────────────────────────────────────────────────────────

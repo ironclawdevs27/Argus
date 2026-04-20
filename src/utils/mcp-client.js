@@ -15,6 +15,24 @@
 import { spawn } from 'child_process';
 
 const BROWSER_URL = process.env.MCP_BROWSER_URL ?? 'http://127.0.0.1:9222';
+
+/**
+ * Unwrap an evaluate_script result to its plain value.
+ *
+ * MCP clients may return results in different shapes depending on whether they
+ * are running in interactive mode (Claude Code native) or headless CI mode:
+ *   - { result: value }  — some interactive-mode responses
+ *   - value              — headless client already extracts the value
+ *   - null / undefined   — script failed or Chrome not connected
+ *
+ * @param {any} raw - Raw return value from mcp.evaluate_script(...)
+ * @returns {any} The unwrapped value
+ */
+export function unwrapEval(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw.result ?? raw;
+  return raw;
+}
 const TOOL_TIMEOUT_MS = 30_000;
 
 /**

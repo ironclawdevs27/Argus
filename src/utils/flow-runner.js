@@ -16,6 +16,8 @@
  *   no_js_errors       — window.__argusErrors must be empty
  */
 
+import { unwrapEval } from './mcp-client.js';
+
 const DEFAULT_TIMEOUT = 10_000;
 
 function normalizeArray(val) {
@@ -75,7 +77,7 @@ async function runAssert(step, mcp, flowName, baseUrl, baselines) {
         const raw = await mcp.evaluate_script({
           function: `() => !!document.querySelector(${JSON.stringify(step.selector)})`,
         });
-        present = !!(raw?.result ?? raw);
+        present = !!unwrapEval(raw);
         if (present) break;
         await new Promise(r => setTimeout(r, 200));
       } while (Date.now() - start < timeout);
@@ -98,7 +100,7 @@ async function runAssert(step, mcp, flowName, baseUrl, baselines) {
       const raw = await mcp.evaluate_script({
         function: `() => !document.querySelector(${JSON.stringify(step.selector)})`,
       });
-      const absent = raw?.result ?? raw;
+      const absent = unwrapEval(raw);
       if (!absent) {
         findings.push({
           type: 'flow_assert_failed',
@@ -117,7 +119,7 @@ async function runAssert(step, mcp, flowName, baseUrl, baselines) {
       const raw = await mcp.evaluate_script({
         function: `() => window.location.href.includes(${JSON.stringify(step.value)})`,
       });
-      const matches = raw?.result ?? raw;
+      const matches = unwrapEval(raw);
       if (!matches) {
         findings.push({
           type: 'flow_assert_failed',
@@ -138,7 +140,7 @@ async function runAssert(step, mcp, flowName, baseUrl, baselines) {
       });
       let errors = [];
       try {
-        const val = raw?.result ?? raw;
+        const val = unwrapEval(raw);
         errors = JSON.parse(typeof val === 'string' ? val : '[]');
       } catch {}
       if (errors.length > 0) {
@@ -189,7 +191,8 @@ export async function runFlow(flow, baseUrl, mcp) {
     try {
       switch (step.action) {
         case 'navigate':
-          await mcp.navigate_page({ url: baseUrl + step.path });
+          // step.url = absolute URL override; step.path = relative to baseUrl
+          await mcp.navigate_page({ url: step.url ?? (baseUrl + (step.path ?? '')) });
           break;
 
         case 'fill':
