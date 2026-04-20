@@ -162,14 +162,35 @@ const INJECT_SYNC_XHR_LISTENER = `
 `;
 const EXTRACT_SYNC_XHR_LISTENER = `() => JSON.stringify(window.__argusSyncXhrs ?? [])`;
 
+// D6.2 — document.write / document.writeln detection (same logic as crawl-and-report.js)
+const INJECT_DOC_WRITE_LISTENER = `
+(function() {
+  if (window.__argusDocWritePatched) return;
+  window.__argusDocWritePatched = true;
+  window.__argusDocWrites = [];
+  var _write   = document.write.bind(document);
+  var _writeln = document.writeln.bind(document);
+  document.write = function() {
+    window.__argusDocWrites.push({ method: 'write', content: String(arguments[0] ?? '').slice(0, 200) });
+    return _write.apply(document, arguments);
+  };
+  document.writeln = function() {
+    window.__argusDocWrites.push({ method: 'writeln', content: String(arguments[0] ?? '').slice(0, 200) });
+    return _writeln.apply(document, arguments);
+  };
+})();
+`;
+const EXTRACT_DOC_WRITE_LISTENER = `() => JSON.stringify(window.__argusDocWrites ?? [])`;
+
 // ── Lightweight page crawler ──────────────────────────────────────────────────
 // Does NOT import crawl-and-report.js — avoids Slack initialisation side-effect.
 
 async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {}) {
   const errors = [];
 
-  // Inject sync XHR listener before navigation (D6.1) — patches XHR.prototype.open
-  await mcp.evaluate_script({ function: INJECT_SYNC_XHR_LISTENER }).catch(() => {});
+  // Inject listeners before navigation
+  await mcp.evaluate_script({ function: INJECT_SYNC_XHR_LISTENER }).catch(() => {});   // D6.1
+  await mcp.evaluate_script({ function: INJECT_DOC_WRITE_LISTENER }).catch(() => {});  // D6.2
 
   await mcp.navigate_page({ url });
 
@@ -382,6 +403,21 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
         requestUrl: entry.url,
         message:    `Synchronous XHR: ${entry.method ?? 'GET'} ${entry.url} — blocks the main thread`,
         severity:   'warning',
+      });
+    }
+  } catch { /* skip */ }
+
+  // document.write detection (D6.2)
+  try {
+    const docWriteRaw = await mcp.evaluate_script({ function: EXTRACT_DOC_WRITE_LISTENER });
+    const docWrites   = evalToArray(docWriteRaw);
+    for (const entry of docWrites) {
+      errors.push({
+        type:     'document_write',
+        method:   entry.method,
+        content:  entry.content,
+        message:  `document.${entry.method}() is parser-blocking and degrades page performance`,
+        severity: 'warning',
       });
     }
   } catch { /* skip */ }
@@ -1484,6 +1520,22 @@ async function runTests(mcp, stagingProc) {
       `sync_xhr requestUrl contains "/api/data" (got "${syncXhrs[0]?.requestUrl}")`);
     assert(syncXhrs[0]?.method === 'GET',
       `sync_xhr method is "GET" (got "${syncXhrs[0]?.method}")`);
+  }
+
+  // ── [33] document.write detection — D6.2 ─────────────────────────────────
+  console.log('\n[33] document.write (D6.2) — document.write + document.writeln detected as warnings');
+  {
+    const { errors: dwErrors } = await crawlFixture(mcp, `${B}/doc-write.html`);
+    const docWrites = dwErrors.filter(e => e.type === 'document_write');
+    assert(docWrites.length >= 2,
+      `At least 2 document_write findings (write + writeln) (found ${docWrites.length})`);
+    assert(docWrites.every(e => e.severity === 'warning'),
+      `All document_write findings have severity "warning"`);
+    const methods = docWrites.map(e => e.method);
+    assert(methods.includes('write'),
+      `document.write() call detected (methods: ${methods.join(', ')})`);
+    assert(methods.includes('writeln'),
+      `document.writeln() call detected (methods: ${methods.join(', ')})`);
   }
 }
 

@@ -225,6 +225,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'sync_xhr warning (synchronous GET /api/data blocks main thread)',
   },
+  // D6.2 — document.write / document.writeln usage
+  {
+    path: '/doc-write.html',
+    name: 'Document Write',
+    critical: false,
+    waitFor: null,
+    expected: 'document_write warning ×2 (document.write + document.writeln)',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

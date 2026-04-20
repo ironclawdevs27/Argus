@@ -148,6 +148,30 @@ const INJECT_ERROR_LISTENER = `
 /** Extracts the injected errors from the page after settle time. */
 const EXTRACT_ERROR_LISTENER = `JSON.stringify(window.__argusErrors || [])`;
 
+// ── D6.2 — document.write / document.writeln detection ───────────────────────
+
+/** Patches document.write and document.writeln before navigation to record calls. */
+const INJECT_DOC_WRITE_LISTENER = `
+(function() {
+  if (window.__argusDocWritePatched) return;
+  window.__argusDocWritePatched = true;
+  window.__argusDocWrites = [];
+  var _write   = document.write.bind(document);
+  var _writeln = document.writeln.bind(document);
+  document.write = function() {
+    window.__argusDocWrites.push({ method: 'write', content: String(arguments[0] ?? '').slice(0, 200) });
+    return _write.apply(document, arguments);
+  };
+  document.writeln = function() {
+    window.__argusDocWrites.push({ method: 'writeln', content: String(arguments[0] ?? '').slice(0, 200) });
+    return _writeln.apply(document, arguments);
+  };
+})();
+`;
+
+/** Extracts the list of document.write calls recorded by the injected listener. */
+const EXTRACT_DOC_WRITE_LISTENER = `() => JSON.stringify(window.__argusDocWrites ?? [])`;
+
 // ── D6.1 — Synchronous XHR detection ─────────────────────────────────────────
 
 /** Patches XMLHttpRequest.prototype.open before navigation to record sync calls. */
@@ -344,6 +368,8 @@ async function crawlRouteCheap(route, baseUrl, mcp) {
   await mcp.evaluate_script({ function:INJECT_ERROR_LISTENER });
   // 1b. Inject sync XHR listener (D6.1) — patches XMLHttpRequest.prototype.open
   await mcp.evaluate_script({ function:INJECT_SYNC_XHR_LISTENER });
+  // 1c. Inject document.write listener (D6.2)
+  await mcp.evaluate_script({ function:INJECT_DOC_WRITE_LISTENER });
 
   // 2. Navigate to the URL
   await mcp.navigate_page({ url });
@@ -450,6 +476,26 @@ async function crawlRouteCheap(route, baseUrl, mcp) {
         requestUrl: entry.url,
         message:    `Synchronous XHR: ${entry.method} ${entry.url} — blocks the main thread`,
         severity:   'warning',
+        url,
+      });
+    }
+  } catch {
+    // parse failure — listener may not have been active
+  }
+
+  // 7c. document.write detection (D6.2)
+  try {
+    const docWriteRaw = await mcp.evaluate_script({ function: EXTRACT_DOC_WRITE_LISTENER });
+    const rawDocWrite = unwrapEval(docWriteRaw);
+    const docWrites   = Array.isArray(rawDocWrite) ? rawDocWrite
+      : JSON.parse(typeof rawDocWrite === 'string' ? rawDocWrite : '[]');
+    for (const entry of docWrites) {
+      result.errors.push({
+        type:     'document_write',
+        method:   entry.method,
+        content:  entry.content,
+        message:  `document.${entry.method}() is parser-blocking and degrades page performance`,
+        severity: 'warning',
         url,
       });
     }

@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="document.write fixture for Argus D6.2 detection">
+  <title>document.write Fixture — Argus D6.2</title>
+</head>
+<body>
+  <h1>document.write Fixture</h1>
+  <p>This page calls <code>document.write()</code> and <code>document.writeln()</code> to trigger D6.2 detection.</p>
+  <script>
+    document.write('<span id="doc-write-output">injected via document.write</span>');
+    document.writeln('<span id="doc-writeln-output">injected via document.writeln</span>');
+  </script>
+  <div data-ready="true" id="fixture-ready">ready</div>
+</body>
+</html>
