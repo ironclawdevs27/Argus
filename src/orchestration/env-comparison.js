@@ -17,6 +17,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
+import { unwrapEval } from '../utils/mcp-client.js';
+import { normalizeArray } from '../utils/flow-runner.js';
 
 import { comparisonRoutes, config } from '../config/targets.js';
 import { compareScreenshots, diffDomSnapshots, diffNetworkRequests, diffConsoleMessages } from '../utils/diff.js';
@@ -67,10 +69,10 @@ async function capturePage(url, label, routeName, mcp) {
   const domString = JSON.stringify(domSnapshot?.document ?? domSnapshot ?? '');
 
   // Console messages
-  const consoleMsgs = await mcp.list_console_messages() ?? [];
+  const consoleMsgs = normalizeArray(await mcp.list_console_messages().catch(() => []));
 
   // Network requests
-  const networkReqs = await mcp.list_network_requests() ?? [];
+  const networkReqs = normalizeArray(await mcp.list_network_requests().catch(() => []));
 
   return {
     url,
@@ -312,12 +314,12 @@ async function runCssAnalysisMode(mcp) {
 
       // CSS analysis
       const cssRaw = await mcp.evaluate_script({ function:CSS_ANALYSIS_SCRIPT });
-      const cssResult = typeof cssRaw === 'object' ? (cssRaw?.result ?? cssRaw) : cssRaw;
+      const cssResult = unwrapEval(cssRaw);
       const cssBugs = parseCssAnalysisResult(cssResult, url);
       routeResult.findings.push(...cssBugs);
 
       // API frequency analysis — capture network requests made during page load
-      const networkReqs = await mcp.list_network_requests() ?? [];
+      const networkReqs = normalizeArray(await mcp.list_network_requests().catch(() => []));
       const apiFindings = analyzeApiFrequency(networkReqs, url);
       routeResult.findings.push(...apiFindings);
 

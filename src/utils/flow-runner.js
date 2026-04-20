@@ -20,7 +20,7 @@ import { unwrapEval } from './mcp-client.js';
 
 const DEFAULT_TIMEOUT = 10_000;
 
-function normalizeArray(val) {
+export function normalizeArray(val) {
   if (!val) return [];
   if (Array.isArray(val)) return val;
   if (Array.isArray(val.messages)) return val.messages;

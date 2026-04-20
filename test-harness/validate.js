@@ -1321,6 +1321,37 @@ async function runTests(mcp, stagingProc) {
     soft(auditViolations.length > 0,
       `checkLighthouse audit violations: ${auditViolations.length} (individual failing audits)`);
   }
+
+  // ── [31] Console/network per-route slicing — D5 ──────────────────────────
+  console.log('\n[31] D5 Console Slicing — prior-route messages excluded from clean-page crawl');
+  {
+    // Generate console errors on js-errors.html
+    await mcp.navigate_page({ url: `${B}/js-errors.html` });
+    await sleep(2000);
+
+    // Snapshot baseline BEFORE navigating to clean.html — this is the D5 pattern
+    const allBeforeClean = toArray(await mcp.list_console_messages().catch(() => []));
+    const consoleBaseline = allBeforeClean.length;
+
+    // Navigate to a clean page (no console errors expected)
+    await mcp.navigate_page({ url: `${B}/clean.html` });
+    await sleep(1500);
+
+    const allMsgsRaw = await mcp.list_console_messages().catch(() => []);
+    const allMsgs    = toArray(allMsgsRaw);
+
+    // Without slicing: errors from js-errors.html are still visible
+    const errorsUnsliced = allMsgs.filter(m => (m.level ?? '').toLowerCase() === 'error');
+
+    // With D5 slicing: only messages produced AFTER the baseline (i.e. by clean.html)
+    const cleanMsgs   = allMsgs.slice(consoleBaseline);
+    const errorsSliced = cleanMsgs.filter(m => (m.level ?? '').toLowerCase() === 'error');
+
+    assert(errorsUnsliced.length > 0,
+      `Without slicing: ${errorsUnsliced.length} error(s) visible — prior-route leakage confirmed`);
+    assert(errorsSliced.length === 0,
+      `With D5 slicing: 0 errors on clean page (baseline ${consoleBaseline}, sliced ${cleanMsgs.length} msgs) — leakage prevented`);
+  }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────

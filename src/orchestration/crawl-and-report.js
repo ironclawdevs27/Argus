@@ -35,7 +35,7 @@ import { analyzeMemory } from '../utils/memory-analyzer.js';
 import { runLoginFlow, saveSession, restoreSession, hasSession } from '../utils/session-manager.js';
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend } from '../utils/baseline-manager.js';
 import { mergeRunResults } from '../utils/flakiness-detector.js';
-import { runAllFlows } from '../utils/flow-runner.js';
+import { runAllFlows, normalizeArray } from '../utils/flow-runner.js';
 import { analyzeApiFrequency } from '../utils/api-frequency.js';
 import { slugify } from '../utils/slug.js';
 import { unwrapEval } from '../utils/mcp-client.js';
@@ -322,6 +322,13 @@ export async function crawlRoute(route, baseUrl, mcp) {
     isBlankPage: false,
   };
 
+  // 0. Snapshot session-wide console/network counts BEFORE this route starts (D5).
+  //    list_console_messages / list_network_requests accumulate across all Chrome
+  //    navigations in the session; slicing from these offsets prevents route N from
+  //    inheriting route 1…N-1's messages as false positives.
+  const consoleBaseline = normalizeArray(await mcp.list_console_messages().catch(() => [])).length;
+  const networkBaseline = normalizeArray(await mcp.list_network_requests().catch(() => [])).length;
+
   // 1. Inject error listener before navigation (or immediately after)
   await mcp.evaluate_script({ function:INJECT_ERROR_LISTENER });
 
@@ -345,9 +352,10 @@ export async function crawlRoute(route, baseUrl, mcp) {
 
   // 4. Check for blank/error page
   const titleResult = await mcp.evaluate_script({ function:'document.title' });
-  result.pageTitle = titleResult?.result ?? '';
+  result.pageTitle = String(unwrapEval(titleResult) ?? '');
   const bodyText = await mcp.evaluate_script({ function:'document.body?.innerText?.trim() ?? ""' });
-  result.isBlankPage = !bodyText?.result || bodyText.result.length < 50;
+  const bodyTextVal = String(unwrapEval(bodyText) ?? '');
+  result.isBlankPage = !bodyTextVal || bodyTextVal.length < 50;
 
   if (result.isBlankPage) {
     result.errors.push({
@@ -358,9 +366,9 @@ export async function crawlRoute(route, baseUrl, mcp) {
     });
   }
 
-  // 5. Capture console messages
-  const consoleMsgs = await mcp.list_console_messages();
-  for (const msg of consoleMsgs ?? []) {
+  // 5. Capture console messages — sliced from per-route baseline to prevent leakage (D5)
+  const consoleMsgs = normalizeArray(await mcp.list_console_messages()).slice(consoleBaseline);
+  for (const msg of consoleMsgs) {
     const severity = classifyConsoleMessage(msg, route.critical);
     if (severity !== null && msg.level !== 'log') {
       result.errors.push({
@@ -375,9 +383,9 @@ export async function crawlRoute(route, baseUrl, mcp) {
     }
   }
 
-  // 6. Capture network requests — filter for failures + frequency analysis
-  const networkReqs = await mcp.list_network_requests();
-  for (const req of networkReqs ?? []) {
+  // 6. Capture network requests — sliced from per-route baseline to prevent leakage (D5)
+  const networkReqs = normalizeArray(await mcp.list_network_requests()).slice(networkBaseline);
+  for (const req of networkReqs) {
     const severity = classifyNetworkRequest(req, route.critical);
     if (severity !== null) {
       result.errors.push({
@@ -394,7 +402,7 @@ export async function crawlRoute(route, baseUrl, mcp) {
   }
 
   // 6b. API frequency analysis — detect endpoints called multiple times
-  const apiFrequencyBugs = analyzeApiFrequency(networkReqs ?? [], url);
+  const apiFrequencyBugs = analyzeApiFrequency(networkReqs, url);
   result.errors.push(...apiFrequencyBugs);
 
   // 6c. Network performance analysis — slow responses + oversized payloads (v3 Phase A2)
@@ -433,7 +441,8 @@ export async function crawlRoute(route, baseUrl, mcp) {
   // 7. Extract injected uncaught exceptions
   const injectedErrors = await mcp.evaluate_script({ function:EXTRACT_ERROR_LISTENER });
   try {
-    const parsed = JSON.parse(injectedErrors?.result ?? '[]');
+    const rawInjected = unwrapEval(injectedErrors);
+    const parsed = JSON.parse(typeof rawInjected === 'string' ? rawInjected : '[]');
     for (const err of parsed) {
       result.errors.push({
         type: err.type,
