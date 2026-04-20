@@ -420,7 +420,8 @@ async function crawlRouteCheap(route, baseUrl, mcp) {
   const injectedErrors = await mcp.evaluate_script({ function:EXTRACT_ERROR_LISTENER });
   try {
     const rawInjected = unwrapEval(injectedErrors);
-    const parsed = JSON.parse(typeof rawInjected === 'string' ? rawInjected : '[]');
+    const parsed = Array.isArray(rawInjected) ? rawInjected
+      : JSON.parse(typeof rawInjected === 'string' ? rawInjected : '[]');
     for (const err of parsed) {
       result.errors.push({
         type: err.type,
@@ -440,7 +441,8 @@ async function crawlRouteCheap(route, baseUrl, mcp) {
   try {
     const syncXhrRaw = await mcp.evaluate_script({ function: EXTRACT_SYNC_XHR_LISTENER });
     const rawSyncXhr = unwrapEval(syncXhrRaw);
-    const syncXhrs   = JSON.parse(typeof rawSyncXhr === 'string' ? rawSyncXhr : '[]');
+    const syncXhrs   = Array.isArray(rawSyncXhr) ? rawSyncXhr
+      : JSON.parse(typeof rawSyncXhr === 'string' ? rawSyncXhr : '[]');
     for (const entry of syncXhrs) {
       result.errors.push({
         type:       'sync_xhr',

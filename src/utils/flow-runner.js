@@ -141,7 +141,8 @@ async function runAssert(step, mcp, flowName, baseUrl, baselines) {
       let errors = [];
       try {
         const val = unwrapEval(raw);
-        errors = JSON.parse(typeof val === 'string' ? val : '[]');
+        errors = Array.isArray(val) ? val
+          : JSON.parse(typeof val === 'string' ? val : '[]');
       } catch {}
       if (errors.length > 0) {
         findings.push({
