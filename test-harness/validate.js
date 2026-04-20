@@ -182,6 +182,35 @@ const INJECT_DOC_WRITE_LISTENER = `
 `;
 const EXTRACT_DOC_WRITE_LISTENER = `() => JSON.stringify(window.__argusDocWrites ?? [])`;
 
+// D6.3 — Long task detection (same logic as crawl-and-report.js)
+const INJECT_LONG_TASK_LISTENER = `
+(function() {
+  if (window.__argusLongTaskPatched) return;
+  window.__argusLongTaskPatched = true;
+  window.__argusLongTasks = [];
+  try {
+    var obs = new PerformanceObserver(function(list) {
+      var entries = list.getEntries();
+      for (var i = 0; i < entries.length; i++) {
+        var e = entries[i];
+        var attr = e.attribution && e.attribution[0];
+        window.__argusLongTasks.push({
+          duration:  Math.round(e.duration),
+          startTime: Math.round(e.startTime),
+          attribution: attr ? {
+            name:          attr.name          || null,
+            containerType: attr.containerType || null,
+            containerSrc:  attr.containerSrc  || null,
+          } : null,
+        });
+      }
+    });
+    obs.observe({ entryTypes: ['longtask'] });
+  } catch (e) { /* longtask not supported — skip */ }
+})();
+`;
+const EXTRACT_LONG_TASK_LISTENER = `() => JSON.stringify(window.__argusLongTasks ?? [])`;
+
 // ── Lightweight page crawler ──────────────────────────────────────────────────
 // Does NOT import crawl-and-report.js — avoids Slack initialisation side-effect.
 
@@ -191,6 +220,7 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
   // Inject listeners before navigation
   await mcp.evaluate_script({ function: INJECT_SYNC_XHR_LISTENER }).catch(() => {});   // D6.1
   await mcp.evaluate_script({ function: INJECT_DOC_WRITE_LISTENER }).catch(() => {});  // D6.2
+  await mcp.evaluate_script({ function: INJECT_LONG_TASK_LISTENER }).catch(() => {});  // D6.3
 
   await mcp.navigate_page({ url });
 
@@ -418,6 +448,22 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
         content:  entry.content,
         message:  `document.${entry.method}() is parser-blocking and degrades page performance`,
         severity: 'warning',
+      });
+    }
+  } catch { /* skip */ }
+
+  // Long task detection (D6.3)
+  try {
+    const longTaskRaw = await mcp.evaluate_script({ function: EXTRACT_LONG_TASK_LISTENER });
+    const longTasks   = evalToArray(longTaskRaw);
+    for (const entry of longTasks) {
+      errors.push({
+        type:      'long_task',
+        duration:  entry.duration,
+        startTime: entry.startTime,
+        attribution: entry.attribution,
+        message:   `Long task: ${entry.duration}ms — blocks the main thread (threshold: 50ms)`,
+        severity:  'warning',
       });
     }
   } catch { /* skip */ }
@@ -1536,6 +1582,19 @@ async function runTests(mcp, stagingProc) {
       `document.write() call detected (methods: ${methods.join(', ')})`);
     assert(methods.includes('writeln'),
       `document.writeln() call detected (methods: ${methods.join(', ')})`);
+  }
+
+  // ── [34] Long task detection — D6.3 ──────────────────────────────────────
+  console.log('\n[34] Long Tasks (D6.3) — 120ms busy-loop triggers long_task warning');
+  {
+    const { errors: ltErrors } = await crawlFixture(mcp, `${B}/long-task.html`);
+    const longTasks = ltErrors.filter(e => e.type === 'long_task');
+    assert(longTasks.length > 0,
+      `At least 1 long_task finding detected (found ${longTasks.length})`);
+    assert(longTasks.every(e => e.severity === 'warning'),
+      `All long_task findings have severity "warning"`);
+    assert(longTasks.some(e => (e.duration ?? 0) >= 50),
+      `At least one long task has duration >= 50ms (durations: ${longTasks.map(e => e.duration).join(', ')})`);
   }
 }
 

@@ -233,6 +233,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'document_write warning ×2 (document.write + document.writeln)',
   },
+  // D6.3 — long task > 50ms on main thread
+  {
+    path: '/long-task.html',
+    name: 'Long Task',
+    critical: false,
+    waitFor: null,
+    expected: 'long_task warning (120ms busy-loop > 50ms threshold)',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

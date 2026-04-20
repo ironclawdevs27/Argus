@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Long task fixture for Argus D6.3 detection">
+  <title>Long Task Fixture — Argus D6.3</title>
+</head>
+<body>
+  <h1>Long Task Fixture</h1>
+  <p>This page runs a synchronous busy-loop to produce a long task (&gt;50ms) on the main thread.</p>
+  <script>
+    // Busy-loop for ~120ms — reliably above the 50ms long-task threshold
+    var end = performance.now() + 120;
+    while (performance.now() < end) {}
+  </script>
+  <div data-ready="true" id="fixture-ready">ready</div>
+</body>
+</html>

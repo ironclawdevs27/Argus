@@ -172,6 +172,39 @@ const INJECT_DOC_WRITE_LISTENER = `
 /** Extracts the list of document.write calls recorded by the injected listener. */
 const EXTRACT_DOC_WRITE_LISTENER = `() => JSON.stringify(window.__argusDocWrites ?? [])`;
 
+// ── D6.3 — Long task (>50 ms) detection ──────────────────────────────────────
+
+/** Registers a PerformanceObserver for 'longtask' entries before navigation. */
+const INJECT_LONG_TASK_LISTENER = `
+(function() {
+  if (window.__argusLongTaskPatched) return;
+  window.__argusLongTaskPatched = true;
+  window.__argusLongTasks = [];
+  try {
+    var obs = new PerformanceObserver(function(list) {
+      var entries = list.getEntries();
+      for (var i = 0; i < entries.length; i++) {
+        var e = entries[i];
+        var attr = e.attribution && e.attribution[0];
+        window.__argusLongTasks.push({
+          duration:  Math.round(e.duration),
+          startTime: Math.round(e.startTime),
+          attribution: attr ? {
+            name:          attr.name          || null,
+            containerType: attr.containerType || null,
+            containerSrc:  attr.containerSrc  || null,
+          } : null,
+        });
+      }
+    });
+    obs.observe({ entryTypes: ['longtask'] });
+  } catch (e) { /* longtask not supported — skip */ }
+})();
+`;
+
+/** Extracts the list of long-task entries recorded by the PerformanceObserver. */
+const EXTRACT_LONG_TASK_LISTENER = `() => JSON.stringify(window.__argusLongTasks ?? [])`;
+
 // ── D6.1 — Synchronous XHR detection ─────────────────────────────────────────
 
 /** Patches XMLHttpRequest.prototype.open before navigation to record sync calls. */
@@ -370,6 +403,8 @@ async function crawlRouteCheap(route, baseUrl, mcp) {
   await mcp.evaluate_script({ function:INJECT_SYNC_XHR_LISTENER });
   // 1c. Inject document.write listener (D6.2)
   await mcp.evaluate_script({ function:INJECT_DOC_WRITE_LISTENER });
+  // 1d. Inject long-task PerformanceObserver (D6.3)
+  await mcp.evaluate_script({ function:INJECT_LONG_TASK_LISTENER });
 
   // 2. Navigate to the URL
   await mcp.navigate_page({ url });
@@ -501,6 +536,27 @@ async function crawlRouteCheap(route, baseUrl, mcp) {
     }
   } catch {
     // parse failure — listener may not have been active
+  }
+
+  // 7d. Long task detection (D6.3)
+  try {
+    const longTaskRaw = await mcp.evaluate_script({ function: EXTRACT_LONG_TASK_LISTENER });
+    const rawLongTasks = unwrapEval(longTaskRaw);
+    const longTasks    = Array.isArray(rawLongTasks) ? rawLongTasks
+      : JSON.parse(typeof rawLongTasks === 'string' ? rawLongTasks : '[]');
+    for (const entry of longTasks) {
+      result.errors.push({
+        type:      'long_task',
+        duration:  entry.duration,
+        startTime: entry.startTime,
+        attribution: entry.attribution,
+        message:   `Long task: ${entry.duration}ms — blocks the main thread (threshold: 50ms)`,
+        severity:  'warning',
+        url,
+      });
+    }
+  } catch {
+    // PerformanceObserver not available or parse failure
   }
 
   // 9b. SEO DOM checks (v3 Phase A3)
