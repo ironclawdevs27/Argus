@@ -172,6 +172,32 @@ const INJECT_DOC_WRITE_LISTENER = `
 /** Extracts the list of document.write calls recorded by the injected listener. */
 const EXTRACT_DOC_WRITE_LISTENER = `() => JSON.stringify(window.__argusDocWrites ?? [])`;
 
+// ── D6.5 — Service worker registration failure detection ─────────────────────
+
+/** Patches navigator.serviceWorker.register before navigation to intercept failures. */
+const INJECT_SW_LISTENER = `
+(function() {
+  if (window.__argusSwPatched) return;
+  window.__argusSwPatched = true;
+  window.__argusSwErrors = [];
+  if (!navigator.serviceWorker) return;
+  var _register = navigator.serviceWorker.register.bind(navigator.serviceWorker);
+  navigator.serviceWorker.register = function(scriptURL, options) {
+    var reg = _register(scriptURL, options);
+    reg.catch(function(err) {
+      window.__argusSwErrors.push({
+        scriptURL: String(scriptURL || ''),
+        message:   err && err.message ? err.message : String(err),
+      });
+    });
+    return reg;
+  };
+})();
+`;
+
+/** Extracts the list of service worker registration failures recorded by the listener. */
+const EXTRACT_SW_LISTENER = `() => JSON.stringify(window.__argusSwErrors ?? [])`;
+
 // ── D6.3 — Long task (>50 ms) detection ──────────────────────────────────────
 
 /** Registers a PerformanceObserver for 'longtask' entries before navigation. */
@@ -405,6 +431,8 @@ async function crawlRouteCheap(route, baseUrl, mcp) {
   await mcp.evaluate_script({ function:INJECT_DOC_WRITE_LISTENER });
   // 1d. Inject long-task PerformanceObserver (D6.3)
   await mcp.evaluate_script({ function:INJECT_LONG_TASK_LISTENER });
+  // 1e. Inject service worker registration listener (D6.5)
+  await mcp.evaluate_script({ function:INJECT_SW_LISTENER });
 
   // 2. Navigate to the URL
   await mcp.navigate_page({ url });
@@ -573,6 +601,25 @@ async function crawlRouteCheap(route, baseUrl, mcp) {
     }
   } catch {
     // PerformanceObserver not available or parse failure
+  }
+
+  // 7e. Service worker registration failure detection (D6.5)
+  try {
+    const swRaw  = await mcp.evaluate_script({ function: EXTRACT_SW_LISTENER });
+    const rawSw  = unwrapEval(swRaw);
+    const swErrs = Array.isArray(rawSw) ? rawSw
+      : JSON.parse(typeof rawSw === 'string' ? rawSw : '[]');
+    for (const entry of swErrs) {
+      result.errors.push({
+        type:      'sw_registration_error',
+        scriptURL: entry.scriptURL,
+        message:   `Service worker registration failed for "${entry.scriptURL}": ${entry.message}`,
+        severity:  'warning',
+        url,
+      });
+    }
+  } catch {
+    // service worker not supported or parse failure
   }
 
   // 9b. SEO DOM checks (v3 Phase A3)

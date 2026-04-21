@@ -249,6 +249,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'cors_error critical (fetch from localhost:3101 blocked by CORS policy)',
   },
+  // D6.5 — service worker registration failure (non-existent SW script)
+  {
+    path: '/sw-error.html',
+    name: 'SW Registration Error',
+    critical: false,
+    waitFor: null,
+    expected: 'sw_registration_error warning (register /sw-does-not-exist.js → 404)',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

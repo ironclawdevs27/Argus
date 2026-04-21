@@ -14,7 +14,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 ## What Argus Catches
 
-Argus runs twelve independent analysis engines on every page crawl. Every finding is classified by severity and routed to the right Slack channel automatically.
+Argus runs eighteen analysis engines per run and detects **92 distinct issue types** — fourteen fire on every page crawl (JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, and runtime anti-patterns), plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity and routed to the right Slack channel automatically.
 
 ### JavaScript Runtime
 
@@ -37,6 +37,8 @@ Argus runs twelve independent analysis engines on every page crawl. Every findin
 | 🟡 Warning | API endpoint called 3–4 times — likely a double-fetch bug | Frequency grouping → 3 ≤ count ≤ 4 (check `useEffect` deps) |
 | 🔵 Info | API endpoint called twice — may be intentional prefetch | Frequency grouping → count = 2 |
 | 🔵 Info | API call summary per page load (total calls, unique endpoints, duplicates) | Aggregated network analysis |
+| 🟡 Warning | Redirect chain longer than 2 hops — extra round-trips inflate load time | Navigation Timing `redirectCount` read after page settle |
+| 🟡 Warning | Broken internal link — `<a href>` target returns HTTP 404 | `<a>` elements harvested via `evaluate_script`, each verified against `list_network_requests` |
 
 ### Page Health
 
@@ -77,7 +79,7 @@ Argus runs twelve independent analysis engines on every page crawl. Every findin
 | 🟡 Warning | Missing ARIA labels on interactive elements | Individual Lighthouse audit check |
 | 🟡 Warning | Keyboard navigation broken or unreachable elements | Individual Lighthouse audit check |
 
-### SEO *(v3 Phase A3)*
+### SEO
 
 | Severity | Bug / Issue | Detection Method |
 |---|---|---|
@@ -89,7 +91,7 @@ Argus runs twelve independent analysis engines on every page crawl. Every findin
 | 🟡 Warning | Missing `<link rel="canonical">` | DOM inspection via `evaluate_script` |
 | 🟡 Warning | Missing `<meta name="viewport">` | DOM inspection via `evaluate_script` |
 
-### Security *(v3 Phase A4)*
+### Security
 
 | Severity | Bug / Issue | Detection Method |
 |---|---|---|
@@ -101,7 +103,7 @@ Argus runs twelve independent analysis engines on every page crawl. Every findin
 | 🟡 Warning | Missing `X-Frame-Options` response header | Same headers fetch |
 | 🔵 Info | Cookie present without `HttpOnly` flag (limited detection — JS-visible cookies only) | `document.cookie` inspection |
 
-### Content Quality *(v3 Phase A5)*
+### Content Quality
 
 | Severity | Bug / Issue | Detection Method |
 |---|---|---|
@@ -110,7 +112,7 @@ Argus runs twelve independent analysis engines on every page crawl. Every findin
 | 🟡 Warning | Broken image (404 or failed to load) | `evaluate_script` checks `img.naturalWidth === 0` on all images |
 | 🔵 Info | Empty data list — `<ul>`, `<ol>`, or `<select>` with no children | DOM structure check |
 
-### Responsive / Mobile *(v3 Phase A6)*
+### Responsive / Mobile
 
 | Severity | Bug / Issue | Detection Method |
 |---|---|---|
@@ -118,7 +120,7 @@ Argus runs twelve independent analysis engines on every page crawl. Every findin
 | 🟡 Warning | Touch target smaller than 44×44 px at mobile or tablet viewport | CSS computed size check on interactive elements at 375px and 768px |
 | 🔵 Info | Responsive screenshot grid — snapshots at 375 / 768 / 1024 / 1440px | `emulate` at 4 breakpoints, screenshots dispatched to Slack |
 
-### Network Performance *(v3 Phase A2)*
+### Network Performance
 
 | Severity | Bug / Issue | Detection Method |
 |---|---|---|
@@ -127,7 +129,7 @@ Argus runs twelve independent analysis engines on every page crawl. Every findin
 | 🔴 Critical | API response payload > 2 MB | `list_network_requests` → response body size |
 | 🟡 Warning | API response payload > 500 KB | Same, lower threshold |
 
-### Lighthouse Suite *(v3 Phase A1)*
+### Lighthouse Suite
 
 | Severity | Bug / Issue | Detection Method |
 |---|---|---|
@@ -138,7 +140,7 @@ Argus runs twelve independent analysis engines on every page crawl. Every findin
 | 🟡 Warning | Lighthouse best-practices score < 90 / 100 | `lighthouse_audit` (best-practices category) |
 | 🟡 Warning | Individual failing Lighthouse audit items | Surfaced per-audit from the full Lighthouse report |
 
-### Memory Leaks *(v3 Phase B1)*
+### Memory Leaks
 
 | Severity | Bug / Issue | Detection Method |
 |---|---|---|
@@ -146,7 +148,17 @@ Argus runs twelve independent analysis engines on every page crawl. Every findin
 | 🟡 Warning | > 10 detached DOM nodes in V8 heap — probable leak | Same snapshot parse, lower threshold |
 | 🟡 Warning | Heap grew > 2 MB after navigate-away + navigate-back — probable per-load leak | `performance.memory.usedJSHeapSize` delta across round-trip (soft — GC-dependent) |
 
-### Historical Baselines & Trends *(v3 Phase B3)*
+### Runtime Anti-Patterns
+
+| Severity | Bug / Issue | Detection Method |
+|---|---|---|
+| 🟡 Warning | Synchronous `XMLHttpRequest` — blocks the main thread until the server responds | `XMLHttpRequest.open` patched via `addScriptToEvaluateOnNewDocument`; `async === false` calls recorded |
+| 🟡 Warning | `document.write` / `document.writeln` called — can erase the page or block parsing | `document.write` and `document.writeln` patched before page load; calls recorded with method + content |
+| 🟡 Warning | Long task > 50ms on the main thread — blocks user interaction | `PerformanceObserver` with `entryTypes: ['longtask']` injected before page load |
+| 🔴 Critical | CORS policy violation — cross-origin fetch blocked by the browser | `list_console_messages` + pattern match for `"has been blocked by CORS policy"` |
+| 🟡 Warning | Service worker registration failure — SW script returns 4xx or is invalid | `navigator.serviceWorker.register` patched before page load; `.catch()` records failing script URL |
+
+### Historical Baselines & Trends
 
 | Severity | Bug / Issue | Detection Method |
 |---|---|---|
@@ -155,14 +167,14 @@ Argus runs twelve independent analysis engines on every page crawl. Every findin
 | 🔵 Info | Pre-existing finding still present — no change since last run | Suppressed from real-time alerts; included in info digest only |
 | 🔵 Info | Run trend summary — new vs resolved counts, saved per run | Appended to `reports/baselines/trends.json`; surfaced as a trend line in Slack digest |
 
-### Flakiness Detection *(v3 Phase B4)*
+### Flakiness Detection
 
 | Severity | Bug / Issue | Detection Method |
 |---|---|---|
 | original | Confirmed finding — present in both crawl runs | `mergeRunResults` finds the key in both run1 and run2 (`type::message[:100]::status` scheme); original severity kept |
 | 🔵 Info | Flaky finding — appeared in only one of two crawl runs | Present in run1 or run2 but not both; downgraded to `severity: 'info'`, labelled `:zap: _flaky_` in Slack digest |
 
-### User Flow Assertions *(v3 Phase B5)*
+### User Flow Assertions
 
 | Severity | Bug / Issue | Detection Method |
 |---|---|---|
@@ -194,7 +206,7 @@ Argus watches your running application and automatically surfaces issues that te
 
 | Feature | Description |
 |---|---|
-| **Error Detection** | Crawls your app's routes; captures JS exceptions, console errors, and failed API calls |
+| **Error Detection** | Crawls your app's routes; captures JS exceptions, console errors, failed API calls, redirect chains, and broken internal links |
 | **Environment Comparison** | Diffs dev vs staging: screenshots, DOM structure, network requests, console errors |
 | **CSS Analysis** | Detects cascade overrides, component style leaks, unused rules, React inline style conflicts |
 | **API Frequency Analysis** | Flags endpoints called more than once per page load (double-fetch, missing `useEffect` deps, infinite loops) |
@@ -204,6 +216,7 @@ Argus watches your running application and automatically surfaces issues that te
 | **Content Quality** | `null`/`undefined` rendered text, lorem ipsum, broken images, empty data lists |
 | **Responsive Analysis** | Overflow + touch target checks at 375/768px; screenshot grid at 4 breakpoints dispatched to Slack |
 | **Memory Leak Detection** | V8 heap snapshot → detached DOM node count; heap growth across navigate-away + navigate-back |
+| **Runtime Anti-Patterns** | Synchronous XHR, `document.write`, long tasks > 50ms, CORS violations, service worker registration failures — detected via script injection before page load |
 | **Historical Baselines** | Saves finding keys after each run; subsequent runs only alert on *new* issues; trend summary in Slack digest |
 | **Flakiness Detection** | Crawls each route twice per run; findings in both runs are confirmed (original severity); findings in only one run are marked flaky (`severity: info`, `:zap: _flaky_` label) |
 | **User Flow Assertions** | Named multi-step flows (`navigate/fill/click/press_key/waitFor/sleep/handle_dialog/assert`) with baseline-sliced `no_console_errors`, `no_network_errors`, `element_visible`, `url_contains`, `no_js_errors` asserts — runs end-to-end user journeys without writing Playwright specs |
@@ -418,8 +431,8 @@ Individual failing audit items (e.g., missing alt text, low contrast, render-blo
 
 | Severity | Channel | When |
 |---|---|---|
-| `critical` | `#bugs-critical` | JS exceptions, HTTP 5xx, blank page, auth failure, API called 5+ times, Lighthouse accessibility < 50, auth token in storage/URL, responsive overflow, slow API > 3s, payload > 2MB, > 100 detached DOM nodes |
-| `warning` | `#bugs-warnings` | Visual regression > 0.5%, HTTP 4xx, CSS overrides with `!important`, API called 3–4×, Lighthouse scores < 90, missing SEO/OG tags, missing security headers, placeholder content, touch targets too small, slow API > 1s, payload > 500KB, > 10 detached DOM nodes |
+| `critical` | `#bugs-critical` | JS exceptions, HTTP 5xx, blank page, auth failure, API called 5+ times, Lighthouse accessibility < 50, auth token in storage/URL, responsive overflow, slow API > 3s, payload > 2MB, > 100 detached DOM nodes, CORS policy violations |
+| `warning` | `#bugs-warnings` | Visual regression > 0.5%, HTTP 4xx, CSS overrides with `!important`, API called 3–4×, Lighthouse scores < 90, missing SEO/OG tags, missing security headers, placeholder content, touch targets too small, slow API > 1s, payload > 500KB, > 10 detached DOM nodes, redirect chains > 2 hops, broken links, sync XHR, `document.write`, long tasks > 50ms, SW registration failures |
 | `info` | `#bugs-digest` | Console warnings, unused CSS rules, API summaries, CSS Modules detection, empty data lists, responsive screenshot grid |
 
 Each message includes:
@@ -533,23 +546,23 @@ argus/
 │   │   └── interaction-handler.js    # Acknowledge + Retest button handler
 │   └── utils/
 │       ├── css-analyzer.js           # CSS analysis script injected into the browser
-│       ├── seo-analyzer.js           # SEO checks: meta, OG tags, h1, canonical, viewport (v3 A3)
-│       ├── security-analyzer.js      # Security: localStorage tokens, eval(), headers, cookies (v3 A4)
-│       ├── content-analyzer.js       # Content quality: null text, placeholders, broken images (v3 A5)
-│       ├── responsive-analyzer.js    # Responsive: overflow + touch targets at 4 breakpoints (v3 A6)
-│       ├── memory-analyzer.js        # Memory leaks: V8 heap snapshot + heap growth (v3 B1)
-│       ├── session-manager.js        # Auth: saveSession, restoreSession, runLoginFlow (v3 B2)
-│       ├── baseline-manager.js       # Baselines: loadBaseline, saveBaseline, applyBaseline, appendTrend (v3 B3)
-│       ├── flakiness-detector.js     # Flakiness: mergeRunResults — confirmed vs flaky per double-crawl (v3 B4)
-│       ├── flow-runner.js            # User flow assertions: runFlow / runAllFlows — assert DSL (v3 B5)
+│       ├── seo-analyzer.js           # SEO checks: meta, OG tags, h1, canonical, viewport
+│       ├── security-analyzer.js      # Security: localStorage tokens, eval(), headers, cookies
+│       ├── content-analyzer.js       # Content quality: null text, placeholders, broken images
+│       ├── responsive-analyzer.js    # Responsive: overflow + touch targets at 4 breakpoints
+│       ├── memory-analyzer.js        # Memory leaks: V8 heap snapshot + heap growth
+│       ├── session-manager.js        # Auth: saveSession, restoreSession, runLoginFlow
+│       ├── baseline-manager.js       # Baselines: loadBaseline, saveBaseline, applyBaseline, appendTrend
+│       ├── flakiness-detector.js     # Flakiness: mergeRunResults — confirmed vs flaky per double-crawl
+│       ├── flow-runner.js            # User flow assertions: runFlow / runAllFlows — assert DSL
 │       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
-├── test-harness/                     # Fixture server + test runner (26 blocks, 87 hard assertions, 18 categories)
+├── test-harness/                     # Fixture server + test runner (36 blocks, 140 hard assertions, 26 categories)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner
-│   ├── pages/                        # 25 fixture pages (one per detection category)
+│   ├── validate.js                   # Test runner — 36 numbered blocks
+│   ├── pages/                        # 35 fixture pages (one per detection category)
 │   └── static/
 │       └── button-styles.css         # BEM card selectors in button file → component leak
 └── reports/                          # Output: JSON reports + screenshots (gitignored)
@@ -577,6 +590,9 @@ argus/
 | Baseline alert filter | `isNew !== false` (not `=== true`) | Findings without `isNew` set (e.g. if baseline-manager not used) are still included in alerts — backwards-compatible |
 | Flakiness routing | `severity: 'info'` for flaky findings | Downgrading severity means existing `dispatchToSlack` routing sends them to the info digest with zero routing changes — only the `:zap: _flaky_` label needed |
 | Private `findingKey` per module | Each of `baseline-manager.js` and `flakiness-detector.js` has its own copy | Avoids coupling two independently-useful modules via a shared export for a trivial 3-line function |
+| Runtime anti-pattern injection | `addScriptToEvaluateOnNewDocument` via MCP | Scripts registered this way run in the new page context before any page script — intercepts `XMLHttpRequest.open`, `document.write`, and `navigator.serviceWorker.register` before the page can call them |
+| CORS error detection | `list_console_messages` + text match, not in-page intercept | CORS errors are generated by the browser itself, not by page JS — `console.error` patcher misses them; the MCP console log captures them |
+| Long task detection | `PerformanceObserver({ entryTypes: ['longtask'] })` injected before load | Only the duration is included in the finding message (not `startTime`) — ensures identical tasks on two crawl runs produce the same dedup key |
 | CI MCP client | JSON-RPC over stdio | In CI there's no Claude Code agent — the headless client replaces it with the same API surface |
 | Node.js | v20.19+ | Minimum required by Chrome DevTools MCP |
 

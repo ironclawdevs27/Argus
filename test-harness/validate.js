@@ -211,6 +211,28 @@ const INJECT_LONG_TASK_LISTENER = `
 `;
 const EXTRACT_LONG_TASK_LISTENER = `() => JSON.stringify(window.__argusLongTasks ?? [])`;
 
+// D6.5 — Service worker registration failure detection (same logic as crawl-and-report.js)
+const INJECT_SW_LISTENER = `
+(function() {
+  if (window.__argusSwPatched) return;
+  window.__argusSwPatched = true;
+  window.__argusSwErrors = [];
+  if (!navigator.serviceWorker) return;
+  var _register = navigator.serviceWorker.register.bind(navigator.serviceWorker);
+  navigator.serviceWorker.register = function(scriptURL, options) {
+    var reg = _register(scriptURL, options);
+    reg.catch(function(err) {
+      window.__argusSwErrors.push({
+        scriptURL: String(scriptURL || ''),
+        message:   err && err.message ? err.message : String(err),
+      });
+    });
+    return reg;
+  };
+})();
+`;
+const EXTRACT_SW_LISTENER = `() => JSON.stringify(window.__argusSwErrors ?? [])`;
+
 // ── Lightweight page crawler ──────────────────────────────────────────────────
 // Does NOT import crawl-and-report.js — avoids Slack initialisation side-effect.
 
@@ -224,6 +246,7 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
   await mcp.evaluate_script({ function: INJECT_SYNC_XHR_LISTENER }).catch(() => {});   // D6.1
   await mcp.evaluate_script({ function: INJECT_DOC_WRITE_LISTENER }).catch(() => {});  // D6.2
   await mcp.evaluate_script({ function: INJECT_LONG_TASK_LISTENER }).catch(() => {});  // D6.3
+  await mcp.evaluate_script({ function: INJECT_SW_LISTENER        }).catch(() => {});  // D6.5
 
   await mcp.navigate_page({ url });
 
@@ -483,6 +506,20 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
           severity: 'critical',
         });
       }
+    }
+  } catch { /* skip */ }
+
+  // Service worker registration failure detection (D6.5)
+  try {
+    const swRaw  = await mcp.evaluate_script({ function: EXTRACT_SW_LISTENER });
+    const swErrs = evalToArray(swRaw);
+    for (const entry of swErrs) {
+      errors.push({
+        type:      'sw_registration_error',
+        scriptURL: entry.scriptURL,
+        message:   `Service worker registration failed for "${entry.scriptURL}": ${entry.message}`,
+        severity:  'warning',
+      });
     }
   } catch { /* skip */ }
 
@@ -1626,6 +1663,19 @@ async function runTests(mcp, stagingProc) {
       `All cors_error findings have severity "critical"`);
     assert(corsFindings.some(e => (e.message ?? '').toLowerCase().includes('cors policy')),
       `cors_error message mentions "cors policy" (got "${corsFindings[0]?.message?.slice(0, 80)}")`);
+  }
+
+  // ── [36] Service worker registration failure — D6.5 ──────────────────────
+  console.log('\n[36] SW Registration Error (D6.5) — non-existent SW script triggers warning');
+  {
+    const { errors: swErrors } = await crawlFixture(mcp, `${B}/sw-error.html`);
+    const swFindings = swErrors.filter(e => e.type === 'sw_registration_error');
+    assert(swFindings.length > 0,
+      `sw_registration_error finding detected (found types: ${[...new Set(swErrors.map(e => e.type))].join(', ') || 'none'})`);
+    assert(swFindings.every(e => e.severity === 'warning'),
+      `All sw_registration_error findings have severity "warning"`);
+    assert(swFindings.some(e => (e.scriptURL ?? '').includes('sw-does-not-exist')),
+      `sw_registration_error includes failing scriptURL (got "${swFindings[0]?.scriptURL}")`);
   }
 }
 

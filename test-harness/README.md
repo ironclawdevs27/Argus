@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-27 test blocks · 97 hard assertions · 19 detection categories · 26 fixture pages
+36 test blocks · 140 hard assertions · 26 detection categories · 35 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -47,7 +47,16 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 24 | `auth-login.html` + `auth-protected.html` | Login flow (fill + click + waitFor) · `saveSession` captures cookie + localStorage · `restoreSession` injects state · protected page accessible after restore · auth error without session | Hard |
 | 25 | _(pure function — no fixture page)_ | Baseline manager: first-run detection · save+load round-trip · identical run returns 0 new/resolved · new finding → `isNew: true` · `appendTrend` persists resolved count | Hard |
 | 26 | _(pure function — no fixture page)_ | Flakiness detector: finding in both runs → confirmed (original severity, `flaky: false`) · run1-only → `flaky: true`, severity `info` · run2-only → `flaky: true`, severity `info` · confirmed/flaky counts | Hard |
-| 27 | `flow-form.html` | Flow runner (B5): empty flow → pass · fill+click+assert element_visible success · `element_visible` failure → `flow_assert_failed` · `no_console_errors` on clean page → 0 findings · `url_contains` match → 0 findings · `url_contains` no-match → finding detected | Hard |
+| 27 | `flow-form.html` | Flow runner: empty flow → pass · fill+click+assert element_visible success · `element_visible` failure → `flow_assert_failed` · `no_console_errors` on clean page → 0 findings · `url_contains` match → 0 findings · `url_contains` no-match → finding detected | Hard |
+| 28 | _(server redirect)_ | `redirect_chain` warning after 3-hop chain (start→hop1→hop2→end) · count > 2 · severity warning | Hard |
+| 29 | `broken-links.html` | 2 `broken_link` warnings for internal 404 hrefs · valid link excluded · all severity warning · all status 404 | Hard |
+| 30 | `a11y-critical.html` | `checkLighthouse` utility: returns array · all violations have required fields | Hard |
+| 31 | `clean.html` (after `js-errors.html`) | D5 per-route slicing: prior-route errors visible without slice · 0 errors on clean page with D5 slice | Hard |
+| 32 | `sync-xhr.html` | `sync_xhr` warning · method GET · requestUrl contains `/api/data` | Hard |
+| 33 | `doc-write.html` | `document_write` warning ×2 · both write and writeln methods detected | Hard |
+| 34 | `long-task.html` | `long_task` warning · at least one task ≥ 50ms | Hard |
+| 35 | `cors-error.html` | `cors_error` critical · message contains "cors policy" | Hard |
+| 36 | `sw-error.html` | `sw_registration_error` warning · scriptURL contains "sw-does-not-exist" | Hard |
 
 ---
 
@@ -78,16 +87,23 @@ test-harness/
 │   ├── a11y-warning.html           test 13 — moderate a11y violations
 │   ├── dev-home.html               test 15 — env-comparison dev fixture
 │   ├── staging-home.html           test 15 — env-comparison staging (regressions injected)
-│   ├── seo-issues.html             test 18 — SEO meta/heading issues (v3 Phase A3 fixture)
-│   ├── api-performance.html        test 17 — slow API + oversized payload (v3 Phase A2)
-│   ├── security-issues.html        test 19 — security checks (v3 Phase A4)
-│   ├── content-issues.html         test 20 — content quality checks (v3 Phase A5)
-│   ├── responsive-issues.html      test 21 — responsive overflow + touch targets (v3 Phase A6)
-│   ├── seo-no-h1.html              test 22 — missing h1 heading (v3 Phase A3)
-│   ├── memory-leak.html            test 23 — detached DOM nodes + heap growth (v3 Phase B1)
-│   ├── auth-login.html             test 24 — login form: fill+click sets cookie + localStorage (v3 Phase B2)
-│   ├── auth-protected.html         test 24 — protected page: shows content with session, 401 without (v3 Phase B2)
-│   └── flow-form.html              test 27 — two-field form with onclick handler: success + validation error (v3 Phase B5)
+│   ├── seo-issues.html             test 18 — SEO meta/heading issues
+│   ├── api-performance.html        test 17 — slow API + oversized payload
+│   ├── security-issues.html        test 19 — security checks
+│   ├── content-issues.html         test 20 — content quality checks
+│   ├── responsive-issues.html      test 21 — responsive overflow + touch targets
+│   ├── seo-no-h1.html              test 22 — missing h1 heading
+│   ├── memory-leak.html            test 23 — detached DOM nodes + heap growth
+│   ├── auth-login.html             test 24 — login form: fill+click sets cookie + localStorage
+│   ├── auth-protected.html         test 24 — protected page: shows content with session, 401 without
+│   ├── flow-form.html              test 27 — two-field form with onclick handler: success + validation error
+│   ├── redirect-chain-end.html     test 28 — landing page for 3-hop redirect chain
+│   ├── broken-links.html           test 29 — 2 dead internal hrefs + 1 valid link + 4 skipped external
+│   ├── sync-xhr.html               test 32 — synchronous XMLHttpRequest to /api/data
+│   ├── doc-write.html              test 33 — document.write() + document.writeln() in inline script
+│   ├── long-task.html              test 34 — 120ms busy-loop triggers long_task
+│   ├── cors-error.html             test 35 — fetch to localhost:3101 blocked by CORS
+│   └── sw-error.html              test 36 — register('/sw-does-not-exist.js') fails with 404
 └── static/
     └── button-styles.css       BEM card selectors in a button stylesheet
                                 → triggers component style leak detection
@@ -206,7 +222,7 @@ The validator will:
   ✓ Flaky count: 2 (expected 2)
 
 ────────────────────────────────────────────────────────
-Results: 97/97 hard assertions passed, 0 failed
+Results: 140/140 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```
