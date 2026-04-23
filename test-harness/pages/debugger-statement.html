@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Debugger statement fixture for Argus D6.7 detection">
+  <title>Debugger Statement Fixture — Argus D6.7</title>
+</head>
+<body>
+  <h1>Debugger Statement Fixture</h1>
+  <p>This page contains <code>debugger;</code> statements accidentally left in shipped code.</p>
+
+  <!-- Inline debugger — simulates developer debug code left in production -->
+  <script>
+    function inspectValue(x) {
+      debugger;
+      return x * 2;
+    }
+    inspectValue(21);
+  </script>
+
+  <!-- External script with debugger; — served by test-harness server.js -->
+  <script src="/api/debug-script.js"></script>
+
+  <div id="fixture-ready" data-ready="true">ready</div>
+</body>
+</html>

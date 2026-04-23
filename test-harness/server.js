@@ -138,6 +138,12 @@ app.head('/api/nocache.js', (_req, res) => {
   res.end();
 });
 
+// ── D6.7 — external script with debugger; statement ──────────────────────────
+app.get('/api/debug-script.js', (_req, res) => {
+  res.type('application/javascript');
+  res.send('function processData(val) { debugger; return val + 1; } processData(41);');
+});
+
 // ── Security test endpoint ─────────────────────────────────────────────────────
 // security-issues.html fetches this URL with a ?token= parameter to trigger
 // the security_token_in_url detection.

@@ -233,6 +233,42 @@ const INJECT_SW_LISTENER = `
 `;
 const EXTRACT_SW_LISTENER = `() => JSON.stringify(window.__argusSwErrors ?? [])`;
 
+// D6.7 — debugger; statement detection (inline + same-origin external scripts)
+const DEBUGGER_SCRIPT = `async () => {
+  var found = [];
+  var inline = document.querySelectorAll('script:not([src])');
+  for (var i = 0; i < inline.length; i++) {
+    var src = inline[i].textContent || '';
+    var lines = src.split('\\n');
+    for (var ln = 0; ln < lines.length; ln++) {
+      if (/\\bdebugger\\s*;/.test(lines[ln])) {
+        found.push({ scriptUrl: '(inline)', line: ln + 1, snippet: lines[ln].trim().slice(0, 120) });
+      }
+    }
+  }
+  var origin = window.location.origin;
+  var seen = {};
+  var extUrls = window.performance.getEntriesByType('resource')
+    .filter(function(e){ return e.initiatorType === 'script' && e.name.startsWith(origin); })
+    .map(function(e){ return e.name; })
+    .filter(function(u){ if (seen[u]) return false; seen[u] = true; return true; })
+    .slice(0, 20);
+  await Promise.all(extUrls.map(async function(scriptUrl) {
+    try {
+      var r = await fetch(scriptUrl, { cache: 'force-cache', credentials: 'same-origin' });
+      var text = await r.text();
+      var lines = text.split('\\n');
+      for (var ln = 0; ln < lines.length; ln++) {
+        if (/\\bdebugger\\s*;/.test(lines[ln])) {
+          var filename = scriptUrl.replace(/^.*\\//, '').split('?')[0];
+          found.push({ scriptUrl: filename || scriptUrl, line: ln + 1, snippet: lines[ln].trim().slice(0, 120) });
+        }
+      }
+    } catch(e) {}
+  }));
+  return JSON.stringify(found);
+}`;
+
 // D6.6 — Cache headers detection (async evaluate_script, runs after page settle)
 const CACHE_HEADER_SCRIPT = `async () => {
   var ASSET_EXT = /\\.(js|css|png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|otf)(\\?.*)?$/i;
@@ -560,6 +596,22 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
         requestUrl: entry.url,
         message:    `No cache headers on "${filename}" — missing both Cache-Control and ETag`,
         severity:   'info',
+      });
+    }
+  } catch { /* skip */ }
+
+  // debugger; statement detection — inline + same-origin external scripts (D6.7)
+  try {
+    const dbgRaw  = await mcp.evaluate_script({ function: DEBUGGER_SCRIPT });
+    const dbgHits = evalToArray(dbgRaw);
+    for (const entry of dbgHits) {
+      errors.push({
+        type:      'debugger_statement',
+        scriptUrl: entry.scriptUrl,
+        line:      entry.line,
+        snippet:   entry.snippet,
+        message:   `debugger; statement found in "${entry.scriptUrl}" (line ${entry.line}) — remove before shipping`,
+        severity:  'critical',
       });
     }
   } catch { /* skip */ }
@@ -1732,6 +1784,21 @@ async function runTests(mcp, stagingProc) {
       `nocache.css flagged as missing cache headers`);
     assert(cacheMissing.some(e => (e.requestUrl ?? '').includes('nocache.js')),
       `nocache.js flagged as missing cache headers`);
+  }
+
+  // ── [38] debugger; statement detection — D6.7 ────────────────────────────────
+  console.log('\n[38] Debugger Statement (D6.7) — debugger; in inline and external scripts → critical');
+  {
+    const { errors: dbgErrors } = await crawlFixture(mcp, `${B}/debugger-statement.html`);
+    const dbgHits = dbgErrors.filter(e => e.type === 'debugger_statement');
+    assert(dbgHits.length >= 2,
+      `At least 2 debugger_statement findings (inline + external) (found ${dbgHits.length}: ${dbgHits.map(e => e.scriptUrl).join(', ') || 'none'})`);
+    assert(dbgHits.every(e => e.severity === 'critical'),
+      `All debugger_statement findings have severity "critical"`);
+    assert(dbgHits.some(e => e.scriptUrl === '(inline)'),
+      `Inline debugger; detected`);
+    assert(dbgHits.some(e => (e.scriptUrl ?? '').includes('debug-script.js')),
+      `External debug-script.js debugger; detected`);
   }
 }
 

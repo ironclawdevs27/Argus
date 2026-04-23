@@ -225,6 +225,45 @@ const INJECT_SW_LISTENER = `
 /** Extracts the list of service worker registration failures recorded by the listener. */
 const EXTRACT_SW_LISTENER = `() => JSON.stringify(window.__argusSwErrors ?? [])`;
 
+// ── D6.7 — debugger; statement detection ─────────────────────────────────────
+
+// Runs post-load: scans inline scripts via DOM and fetches same-origin external
+// scripts to check for \bdebugger\s*; — always critical (debug code in production).
+const DEBUGGER_SCRIPT = `async () => {
+  var found = [];
+  var inline = document.querySelectorAll('script:not([src])');
+  for (var i = 0; i < inline.length; i++) {
+    var src = inline[i].textContent || '';
+    var lines = src.split('\\n');
+    for (var ln = 0; ln < lines.length; ln++) {
+      if (/\\bdebugger\\s*;/.test(lines[ln])) {
+        found.push({ scriptUrl: '(inline)', line: ln + 1, snippet: lines[ln].trim().slice(0, 120) });
+      }
+    }
+  }
+  var origin = window.location.origin;
+  var seen = {};
+  var extUrls = window.performance.getEntriesByType('resource')
+    .filter(function(e){ return e.initiatorType === 'script' && e.name.startsWith(origin); })
+    .map(function(e){ return e.name; })
+    .filter(function(u){ if (seen[u]) return false; seen[u] = true; return true; })
+    .slice(0, 20);
+  await Promise.all(extUrls.map(async function(scriptUrl) {
+    try {
+      var r = await fetch(scriptUrl, { cache: 'force-cache', credentials: 'same-origin' });
+      var text = await r.text();
+      var lines = text.split('\\n');
+      for (var ln = 0; ln < lines.length; ln++) {
+        if (/\\bdebugger\\s*;/.test(lines[ln])) {
+          var filename = scriptUrl.replace(/^.*\\//, '').split('?')[0];
+          found.push({ scriptUrl: filename || scriptUrl, line: ln + 1, snippet: lines[ln].trim().slice(0, 120) });
+        }
+      }
+    } catch(e) {}
+  }));
+  return JSON.stringify(found);
+}`;
+
 // ── D6.3 — Long task (>50 ms) detection ──────────────────────────────────────
 
 /** Registers a PerformanceObserver for 'longtask' entries before navigation. */
@@ -431,7 +470,7 @@ function analyzeNetworkPerformance(perfEntries, pageUrl) {
 /**
  * Cheap detections for one route — called TWICE per route for flakiness detection.
  * Runs: console, network, JS errors, blank page, API frequency,
- *       SEO, security, content, CSS, screenshot.
+ *       SEO, security, content, CSS, debugger statements, screenshot.
  * Does NOT run: Lighthouse, perf budgets, network perf, redirect chain, broken links, cache headers.
  */
 async function crawlRouteCheap(route, baseUrl, mcp) {
@@ -647,6 +686,27 @@ async function crawlRouteCheap(route, baseUrl, mcp) {
     }
   } catch {
     // service worker not supported or parse failure
+  }
+
+  // 7f. debugger; statement detection (D6.7)
+  try {
+    const dbgRaw  = await mcp.evaluate_script({ function: DEBUGGER_SCRIPT });
+    const rawDbg  = unwrapEval(dbgRaw);
+    const dbgHits = Array.isArray(rawDbg) ? rawDbg
+      : JSON.parse(typeof rawDbg === 'string' ? rawDbg : '[]');
+    for (const entry of dbgHits) {
+      result.errors.push({
+        type:      'debugger_statement',
+        scriptUrl: entry.scriptUrl,
+        line:      entry.line,
+        snippet:   entry.snippet,
+        message:   `debugger; statement found in "${entry.scriptUrl}" (line ${entry.line}) — remove before shipping`,
+        severity:  'critical',
+        url,
+      });
+    }
+  } catch {
+    // parse failure
   }
 
   // 9b. SEO DOM checks (v3 Phase A3)

@@ -265,6 +265,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'cache_headers_missing info ×2 for /api/nocache.css and /api/nocache.js',
   },
+  // D6.7 — debugger; statement in inline and external scripts
+  {
+    path: '/debugger-statement.html',
+    name: 'Debugger Statement',
+    critical: false,
+    waitFor: null,
+    expected: 'debugger_statement critical ×2 (one inline, one in debug-script.js)',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */
