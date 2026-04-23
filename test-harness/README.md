@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-38 test blocks · 148 hard assertions · 28 detection categories · 37 fixture pages
+39 test blocks · 153 hard assertions · 29 detection categories · 38 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -59,6 +59,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 36 | `sw-error.html` | `sw_registration_error` warning · scriptURL contains "sw-does-not-exist" | Hard |
 | 37 | `cache-headers.html` | `cache_headers_missing` info ×2 · nocache.css and nocache.js both flagged · all severity info | Hard |
 | 38 | `debugger-statement.html` | `debugger_statement` critical ×2 · inline script + external debug-script.js · all severity critical | Hard |
+| 39 | `duplicate-ids.html` | `duplicate_id` warning ×2 · id="card" ×3 + id="header" ×2 · unique-id not flagged · all severity warning | Hard |
 
 ---
 
@@ -107,7 +108,8 @@ test-harness/
 │   ├── cors-error.html             test 35 — fetch to localhost:3101 blocked by CORS
 │   ├── sw-error.html              test 36 — register('/sw-does-not-exist.js') fails with 404
 │   ├── cache-headers.html         test 37 — /api/nocache.css + /api/nocache.js served without cache headers
-│   └── debugger-statement.html    test 38 — inline + external script with debugger; statement
+│   ├── debugger-statement.html    test 38 — inline + external script with debugger; statement
+│   └── duplicate-ids.html         test 39 — id="card" ×3 + id="header" ×2 duplicate ids
 └── static/
     └── button-styles.css       BEM card selectors in a button stylesheet
                                 → triggers component style leak detection
@@ -226,7 +228,7 @@ The validator will:
   ✓ Flaky count: 2 (expected 2)
 
 ────────────────────────────────────────────────────────
-Results: 148/148 hard assertions passed, 0 failed
+Results: 153/153 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```

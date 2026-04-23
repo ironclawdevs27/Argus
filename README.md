@@ -14,7 +14,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 ## What Argus Catches
 
-Argus runs eighteen analysis engines per run and detects **94 distinct issue types** — fourteen fire on every page crawl (JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, and runtime anti-patterns), plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity and routed to the right Slack channel automatically.
+Argus runs eighteen analysis engines per run and detects **95 distinct issue types** — fourteen fire on every page crawl (JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, and runtime anti-patterns), plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity and routed to the right Slack channel automatically.
 
 ### JavaScript Runtime
 
@@ -433,7 +433,7 @@ Individual failing audit items (e.g., missing alt text, low contrast, render-blo
 | Severity | Channel | When |
 |---|---|---|
 | `critical` | `#bugs-critical` | JS exceptions, HTTP 5xx, blank page, auth failure, API called 5+ times, Lighthouse accessibility < 50, auth token in storage/URL, responsive overflow, slow API > 3s, payload > 2MB, > 100 detached DOM nodes, CORS policy violations, `debugger;` statements in production code |
-| `warning` | `#bugs-warnings` | Visual regression > 0.5%, HTTP 4xx, CSS overrides with `!important`, API called 3–4×, Lighthouse scores < 90, missing SEO/OG tags, missing security headers, placeholder content, touch targets too small, slow API > 1s, payload > 500KB, > 10 detached DOM nodes, redirect chains > 2 hops, broken links, sync XHR, `document.write`, long tasks > 50ms, SW registration failures |
+| `warning` | `#bugs-warnings` | Visual regression > 0.5%, HTTP 4xx, CSS overrides with `!important`, API called 3–4×, Lighthouse scores < 90, missing SEO/OG tags, missing security headers, placeholder content, touch targets too small, slow API > 1s, payload > 500KB, > 10 detached DOM nodes, redirect chains > 2 hops, broken links, sync XHR, `document.write`, long tasks > 50ms, SW registration failures, duplicate `id` attributes |
 | `info` | `#bugs-digest` | Console warnings, unused CSS rules, API summaries, CSS Modules detection, empty data lists, responsive screenshot grid, missing cache headers on static assets |
 
 Each message includes:

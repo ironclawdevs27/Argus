@@ -233,6 +233,22 @@ const INJECT_SW_LISTENER = `
 `;
 const EXTRACT_SW_LISTENER = `() => JSON.stringify(window.__argusSwErrors ?? [])`;
 
+// D6.8 — Duplicate id="" attribute detection
+const DUPLICATE_ID_SCRIPT = `() => {
+  var counts = {};
+  var els = document.querySelectorAll('[id]');
+  for (var i = 0; i < els.length; i++) {
+    var id = els[i].id;
+    if (!id) continue;
+    counts[id] = (counts[id] || 0) + 1;
+  }
+  var dupes = [];
+  for (var id in counts) {
+    if (counts[id] > 1) dupes.push({ id: id, count: counts[id] });
+  }
+  return JSON.stringify(dupes);
+}`;
+
 // D6.7 — debugger; statement detection (inline + same-origin external scripts)
 const DEBUGGER_SCRIPT = `async () => {
   var found = [];
@@ -612,6 +628,21 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
         snippet:   entry.snippet,
         message:   `debugger; statement found in "${entry.scriptUrl}" (line ${entry.line}) — remove before shipping`,
         severity:  'critical',
+      });
+    }
+  } catch { /* skip */ }
+
+  // Duplicate id="" detection (D6.8)
+  try {
+    const dupIdRaw  = await mcp.evaluate_script({ function: DUPLICATE_ID_SCRIPT });
+    const dupIds    = evalToArray(dupIdRaw);
+    for (const entry of dupIds) {
+      errors.push({
+        type:     'duplicate_id',
+        id:       entry.id,
+        count:    entry.count,
+        message:  `Duplicate id="${entry.id}" found on ${entry.count} elements — id must be unique per document`,
+        severity: 'warning',
       });
     }
   } catch { /* skip */ }
@@ -1799,6 +1830,23 @@ async function runTests(mcp, stagingProc) {
       `Inline debugger; detected`);
     assert(dbgHits.some(e => (e.scriptUrl ?? '').includes('debug-script.js')),
       `External debug-script.js debugger; detected`);
+  }
+
+  // ── [39] Duplicate id="" detection — D6.8 ────────────────────────────────────
+  console.log('\n[39] Duplicate IDs (D6.8) — id shared by multiple elements → warning');
+  {
+    const { errors: didErrors } = await crawlFixture(mcp, `${B}/duplicate-ids.html`);
+    const dupIds = didErrors.filter(e => e.type === 'duplicate_id');
+    assert(dupIds.length >= 2,
+      `At least 2 duplicate_id findings (card ×3 + header ×2) (found ${dupIds.length}: ${dupIds.map(e => e.id).join(', ') || 'none'})`);
+    assert(dupIds.every(e => e.severity === 'warning'),
+      `All duplicate_id findings have severity "warning"`);
+    assert(dupIds.some(e => e.id === 'card' && (e.count ?? 0) >= 3),
+      `id="card" flagged with count >= 3`);
+    assert(dupIds.some(e => e.id === 'header' && (e.count ?? 0) >= 2),
+      `id="header" flagged with count >= 2`);
+    assert(!dupIds.some(e => e.id === 'unique-id'),
+      `id="unique-id" (used once) not flagged`);
   }
 }
 

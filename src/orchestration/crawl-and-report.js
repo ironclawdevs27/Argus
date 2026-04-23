@@ -264,6 +264,24 @@ const DEBUGGER_SCRIPT = `async () => {
   return JSON.stringify(found);
 }`;
 
+// ── D6.8 — Duplicate id="" attribute detection ───────────────────────────────
+
+// Post-load DOM scan: groups all [id] elements by value, flags any id shared by > 1 element.
+const DUPLICATE_ID_SCRIPT = `() => {
+  var counts = {};
+  var els = document.querySelectorAll('[id]');
+  for (var i = 0; i < els.length; i++) {
+    var id = els[i].id;
+    if (!id) continue;
+    counts[id] = (counts[id] || 0) + 1;
+  }
+  var dupes = [];
+  for (var id in counts) {
+    if (counts[id] > 1) dupes.push({ id: id, count: counts[id] });
+  }
+  return JSON.stringify(dupes);
+}`;
+
 // ── D6.3 — Long task (>50 ms) detection ──────────────────────────────────────
 
 /** Registers a PerformanceObserver for 'longtask' entries before navigation. */
@@ -470,7 +488,7 @@ function analyzeNetworkPerformance(perfEntries, pageUrl) {
 /**
  * Cheap detections for one route — called TWICE per route for flakiness detection.
  * Runs: console, network, JS errors, blank page, API frequency,
- *       SEO, security, content, CSS, debugger statements, screenshot.
+ *       SEO, security, content, CSS, debugger statements, duplicate ids, screenshot.
  * Does NOT run: Lighthouse, perf budgets, network perf, redirect chain, broken links, cache headers.
  */
 async function crawlRouteCheap(route, baseUrl, mcp) {
@@ -702,6 +720,26 @@ async function crawlRouteCheap(route, baseUrl, mcp) {
         snippet:   entry.snippet,
         message:   `debugger; statement found in "${entry.scriptUrl}" (line ${entry.line}) — remove before shipping`,
         severity:  'critical',
+        url,
+      });
+    }
+  } catch {
+    // parse failure
+  }
+
+  // 7g. Duplicate id="" detection (D6.8)
+  try {
+    const dupIdRaw  = await mcp.evaluate_script({ function: DUPLICATE_ID_SCRIPT });
+    const rawDupIds = unwrapEval(dupIdRaw);
+    const dupIds    = Array.isArray(rawDupIds) ? rawDupIds
+      : JSON.parse(typeof rawDupIds === 'string' ? rawDupIds : '[]');
+    for (const entry of dupIds) {
+      result.errors.push({
+        type:     'duplicate_id',
+        id:       entry.id,
+        count:    entry.count,
+        message:  `Duplicate id="${entry.id}" found on ${entry.count} elements — id must be unique per document`,
+        severity: 'warning',
         url,
       });
     }

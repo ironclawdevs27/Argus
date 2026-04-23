@@ -273,6 +273,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'debugger_statement critical ×2 (one inline, one in debug-script.js)',
   },
+  // D6.8 — duplicate id="" attributes on the same page
+  {
+    path: '/duplicate-ids.html',
+    name: 'Duplicate IDs',
+    critical: false,
+    waitFor: null,
+    expected: 'duplicate_id warning ×2 (id="card" ×3, id="header" ×2); unique id not flagged',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */
