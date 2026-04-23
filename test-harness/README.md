@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-36 test blocks · 140 hard assertions · 26 detection categories · 35 fixture pages
+37 test blocks · 144 hard assertions · 27 detection categories · 36 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -57,6 +57,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 34 | `long-task.html` | `long_task` warning · at least one task ≥ 50ms | Hard |
 | 35 | `cors-error.html` | `cors_error` critical · message contains "cors policy" | Hard |
 | 36 | `sw-error.html` | `sw_registration_error` warning · scriptURL contains "sw-does-not-exist" | Hard |
+| 37 | `cache-headers.html` | `cache_headers_missing` info ×2 · nocache.css and nocache.js both flagged · all severity info | Hard |
 
 ---
 
@@ -103,7 +104,8 @@ test-harness/
 │   ├── doc-write.html              test 33 — document.write() + document.writeln() in inline script
 │   ├── long-task.html              test 34 — 120ms busy-loop triggers long_task
 │   ├── cors-error.html             test 35 — fetch to localhost:3101 blocked by CORS
-│   └── sw-error.html              test 36 — register('/sw-does-not-exist.js') fails with 404
+│   ├── sw-error.html              test 36 — register('/sw-does-not-exist.js') fails with 404
+│   └── cache-headers.html         test 37 — /api/nocache.css + /api/nocache.js served without cache headers
 └── static/
     └── button-styles.css       BEM card selectors in a button stylesheet
                                 → triggers component style leak detection
@@ -222,7 +224,7 @@ The validator will:
   ✓ Flaky count: 2 (expected 2)
 
 ────────────────────────────────────────────────────────
-Results: 140/140 hard assertions passed, 0 failed
+Results: 144/144 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```

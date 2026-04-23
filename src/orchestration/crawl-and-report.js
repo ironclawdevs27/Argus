@@ -62,6 +62,33 @@ const NETWORK_PERF_THRESHOLDS = {
 // PerformanceResourceTiming fields captured for network-perf analysis.
 const NETWORK_PERF_SCRIPT = `() => window.performance.getEntriesByType('resource').map(function(e){return{url:e.name,resourceType:e.initiatorType,duration:Math.round(e.duration||0),transferSize:e.transferSize||0,decodedBodySize:e.decodedBodySize||0}})`;
 
+// D6.6 — Same-origin static assets missing both Cache-Control and ETag response headers.
+// HEAD-requests each unique same-origin asset URL (capped at 25) after page settle.
+const CACHE_HEADER_SCRIPT = `async () => {
+  var ASSET_EXT = /\\.(js|css|png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|otf)(\\?.*)?$/i;
+  var origin = window.location.origin;
+  var seen = {};
+  var candidates = window.performance.getEntriesByType('resource')
+    .map(function(e){ return e.name; })
+    .filter(function(u){
+      if (!u.startsWith(origin) || !ASSET_EXT.test(u)) return false;
+      if (seen[u]) return false;
+      seen[u] = true;
+      return true;
+    })
+    .slice(0, 25);
+  var missing = [];
+  await Promise.all(candidates.map(async function(assetUrl){
+    try {
+      var r = await fetch(assetUrl, { method: 'HEAD', cache: 'reload', credentials: 'same-origin' });
+      if (!r.headers.get('cache-control') && !r.headers.get('etag')) {
+        missing.push({ url: assetUrl });
+      }
+    } catch(e) {}
+  }));
+  return JSON.stringify(missing);
+}`;
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BASE_URL = process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
 const OUTPUT_DIR = path.resolve(__dirname, '../../', config.outputDir);
@@ -405,7 +432,7 @@ function analyzeNetworkPerformance(perfEntries, pageUrl) {
  * Cheap detections for one route — called TWICE per route for flakiness detection.
  * Runs: console, network, JS errors, blank page, API frequency,
  *       SEO, security, content, CSS, screenshot.
- * Does NOT run: Lighthouse, perf budgets, network perf, redirect chain, broken links.
+ * Does NOT run: Lighthouse, perf budgets, network perf, redirect chain, broken links, cache headers.
  */
 async function crawlRouteCheap(route, baseUrl, mcp) {
   const url = `${baseUrl}${route.path}`;
@@ -677,7 +704,7 @@ async function crawlRouteCheap(route, baseUrl, mcp) {
 /**
  * Expensive/deterministic analyzers for one route — called ONCE per route (D3).
  * Navigates to the URL, then runs: network perf, redirect chain,
- * performance budgets, Lighthouse, broken internal links.
+ * performance budgets, Lighthouse, broken internal links, cache headers (D6.6).
  * Returns an array of finding objects (no result wrapper).
  */
 async function crawlRouteExpensive(route, baseUrl, mcp) {
@@ -764,6 +791,26 @@ async function crawlRouteExpensive(route, baseUrl, mcp) {
     }
   } catch (err) {
     console.warn(`[ARGUS] Broken link check skipped for ${url}: ${err.message}`);
+  }
+
+  // 10c. Cache header detection — static assets missing Cache-Control + ETag (D6.6)
+  try {
+    const cacheRaw  = await mcp.evaluate_script({ function: CACHE_HEADER_SCRIPT });
+    const rawCache  = unwrapEval(cacheRaw);
+    const cacheItems = Array.isArray(rawCache) ? rawCache
+      : JSON.parse(typeof rawCache === 'string' ? rawCache : '[]');
+    for (const entry of cacheItems) {
+      const filename = (entry.url ?? '').replace(/^.*\//, '').split('?')[0] || entry.url;
+      errors.push({
+        type:       'cache_headers_missing',
+        requestUrl: entry.url,
+        message:    `No cache headers on "${filename}" — missing both Cache-Control and ETag`,
+        severity:   'info',
+        url,
+      });
+    }
+  } catch (err) {
+    console.warn(`[ARGUS] Cache header check skipped for ${url}: ${err.message}`);
   }
 
   return errors;

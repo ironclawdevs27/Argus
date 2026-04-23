@@ -233,6 +233,32 @@ const INJECT_SW_LISTENER = `
 `;
 const EXTRACT_SW_LISTENER = `() => JSON.stringify(window.__argusSwErrors ?? [])`;
 
+// D6.6 — Cache headers detection (async evaluate_script, runs after page settle)
+const CACHE_HEADER_SCRIPT = `async () => {
+  var ASSET_EXT = /\\.(js|css|png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|otf)(\\?.*)?$/i;
+  var origin = window.location.origin;
+  var seen = {};
+  var candidates = window.performance.getEntriesByType('resource')
+    .map(function(e){ return e.name; })
+    .filter(function(u){
+      if (!u.startsWith(origin) || !ASSET_EXT.test(u)) return false;
+      if (seen[u]) return false;
+      seen[u] = true;
+      return true;
+    })
+    .slice(0, 25);
+  var missing = [];
+  await Promise.all(candidates.map(async function(assetUrl){
+    try {
+      var r = await fetch(assetUrl, { method: 'HEAD', cache: 'reload', credentials: 'same-origin' });
+      if (!r.headers.get('cache-control') && !r.headers.get('etag')) {
+        missing.push({ url: assetUrl });
+      }
+    } catch(e) {}
+  }));
+  return JSON.stringify(missing);
+}`;
+
 // ── Lightweight page crawler ──────────────────────────────────────────────────
 // Does NOT import crawl-and-report.js — avoids Slack initialisation side-effect.
 
@@ -519,6 +545,21 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
         scriptURL: entry.scriptURL,
         message:   `Service worker registration failed for "${entry.scriptURL}": ${entry.message}`,
         severity:  'warning',
+      });
+    }
+  } catch { /* skip */ }
+
+  // Cache header detection — same-origin static assets missing Cache-Control + ETag (D6.6)
+  try {
+    const cacheRaw   = await mcp.evaluate_script({ function: CACHE_HEADER_SCRIPT });
+    const cacheItems = evalToArray(cacheRaw);
+    for (const entry of cacheItems) {
+      const filename = (entry.url ?? '').replace(/^.*\//, '').split('?')[0] || entry.url;
+      errors.push({
+        type:       'cache_headers_missing',
+        requestUrl: entry.url,
+        message:    `No cache headers on "${filename}" — missing both Cache-Control and ETag`,
+        severity:   'info',
       });
     }
   } catch { /* skip */ }
@@ -1676,6 +1717,21 @@ async function runTests(mcp, stagingProc) {
       `All sw_registration_error findings have severity "warning"`);
     assert(swFindings.some(e => (e.scriptURL ?? '').includes('sw-does-not-exist')),
       `sw_registration_error includes failing scriptURL (got "${swFindings[0]?.scriptURL}")`);
+  }
+
+  // ── [37] Cache header detection — D6.6 ───────────────────────────────────────
+  console.log('\n[37] Cache Headers (D6.6) — assets without Cache-Control or ETag → info');
+  {
+    const { errors: chErrors } = await crawlFixture(mcp, `${B}/cache-headers.html`);
+    const cacheMissing = chErrors.filter(e => e.type === 'cache_headers_missing');
+    assert(cacheMissing.length >= 2,
+      `At least 2 cache_headers_missing findings (one per nocache asset) (found ${cacheMissing.length}: ${cacheMissing.map(e => e.requestUrl).join(', ') || 'none'})`);
+    assert(cacheMissing.every(e => e.severity === 'info'),
+      `All cache_headers_missing findings have severity "info"`);
+    assert(cacheMissing.some(e => (e.requestUrl ?? '').includes('nocache.css')),
+      `nocache.css flagged as missing cache headers`);
+    assert(cacheMissing.some(e => (e.requestUrl ?? '').includes('nocache.js')),
+      `nocache.js flagged as missing cache headers`);
   }
 }
 

@@ -257,6 +257,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'sw_registration_error warning (register /sw-does-not-exist.js → 404)',
   },
+  // D6.6 — static assets served without Cache-Control or ETag response headers
+  {
+    path: '/cache-headers.html',
+    name: 'Cache Headers',
+    critical: false,
+    waitFor: null,
+    expected: 'cache_headers_missing info ×2 for /api/nocache.css and /api/nocache.js',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

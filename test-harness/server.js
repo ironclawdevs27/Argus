@@ -118,7 +118,27 @@ app.get('/api/tracking', (_req, res) => {
   res.json({ tracking: true, env: IS_STAGING ? 'staging' : 'dev' });
 });
 
-// ── Security test endpoint (v3 Phase A4) ──────────────────────────────────────
+// ── D6.6 — deliberately uncached assets (no Cache-Control, no ETag) ─────────
+// res.writeHead + res.end bypasses Express's automatic ETag generation on res.send().
+// HEAD routes required so the in-page HEAD fetch works as well as GET.
+app.get('/api/nocache.css', (_req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/css' });
+  res.end('/* argus d6.6 nocache fixture */');
+});
+app.head('/api/nocache.css', (_req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/css' });
+  res.end();
+});
+app.get('/api/nocache.js', (_req, res) => {
+  res.writeHead(200, { 'Content-Type': 'application/javascript' });
+  res.end('/* argus d6.6 nocache fixture */');
+});
+app.head('/api/nocache.js', (_req, res) => {
+  res.writeHead(200, { 'Content-Type': 'application/javascript' });
+  res.end();
+});
+
+// ── Security test endpoint ─────────────────────────────────────────────────────
 // security-issues.html fetches this URL with a ?token= parameter to trigger
 // the security_token_in_url detection.
 app.get('/api/user-data', (_req, res) => {

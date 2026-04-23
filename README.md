@@ -14,7 +14,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 ## What Argus Catches
 
-Argus runs eighteen analysis engines per run and detects **92 distinct issue types** — fourteen fire on every page crawl (JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, and runtime anti-patterns), plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity and routed to the right Slack channel automatically.
+Argus runs eighteen analysis engines per run and detects **93 distinct issue types** — fourteen fire on every page crawl (JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, and runtime anti-patterns), plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity and routed to the right Slack channel automatically.
 
 ### JavaScript Runtime
 
@@ -157,6 +157,7 @@ Argus runs eighteen analysis engines per run and detects **92 distinct issue typ
 | 🟡 Warning | Long task > 50ms on the main thread — blocks user interaction | `PerformanceObserver` with `entryTypes: ['longtask']` injected before page load |
 | 🔴 Critical | CORS policy violation — cross-origin fetch blocked by the browser | `list_console_messages` + pattern match for `"has been blocked by CORS policy"` |
 | 🟡 Warning | Service worker registration failure — SW script returns 4xx or is invalid | `navigator.serviceWorker.register` patched before page load; `.catch()` records failing script URL |
+| 🔵 Info | Same-origin static asset (`.js`, `.css`, `.png`, `.woff2`, etc.) served without `Cache-Control` or `ETag` — browsers cannot cache it efficiently | `evaluate_script` reads `performance.getEntriesByType('resource')`, HEAD-fetches each unique same-origin asset, checks response headers |
 
 ### Historical Baselines & Trends
 
@@ -216,7 +217,7 @@ Argus watches your running application and automatically surfaces issues that te
 | **Content Quality** | `null`/`undefined` rendered text, lorem ipsum, broken images, empty data lists |
 | **Responsive Analysis** | Overflow + touch target checks at 375/768px; screenshot grid at 4 breakpoints dispatched to Slack |
 | **Memory Leak Detection** | V8 heap snapshot → detached DOM node count; heap growth across navigate-away + navigate-back |
-| **Runtime Anti-Patterns** | Synchronous XHR, `document.write`, long tasks > 50ms, CORS violations, service worker registration failures — detected via script injection before page load |
+| **Runtime Anti-Patterns** | Synchronous XHR, `document.write`, long tasks > 50ms, CORS violations, service worker registration failures, and missing cache headers on static assets — detected via script injection and post-load HEAD checks |
 | **Historical Baselines** | Saves finding keys after each run; subsequent runs only alert on *new* issues; trend summary in Slack digest |
 | **Flakiness Detection** | Crawls each route twice per run; findings in both runs are confirmed (original severity); findings in only one run are marked flaky (`severity: info`, `:zap: _flaky_` label) |
 | **User Flow Assertions** | Named multi-step flows (`navigate/fill/click/press_key/waitFor/sleep/handle_dialog/assert`) with baseline-sliced `no_console_errors`, `no_network_errors`, `element_visible`, `url_contains`, `no_js_errors` asserts — runs end-to-end user journeys without writing Playwright specs |
@@ -433,7 +434,7 @@ Individual failing audit items (e.g., missing alt text, low contrast, render-blo
 |---|---|---|
 | `critical` | `#bugs-critical` | JS exceptions, HTTP 5xx, blank page, auth failure, API called 5+ times, Lighthouse accessibility < 50, auth token in storage/URL, responsive overflow, slow API > 3s, payload > 2MB, > 100 detached DOM nodes, CORS policy violations |
 | `warning` | `#bugs-warnings` | Visual regression > 0.5%, HTTP 4xx, CSS overrides with `!important`, API called 3–4×, Lighthouse scores < 90, missing SEO/OG tags, missing security headers, placeholder content, touch targets too small, slow API > 1s, payload > 500KB, > 10 detached DOM nodes, redirect chains > 2 hops, broken links, sync XHR, `document.write`, long tasks > 50ms, SW registration failures |
-| `info` | `#bugs-digest` | Console warnings, unused CSS rules, API summaries, CSS Modules detection, empty data lists, responsive screenshot grid |
+| `info` | `#bugs-digest` | Console warnings, unused CSS rules, API summaries, CSS Modules detection, empty data lists, responsive screenshot grid, missing cache headers on static assets |
 
 Each message includes:
 - Severity badge + affected URL + timestamp
@@ -557,12 +558,12 @@ argus/
 │       ├── flow-runner.js            # User flow assertions: runFlow / runAllFlows — assert DSL
 │       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
-├── test-harness/                     # Fixture server + test runner (36 blocks, 140 hard assertions, 26 categories)
+├── test-harness/                     # Fixture server + test runner (37 blocks, 144 hard assertions, 27 categories)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner — 36 numbered blocks
-│   ├── pages/                        # 35 fixture pages (one per detection category)
+│   ├── validate.js                   # Test runner — 37 numbered blocks
+│   ├── pages/                        # 36 fixture pages (one per detection category)
 │   └── static/
 │       └── button-styles.css         # BEM card selectors in button file → component leak
 └── reports/                          # Output: JSON reports + screenshots (gitignored)
