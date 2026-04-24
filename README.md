@@ -560,13 +560,14 @@ argus/
 │       ├── flakiness-detector.js     # Flakiness: mergeRunResults — confirmed vs flaky per double-crawl
 │       ├── flow-runner.js            # User flow assertions: runFlow / runAllFlows — assert DSL
 │       ├── html-reporter.js          # HTML dashboard: npm run report:html → self-contained report.html
+│       ├── parallel-crawler.js       # chunkArray sharding utility (ARGUS_CONCURRENCY=N parallel crawl)
 │       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
-├── test-harness/                     # Fixture server + test runner (40 blocks, 159 hard assertions, 30 categories)
+├── test-harness/                     # Fixture server + test runner (41 blocks, 166 hard assertions, 30 categories)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner — 40 numbered blocks
+│   ├── validate.js                   # Test runner — 41 numbered blocks
 │   ├── pages/                        # 39 fixture pages (one per detection category)
 │   └── static/
 │       └── button-styles.css         # BEM card selectors in button file → component leak
@@ -616,6 +617,7 @@ argus/
 | `TARGET_STAGING_URL` | No | Base URL of staging. If blank → CSS analysis mode |
 | `SCREENSHOT_DIFF_THRESHOLD` | No | Pixel diff % to flag (default: `0.5`) |
 | `REPORT_OUTPUT_DIR` | No | Where to write reports (default: `./reports`) |
+| `ARGUS_CONCURRENCY` | No | Number of parallel MCP clients for route crawling (default: `1` = sequential) |
 | `PORT` | No | Server port (default: `3001`) |
 
 ---

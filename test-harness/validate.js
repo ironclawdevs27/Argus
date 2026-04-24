@@ -44,6 +44,7 @@ import { saveSession, restoreSession } from '../src/utils/session-manager.js';
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend, getCurrentBranch } from '../src/utils/baseline-manager.js';
 import { mergeRunResults } from '../src/utils/flakiness-detector.js';
 import { runFlow, normalizeArray } from '../src/utils/flow-runner.js';
+import { chunkArray } from '../src/utils/parallel-crawler.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
 
@@ -1872,6 +1873,41 @@ async function runTests(mcp, stagingProc) {
     assert(mc.some(e => e.severity === 'critical' && (e.message ?? '').toLowerCase().includes('blocked')),
       `Critical finding message contains "blocked"`);
   }
+
+  // ── [41] Parallel crawler — chunkArray (pure function, no Chrome) ─────────────
+  console.log('\n[41] Parallel Crawler — chunkArray (D7.3)');
+
+  // [41a] Even split: 6 items into 3 → 3 chunks of 2
+  const c41a = chunkArray(['a','b','c','d','e','f'], 3);
+  assert(c41a.length === 3 && c41a.every(c => c.length === 2),
+    `[41a] chunkArray 6 items into 3 → 3 chunks of 2 (got: ${JSON.stringify(c41a)})`);
+
+  // [41b] Uneven split: 5 items into 3 → 3 non-empty chunks, all items preserved
+  const c41b = chunkArray(['a','b','c','d','e'], 3);
+  assert(c41b.length === 3 && c41b.every(c => c.length > 0),
+    `[41b] chunkArray 5 items into 3 → 3 non-empty chunks (got: ${JSON.stringify(c41b)})`);
+  assert(c41b.flat().join('') === 'abcde',
+    `[41b] chunkArray 5 items into 3 → all items preserved in order (got: ${JSON.stringify(c41b)})`);
+
+  // [41c] Fewer items than target chunks: 3 items into 5 → 3 single-item chunks (no empty chunks)
+  const c41c = chunkArray(['a','b','c'], 5);
+  assert(c41c.length === 3 && c41c.every(c => c.length === 1),
+    `[41c] chunkArray 3 items into 5 → 3 single-item chunks, no empty (got: ${JSON.stringify(c41c)})`);
+
+  // [41d] Empty array → empty result
+  const c41d = chunkArray([], 3);
+  assert(Array.isArray(c41d) && c41d.length === 0,
+    `[41d] chunkArray [] → [] (got: ${JSON.stringify(c41d)})`);
+
+  // [41e] n=1 → single chunk containing all items
+  const c41e = chunkArray(['a','b','c'], 1);
+  assert(c41e.length === 1 && c41e[0].join('') === 'abc',
+    `[41e] chunkArray 3 items into 1 → single chunk (got: ${JSON.stringify(c41e)})`);
+
+  // [41f] ARGUS_CONCURRENCY defaults to 1 (sequential) when env var is unset
+  const defConcurrency = Math.max(1, parseInt(process.env.ARGUS_CONCURRENCY ?? '1', 10));
+  assert(defConcurrency === 1,
+    `[41f] ARGUS_CONCURRENCY defaults to 1 when unset (got: ${defConcurrency})`);
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────

@@ -38,7 +38,8 @@ import { mergeRunResults } from '../utils/flakiness-detector.js';
 import { runAllFlows, normalizeArray } from '../utils/flow-runner.js';
 import { analyzeApiFrequency } from '../utils/api-frequency.js';
 import { slugify } from '../utils/slug.js';
-import { unwrapEval } from '../utils/mcp-client.js';
+import { unwrapEval, createMcpClient } from '../utils/mcp-client.js';
+import { chunkArray } from '../utils/parallel-crawler.js';
 import { checkLighthouse } from '../utils/lighthouse-checker.js';
 
 // ── Performance Budgets ────────────────────────────────────────────────────────
@@ -966,6 +967,26 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
   return result;
 }
 
+// ── Parallel crawl shard runner (D7.3) ────────────────────────────────────────
+
+/**
+ * Crawl one shard of routes sequentially using the supplied MCP client.
+ * Used by the parallel path in runCrawl when ARGUS_CONCURRENCY > 1.
+ */
+async function crawlShardWithClient(shard, targetBaseUrl, mcp, sessionFile) {
+  const results = [];
+  for (const route of shard) {
+    console.log(`[ARGUS/parallel] Crawling: ${route.name} → ${targetBaseUrl}${route.path}`);
+    const result = await crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile);
+    const flakyCount = result.errors.filter(e => e.flaky).length;
+    if (flakyCount > 0) {
+      console.log(`[ARGUS/parallel] ${route.name}: ${flakyCount} finding(s) downgraded to info (flaky)`);
+    }
+    results.push(result);
+  }
+  return results;
+}
+
 // ── Main Orchestration ─────────────────────────────────────────────────────────
 
 /**
@@ -1005,21 +1026,53 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
     }
   }
 
-  for (const route of targetRoutes) {
-    // D3: cheap double-crawl (flakiness) + expensive single-crawl happen inside crawlAndAnalyzeRoute
-    console.log(`[ARGUS] Crawling: ${route.name} → ${targetBaseUrl}${route.path}`);
-    const result = await crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile);
+  // D7.3: parallel route crawling — set ARGUS_CONCURRENCY=N to spawn N MCP clients
+  const concurrency = Math.max(1, parseInt(process.env.ARGUS_CONCURRENCY ?? '1', 10));
 
-    const flakyCount = result.errors.filter(e => e.flaky).length;
-    if (flakyCount > 0) {
-      console.log(`[ARGUS] ${route.name}: ${flakyCount} finding(s) downgraded to info (flaky — appeared in only one cheap run)`);
+  if (concurrency > 1) {
+    console.log(`[ARGUS] Parallel mode: concurrency=${concurrency}, sharding ${targetRoutes.length} route(s)`);
+    const shards = chunkArray(targetRoutes, concurrency);
+    const extraClients = [];
+    try {
+      for (let i = 1; i < shards.length; i++) {
+        extraClients.push(await createMcpClient());
+      }
+      const shardPromises = shards.map((shard, idx) => {
+        const shardMcp = idx === 0 ? mcp : extraClients[idx - 1];
+        return crawlShardWithClient(shard, targetBaseUrl, shardMcp, sessionFile);
+      });
+      const shardResults = await Promise.all(shardPromises);
+      for (const shardResult of shardResults) {
+        for (const result of shardResult) {
+          report.routes.push(result);
+          for (const err of result.errors) {
+            report.summary.total++;
+            report.summary[err.severity] = (report.summary[err.severity] ?? 0) + 1;
+          }
+        }
+      }
+    } finally {
+      for (const client of extraClients) {
+        try { client.close(); } catch {}
+      }
     }
+  } else {
+    // D3: cheap double-crawl (flakiness) + expensive single-crawl happen inside crawlAndAnalyzeRoute
+    for (const route of targetRoutes) {
+      console.log(`[ARGUS] Crawling: ${route.name} → ${targetBaseUrl}${route.path}`);
+      const result = await crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile);
 
-    report.routes.push(result);
+      const flakyCount = result.errors.filter(e => e.flaky).length;
+      if (flakyCount > 0) {
+        console.log(`[ARGUS] ${route.name}: ${flakyCount} finding(s) downgraded to info (flaky — appeared in only one cheap run)`);
+      }
 
-    for (const err of result.errors) {
-      report.summary.total++;
-      report.summary[err.severity] = (report.summary[err.severity] ?? 0) + 1;
+      report.routes.push(result);
+
+      for (const err of result.errors) {
+        report.summary.total++;
+        report.summary[err.severity] = (report.summary[err.severity] ?? 0) + 1;
+      }
     }
   }
 
