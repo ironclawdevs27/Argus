@@ -13,7 +13,8 @@
     "server": "node src/server/index.js",
     "harness": "node test-harness/server.js",
     "harness:staging": "PORT=3101 node test-harness/server.js",
-    "test:harness": "node test-harness/validate.js"
+    "test:harness": "node test-harness/validate.js",
+    "report:html": "node src/utils/html-reporter.js"
   },
   "dependencies": {
     "@slack/web-api": "^7.3.4",

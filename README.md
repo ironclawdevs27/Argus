@@ -356,6 +356,9 @@ Claude calls `runComparison(mcp)` — screenshots both, diffs them, posts result
 # Error detection crawl
 npm run crawl
 
+# Generate a self-contained HTML report from the latest JSON (offline-friendly)
+npm run report:html
+
 # Environment comparison (or CSS analysis if no staging URL)
 npm run compare
 
@@ -363,7 +366,7 @@ npm run compare
 npm run server
 ```
 
-Reports are saved to `reports/` as JSON files. Screenshots saved alongside.
+Reports are saved to `reports/` as JSON files. Screenshots saved alongside. Run `npm run report:html` after any crawl to get a portable `reports/report.html` with all screenshots inlined — useful for sharing with designers, PMs, or reviewing offline.
 
 ### Option C: From Slack (on-demand)
 
@@ -556,14 +559,15 @@ argus/
 │       ├── baseline-manager.js       # Baselines: loadBaseline, saveBaseline, applyBaseline, appendTrend
 │       ├── flakiness-detector.js     # Flakiness: mergeRunResults — confirmed vs flaky per double-crawl
 │       ├── flow-runner.js            # User flow assertions: runFlow / runAllFlows — assert DSL
+│       ├── html-reporter.js          # HTML dashboard: npm run report:html → self-contained report.html
 │       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
-├── test-harness/                     # Fixture server + test runner (37 blocks, 144 hard assertions, 27 categories)
+├── test-harness/                     # Fixture server + test runner (40 blocks, 157 hard assertions, 30 categories)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner — 37 numbered blocks
-│   ├── pages/                        # 36 fixture pages (one per detection category)
+│   ├── validate.js                   # Test runner — 40 numbered blocks
+│   ├── pages/                        # 39 fixture pages (one per detection category)
 │   └── static/
 │       └── button-styles.css         # BEM card selectors in button file → component leak
 └── reports/                          # Output: JSON reports + screenshots (gitignored)
