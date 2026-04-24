@@ -24,7 +24,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 
-import { routes, config, auth, flows } from '../config/targets.js';
+import { routes, config, auth, flows, apiContracts } from '../config/targets.js';
 import { postBugReport } from './slack-notifier.js';
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../utils/css-analyzer.js';
 import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../utils/seo-analyzer.js';
@@ -40,6 +40,7 @@ import { analyzeApiFrequency } from '../utils/api-frequency.js';
 import { slugify } from '../utils/slug.js';
 import { unwrapEval, createMcpClient } from '../utils/mcp-client.js';
 import { chunkArray } from '../utils/parallel-crawler.js';
+import { validateApiContracts } from '../utils/contract-validator.js';
 import { checkLighthouse } from '../utils/lighthouse-checker.js';
 
 // ── Performance Budgets ────────────────────────────────────────────────────────
@@ -488,7 +489,7 @@ function analyzeNetworkPerformance(perfEntries, pageUrl) {
 
 /**
  * Cheap detections for one route — called TWICE per route for flakiness detection.
- * Runs: console, network, JS errors, blank page, API frequency,
+ * Runs: console, network, JS errors, blank page, API frequency, API contract validation (D7.4),
  *       SEO, security, content, CSS, debugger statements, duplicate ids, screenshot.
  * Does NOT run: Lighthouse, perf budgets, network perf, redirect chain, broken links, cache headers.
  */
@@ -605,6 +606,16 @@ async function crawlRouteCheap(route, baseUrl, mcp) {
   // 6b. API frequency analysis
   const apiFrequencyBugs = analyzeApiFrequency(networkReqs, url);
   result.errors.push(...apiFrequencyBugs);
+
+  // 6c. API contract validation (D7.4) — skip when no contracts defined
+  if (apiContracts?.length > 0) {
+    try {
+      const contractFindings = await validateApiContracts(networkReqs, mcp, apiContracts, url);
+      result.errors.push(...contractFindings);
+    } catch (err) {
+      console.warn(`[ARGUS] API contract validation skipped for ${url}: ${err.message}`);
+    }
+  }
 
   // 7. Extract injected uncaught exceptions
   const injectedErrors = await mcp.evaluate_script({ function:EXTRACT_ERROR_LISTENER });

@@ -48,16 +48,26 @@ export const comparisonRoutes = [
 ];
 
 /**
- * API endpoints to validate response shapes against.
- * Used by the API contract validation layer (future phase).
+ * API endpoints to validate response shapes against (D7.4).
+ * Each entry is checked against captured network requests on every crawled route.
  *
  * Fields:
- *   url         — full URL or path pattern
- *   method      — HTTP method
- *   schemaFile  — path to JSON Schema or OpenAPI spec fragment
+ *   url        — path (e.g. '/api/user') or full URL for exact match
+ *   method     — HTTP method to match (optional — omit to match any method)
+ *   schema     — inline JSON Schema object (preferred)
+ *   schemaFile — path to a JSON file containing the schema (alternative to schema)
+ *
+ * Supported schema keywords: type, required, properties, items.
+ *
+ * Violations are emitted as api_contract_violation warnings in the report.
+ *
+ * Examples:
+ *   { url: '/api/user', method: 'GET', schema: { type: 'object', required: ['id', 'name'], properties: { id: { type: 'number' }, name: { type: 'string' } } } }
+ *   { url: '/api/products', method: 'GET', schemaFile: './schemas/products.json' }
  */
 export const apiContracts = [
-  // { url: '/api/user', method: 'GET', schemaFile: './schemas/user.json' },
+  // Uncomment and configure to validate API response shapes:
+  // { url: '/api/user',     method: 'GET', schema: { type: 'object', required: ['id', 'name'], properties: { id: { type: 'number' }, name: { type: 'string' } } } },
   // { url: '/api/products', method: 'GET', schemaFile: './schemas/products.json' },
 ];
 

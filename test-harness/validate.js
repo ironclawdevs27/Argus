@@ -45,6 +45,7 @@ import { loadBaseline, saveBaseline, applyBaseline, appendTrend, getCurrentBranc
 import { mergeRunResults } from '../src/utils/flakiness-detector.js';
 import { runFlow, normalizeArray } from '../src/utils/flow-runner.js';
 import { chunkArray } from '../src/utils/parallel-crawler.js';
+import { validateSchema, matchesContract } from '../src/utils/contract-validator.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
 
@@ -1908,6 +1909,56 @@ async function runTests(mcp, stagingProc) {
   const defConcurrency = Math.max(1, parseInt(process.env.ARGUS_CONCURRENCY ?? '1', 10));
   assert(defConcurrency === 1,
     `[41f] ARGUS_CONCURRENCY defaults to 1 when unset (got: ${defConcurrency})`);
+
+  // ── [42] API contract validator — validateSchema + matchesContract (pure, no Chrome) ─
+  console.log('\n[42] API Contract Validator — validateSchema + matchesContract (D7.4)');
+
+  // [42a] Valid object matching required fields + types → 0 violations
+  const v42a = validateSchema(
+    { id: 1, name: 'Alice' },
+    { type: 'object', required: ['id', 'name'], properties: { id: { type: 'number' }, name: { type: 'string' } } }
+  );
+  assert(v42a.length === 0,
+    `[42a] valid object passes schema → 0 violations (got: ${JSON.stringify(v42a)})`);
+
+  // [42b] Missing required field → violation mentioning the field name
+  const v42b = validateSchema({ id: 1 }, { type: 'object', required: ['id', 'name'] });
+  assert(v42b.length > 0 && v42b.some(m => m.includes('name')),
+    `[42b] missing required field → violation (got: ${JSON.stringify(v42b)})`);
+
+  // [42c] Wrong root type → violation mentioning expected type
+  const v42c = validateSchema('not-an-object', { type: 'object' });
+  assert(v42c.length > 0 && v42c.some(m => m.includes('object')),
+    `[42c] wrong type → violation (got: ${JSON.stringify(v42c)})`);
+
+  // [42d] Empty schema → always passes (no constraints)
+  const v42d = validateSchema({ anything: true }, {});
+  assert(v42d.length === 0,
+    `[42d] empty schema → 0 violations (got: ${JSON.stringify(v42d)})`);
+
+  // [42e] Nested property type mismatch → violation
+  const v42e = validateSchema(
+    { user: { id: 'not-a-number' } },
+    { type: 'object', properties: { user: { type: 'object', properties: { id: { type: 'number' } } } } }
+  );
+  assert(v42e.length > 0 && v42e.some(m => m.includes('number')),
+    `[42e] nested type mismatch → violation (got: ${JSON.stringify(v42e)})`);
+
+  // [42f] matchesContract: exact pathname + method match → true
+  assert(matchesContract('http://localhost:3000/api/user', 'GET', { url: '/api/user', method: 'GET' }),
+    `[42f] matchesContract exact pathname + method → true`);
+
+  // [42g] matchesContract: URL mismatch → false
+  assert(!matchesContract('http://localhost:3000/api/products', 'GET', { url: '/api/user', method: 'GET' }),
+    `[42g] matchesContract URL mismatch → false`);
+
+  // [42h] matchesContract: method mismatch → false
+  assert(!matchesContract('http://localhost:3000/api/user', 'POST', { url: '/api/user', method: 'GET' }),
+    `[42h] matchesContract method mismatch → false`);
+
+  // [42i] matchesContract: no method constraint → matches any method
+  assert(matchesContract('http://localhost:3000/api/data', 'POST', { url: '/api/data' }),
+    `[42i] matchesContract no method constraint → true for any method`);
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────

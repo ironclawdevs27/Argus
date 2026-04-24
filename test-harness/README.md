@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-41 test blocks · 166 hard assertions · 30 detection categories · 39 fixture pages
+42 test blocks · 175 hard assertions · 31 detection categories · 39 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -62,6 +62,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 39 | `duplicate-ids.html` | `duplicate_id` warning ×2 · id="card" ×3 + id="header" ×2 · unique-id not flagged · all severity warning | Hard |
 | 40 | `mixed-content.html` | `security_mixed_content` critical (blocked active content) + warning (passive image/audio) · critical message contains "blocked" | Hard |
 | 41 | _(pure function — no fixture page)_ | Parallel crawler: chunkArray even split (6→3) · uneven split (5→3, items preserved) · fewer items than chunks (3→5 gives 3) · empty array → [] · n=1 → single chunk · `ARGUS_CONCURRENCY` defaults to 1 (D7.3) | Hard |
+| 42 | _(pure function — no fixture page)_ | API contract validator: valid object → 0 violations · missing required field · wrong type · empty schema → passes · nested type mismatch · `matchesContract` path/method match, URL mismatch, method mismatch, no-method wildcard (D7.4) | Hard |
 
 ---
 
@@ -231,7 +232,7 @@ The validator will:
   ✓ Flaky count: 2 (expected 2)
 
 ────────────────────────────────────────────────────────
-Results: 166/166 hard assertions passed, 0 failed
+Results: 175/175 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```

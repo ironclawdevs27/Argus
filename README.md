@@ -221,6 +221,7 @@ Argus watches your running application and automatically surfaces issues that te
 | **Historical Baselines** | Saves finding keys after each run; subsequent runs only alert on *new* issues; trend summary in Slack digest |
 | **Flakiness Detection** | Crawls each route twice per run; findings in both runs are confirmed (original severity); findings in only one run are marked flaky (`severity: info`, `:zap: _flaky_` label) |
 | **User Flow Assertions** | Named multi-step flows (`navigate/fill/click/press_key/waitFor/sleep/handle_dialog/assert`) with baseline-sliced `no_console_errors`, `no_network_errors`, `element_visible`, `url_contains`, `no_js_errors` asserts — runs end-to-end user journeys without writing Playwright specs |
+| **API Contract Validation** | Define `apiContracts[]` in `targets.js` with inline `schema` or `schemaFile`; validates captured response bodies against JSON Schema (type, required, properties, items) — emits `api_contract_violation` warnings when shapes diverge from spec |
 | **Full Lighthouse Suite** | All 4 Lighthouse categories (performance, SEO, best-practices, accessibility) with per-audit items |
 | **Performance Budgets** | Enforces LCP < 2500ms, CLS < 0.1, FID < 100ms, TTFB < 800ms per route |
 | **Slack Notifications** | Rich Block Kit reports with inline screenshots routed to `#bugs-critical`, `#bugs-warnings`, `#bugs-digest` |
@@ -561,13 +562,14 @@ argus/
 │       ├── flow-runner.js            # User flow assertions: runFlow / runAllFlows — assert DSL
 │       ├── html-reporter.js          # HTML dashboard: npm run report:html → self-contained report.html
 │       ├── parallel-crawler.js       # chunkArray sharding utility (ARGUS_CONCURRENCY=N parallel crawl)
+│       ├── contract-validator.js     # API contract validation: validateSchema, matchesContract (D7.4)
 │       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
-├── test-harness/                     # Fixture server + test runner (41 blocks, 166 hard assertions, 30 categories)
+├── test-harness/                     # Fixture server + test runner (42 blocks, 175 hard assertions, 31 categories)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner — 41 numbered blocks
+│   ├── validate.js                   # Test runner — 42 numbered blocks
 │   ├── pages/                        # 39 fixture pages (one per detection category)
 │   └── static/
 │       └── button-styles.css         # BEM card selectors in button file → component leak
