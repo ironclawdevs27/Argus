@@ -1,20 +1,69 @@
 /**
  * Argus v3 Phase B3 — Historical baselines + trend tracking
  * Phase D4 — Extended to cover flow findings (flow_assert_failed, flow_step_failed)
+ * Phase D7.2 — Per-branch baselines (getCurrentBranch → <branch>.json / <branch>-trends.json)
  *
- * Baseline file (reports/baselines/baseline.json): per-route + per-flow finding key arrays.
- * Trends file  (reports/baselines/trends.json):    append-only run history.
+ * Baseline file (reports/baselines/<branch>.json): per-route + per-flow finding key arrays.
+ * Trends file  (reports/baselines/<branch>-trends.json): append-only run history.
  *
  * Finding key: `type::message[:100]::status` — stable across runs, excludes timestamps.
  */
 
-import fs from 'fs';
-import path from 'path';
+import fs            from 'fs';
+import path          from 'path';
+import { execSync }  from 'child_process';
 
 function findingKey(finding) {
   const msg = (finding.message ?? '').slice(0, 100);
   const status = finding.status != null ? '::' + finding.status : '';
   return `${finding.type}::${msg}${status}`;
+}
+
+/**
+ * Sanitize a git branch name into a safe filename segment.
+ * Replaces any character that is not alphanumeric, dot, hyphen, or underscore with a hyphen.
+ * Collapses consecutive hyphens and strips leading/trailing hyphens.
+ */
+function sanitizeBranch(branch) {
+  return branch
+    .replace(/[^a-zA-Z0-9._-]/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+    || 'default';
+}
+
+/**
+ * Return the current git branch name as a sanitized filename segment.
+ *
+ * Resolution order:
+ *   1. Read <cwd>/.git/HEAD directly (fast, no subprocess)
+ *   2. Fall back to `git rev-parse --abbrev-ref HEAD`
+ *   3. Fall back to `'default'` when not in a git repo or in detached HEAD state
+ *
+ * Examples: "main" → "main", "feature/my-feat" → "feature-my-feat"
+ *
+ * @returns {string}
+ */
+export function getCurrentBranch() {
+  // Strategy 1: read .git/HEAD directly (no subprocess, works in any Node version)
+  try {
+    const headPath = path.resolve(process.cwd(), '.git', 'HEAD');
+    const head = fs.readFileSync(headPath, 'utf8').trim();
+    const match = head.match(/^ref: refs\/heads\/(.+)$/);
+    if (match) return sanitizeBranch(match[1]);
+    // Detached HEAD (contains a commit hash) — fall through to git command
+  } catch { /* .git/HEAD not readable — fall through */ }
+
+  // Strategy 2: git command
+  try {
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 3000,
+    }).toString().trim();
+    if (branch && branch !== 'HEAD') return sanitizeBranch(branch);
+  } catch { /* not a git repo or git not installed — fall through */ }
+
+  return 'default';
 }
 
 /**

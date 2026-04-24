@@ -163,10 +163,10 @@ Argus runs eighteen analysis engines per run and detects **96 distinct issue typ
 
 | Severity | Bug / Issue | Detection Method |
 |---|---|---|
-| 🔴 Critical | New critical finding not present in the saved baseline — regression introduced since last run | `applyBaseline` compares finding keys (`type::message[:100]::status`) against `reports/baselines/baseline.json` |
+| 🔴 Critical | New critical finding not present in the saved baseline — regression introduced since last run | `applyBaseline` compares finding keys (`type::message[:100]::status`) against `reports/baselines/<branch>.json` (D7.2 per-branch) |
 | 🟡 Warning | New warning finding not present in the baseline | Same key comparison, warning severity |
 | 🔵 Info | Pre-existing finding still present — no change since last run | Suppressed from real-time alerts; included in info digest only |
-| 🔵 Info | Run trend summary — new vs resolved counts, saved per run | Appended to `reports/baselines/trends.json`; surfaced as a trend line in Slack digest |
+| 🔵 Info | Run trend summary — new vs resolved counts, saved per run | Appended to `reports/baselines/<branch>-trends.json`; surfaced as a trend line in Slack digest |
 
 ### Flakiness Detection
 
@@ -562,7 +562,7 @@ argus/
 │       ├── html-reporter.js          # HTML dashboard: npm run report:html → self-contained report.html
 │       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
-├── test-harness/                     # Fixture server + test runner (40 blocks, 157 hard assertions, 30 categories)
+├── test-harness/                     # Fixture server + test runner (40 blocks, 159 hard assertions, 30 categories)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
@@ -572,8 +572,8 @@ argus/
 │       └── button-styles.css         # BEM card selectors in button file → component leak
 └── reports/                          # Output: JSON reports + screenshots (gitignored)
     ├── baselines/
-    │   ├── baseline.json             # Per-route finding keys — created on first run
-    │   └── trends.json               # Append-only run history (new/resolved counts per run)
+    │   ├── <branch>.json             # Per-route finding keys — per git branch (D7.2)
+    │   └── <branch>-trends.json      # Append-only run history per branch (D7.2)
     └── .gitkeep
 ```
 

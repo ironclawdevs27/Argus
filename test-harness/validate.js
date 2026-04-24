@@ -41,7 +41,7 @@ import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../src/util
 import { analyzeResponsive } from '../src/utils/responsive-analyzer.js';
 import { analyzeMemory }    from '../src/utils/memory-analyzer.js';
 import { saveSession, restoreSession } from '../src/utils/session-manager.js';
-import { loadBaseline, saveBaseline, applyBaseline, appendTrend } from '../src/utils/baseline-manager.js';
+import { loadBaseline, saveBaseline, applyBaseline, appendTrend, getCurrentBranch } from '../src/utils/baseline-manager.js';
 import { mergeRunResults } from '../src/utils/flakiness-detector.js';
 import { runFlow, normalizeArray } from '../src/utils/flow-runner.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
@@ -1392,7 +1392,7 @@ async function runTests(mcp, stagingProc) {
     `Visual diff: ${diffPct != null ? diffPct + '%' : `unavailable (${diffErr ?? 'no screenshot data'})`} pixels changed (threshold: 0.5%)`);
 
   // ── [25] Baseline manager — pure function test (no Chrome) ────────────────
-  console.log('\n[25] Baseline Manager — applyBaseline, saveBaseline, loadBaseline, appendTrend');
+  console.log('\n[25] Baseline Manager — applyBaseline, saveBaseline, loadBaseline, appendTrend, getCurrentBranch');
 
   const tmpDir      = path.join(__dirname, '.tmp-baseline-test');
   const bFile       = path.join(tmpDir, 'baseline.json');
@@ -1528,6 +1528,15 @@ async function runTests(mcp, stagingProc) {
   const diffOld = applyBaseline(fakeReportForOld, loadedOld);
   assert(diffOld.flowNewCount === 2,
     `[25k] Old baseline: all flow findings treated as new → flowNewCount: ${diffOld.flowNewCount} (expected 2)`);
+
+  // [25l] getCurrentBranch returns a non-empty string
+  const branch = getCurrentBranch();
+  assert(typeof branch === 'string' && branch.length > 0,
+    `[25l] getCurrentBranch returns non-empty string (got: "${branch}")`);
+
+  // [25m] getCurrentBranch result contains only safe filename characters
+  assert(/^[a-zA-Z0-9._-]+$/.test(branch),
+    `[25m] getCurrentBranch result is filename-safe (got: "${branch}")`);
 
   // Cleanup temp files
   try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best-effort */ }

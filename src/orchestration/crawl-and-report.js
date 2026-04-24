@@ -33,7 +33,7 @@ import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../utils/co
 import { analyzeResponsive } from '../utils/responsive-analyzer.js';
 import { analyzeMemory } from '../utils/memory-analyzer.js';
 import { runLoginFlow, saveSession, restoreSession, hasSession } from '../utils/session-manager.js';
-import { loadBaseline, saveBaseline, applyBaseline, appendTrend } from '../utils/baseline-manager.js';
+import { loadBaseline, saveBaseline, applyBaseline, appendTrend, getCurrentBranch } from '../utils/baseline-manager.js';
 import { mergeRunResults } from '../utils/flakiness-detector.js';
 import { runAllFlows, normalizeArray } from '../utils/flow-runner.js';
 import { analyzeApiFrequency } from '../utils/api-frequency.js';
@@ -1034,9 +1034,11 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
     }
   }
 
-  // Historical baselines + trend tracking (v3 Phase B3)
-  const baselinePath = path.join(OUTPUT_DIR, 'baselines', 'baseline.json');
-  const trendsPath   = path.join(OUTPUT_DIR, 'baselines', 'trends.json');
+  // Historical baselines + trend tracking (v3 Phase B3 / D7.2 per-branch)
+  const branch       = getCurrentBranch();
+  const baselinePath = path.join(OUTPUT_DIR, 'baselines', `${branch}.json`);
+  const trendsPath   = path.join(OUTPUT_DIR, 'baselines', `${branch}-trends.json`);
+  console.log(`[ARGUS] Branch: "${branch}" → baseline: ${baselinePath}`);
   const baseline     = loadBaseline(baselinePath);
   const diff         = applyBaseline(report, baseline);
   if (!diff.isFirstRun) {
@@ -1070,7 +1072,7 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
     flowNewFindings:       diff.flowNewCount ?? 0,
     flowResolvedFindings:  diff.flowResolvedCount ?? 0,
   });
-  console.log(`[ARGUS] Baseline saved → ${baselinePath}`);
+  console.log(`[ARGUS] Baseline saved → ${baselinePath} (branch: "${branch}")`);
 
   return report;
 }
