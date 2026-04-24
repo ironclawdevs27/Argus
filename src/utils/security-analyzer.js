@@ -10,11 +10,12 @@
  *        (checked via a same-origin fetch HEAD request)
  *
  *   2. Console messages       — analyzeSecurityConsole
- *      • Mixed content warnings from Chrome
+ *      • Mixed content (D6.9): "blocked" in message → critical; passive (image/audio) → warning
  *      • Sensitive data patterns (email address, JWT, Bearer token, param=value)
  *
  *   3. Network request URLs   — analyzeSecurityNetwork
  *      • Sensitive query parameters (?token=, ?key=, ?auth=, …)
+ *      • HTTP resource on HTTPS page (D6.9) — skips loopback; only fires on real HTTPS origins
  */
 
 /**
@@ -160,10 +161,13 @@ export function analyzeSecurityConsole(consoleMsgs, url) {
     const text = String(msg.text ?? msg.message ?? msg ?? '');
     if (!text) continue;
     if (mixedContentPattern.test(text)) {
+      // D6.9: "blocked" in the message → active content, browser refuses to load → critical.
+      // No "blocked" → passive content (image/audio/video), browser loads with a warning → warning.
+      const isBlocked = /\bblocked\b/i.test(text);
       bugs.push({
         type:     'security_mixed_content',
-        message:  `Mixed content detected: ${text.slice(0, 200)}`,
-        severity: 'critical',
+        message:  `Mixed content ${isBlocked ? 'blocked' : 'warning'}: ${text.slice(0, 200)}`,
+        severity: isBlocked ? 'critical' : 'warning',
         url,
       });
     } else if (sensitivePattern.test(text)) {
@@ -188,10 +192,25 @@ export function analyzeSecurityConsole(consoleMsgs, url) {
 export function analyzeSecurityNetwork(networkReqs, url) {
   const bugs = [];
   const sensitiveParams = /[?&](token|key|auth|password|secret|apikey|api_key|credential|jwt)=/i;
+  // D6.9: flag HTTP resources on HTTPS pages; skip loopback addresses (not mixed content).
+  const pageIsHttps = (url ?? '').startsWith('https://');
+  const isLoopback  = /^http:\/\/(localhost|127\.|0\.0\.0\.0)/i;
 
   for (const req of networkReqs ?? []) {
     const reqUrl = req.url ?? req.requestUrl ?? '';
-    if (!reqUrl || !sensitiveParams.test(reqUrl)) continue;
+    if (!reqUrl) continue;
+
+    if (pageIsHttps && reqUrl.startsWith('http://') && !isLoopback.test(reqUrl)) {
+      bugs.push({
+        type:       'security_mixed_content',
+        requestUrl: reqUrl,
+        message:    `Mixed content: HTTP resource "${reqUrl.slice(0, 200)}" on HTTPS page — request may be blocked`,
+        severity:   'critical',
+        url,
+      });
+    }
+
+    if (!sensitiveParams.test(reqUrl)) continue;
     bugs.push({
       type:       'security_token_in_url',
       requestUrl: reqUrl,

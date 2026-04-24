@@ -1848,6 +1848,21 @@ async function runTests(mcp, stagingProc) {
     assert(!dupIds.some(e => e.id === 'unique-id'),
       `id="unique-id" (used once) not flagged`);
   }
+
+  // ── [40] Mixed content severity — D6.9 ───────────────────────────────────────
+  console.log('\n[40] Mixed Content (D6.9) — blocked → critical, passive → warning');
+  {
+    const { errors: mcErrors } = await crawlFixture(mcp, `${B}/mixed-content.html`);
+    const mc = mcErrors.filter(e => e.type === 'security_mixed_content');
+    assert(mc.length >= 2,
+      `At least 2 security_mixed_content findings (blocked + passive) (found ${mc.length})`);
+    assert(mc.some(e => e.severity === 'critical'),
+      `Blocked mixed content finding has severity "critical"`);
+    assert(mc.some(e => e.severity === 'warning'),
+      `Passive mixed content finding has severity "warning"`);
+    assert(mc.some(e => e.severity === 'critical' && (e.message ?? '').toLowerCase().includes('blocked')),
+      `Critical finding message contains "blocked"`);
+  }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────

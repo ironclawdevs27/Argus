@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Mixed content fixture for Argus D6.9 detection">
+  <title>Mixed Content Fixture — Argus D6.9</title>
+  <script>window.__argus_console=[];(function(){function h(l){var o=console[l];console[l]=function(){window.__argus_console.push({level:l,text:Array.prototype.slice.call(arguments).map(String).join(' ')});o.apply(console,arguments)};}['error','warn'].forEach(h);window.addEventListener('error',function(e){window.__argus_console.push({level:'error',text:e.message||'uncaught error'});});})()</script>
+</head>
+<body>
+  <h1>Mixed Content Fixture</h1>
+  <p>Simulates Chrome's mixed content console messages to exercise D6.9 severity detection.</p>
+  <script>
+    // Simulates Chrome's active mixed content block (scripts/iframes on HTTPS pages) → critical
+    console.error('Mixed Content: The page at "https://example.com/" was loaded over HTTPS, but requested an insecure resource "http://cdn.example.com/script.js". This request has been blocked; the content must be served over HTTPS.');
+    // Simulates Chrome's passive mixed content warning (images/audio/video on HTTPS pages) → warning
+    console.warn('Mixed Content: The page at "https://example.com/" was loaded over HTTPS, but requested an insecure image "http://images.example.com/photo.jpg". This content should also be served over HTTPS.');
+  </script>
+  <div id="fixture-ready" data-ready="true">ready</div>
+</body>
+</html>

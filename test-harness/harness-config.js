@@ -281,6 +281,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'duplicate_id warning ×2 (id="card" ×3, id="header" ×2); unique id not flagged',
   },
+  // D6.9 — mixed content: blocked (critical) vs passive warning (warning)
+  {
+    path: '/mixed-content.html',
+    name: 'Mixed Content',
+    critical: false,
+    waitFor: null,
+    expected: 'security_mixed_content critical (blocked) + security_mixed_content warning (passive)',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */
