@@ -224,6 +224,7 @@ Argus watches your running application and automatically surfaces issues that te
 | **API Contract Validation** | Define `apiContracts[]` in `targets.js` with inline `schema` or `schemaFile`; validates captured response bodies against JSON Schema (type, required, properties, items) — emits `api_contract_violation` warnings when shapes diverge from spec |
 | **Severity Policy Overrides** | Define `severityOverrides` in `targets.js` (`{ finding_type: 'info' \| 'warning' \| 'critical' \| 'suppress' }`); applied before Slack routing — remap or silence specific detections without touching analyzer code |
 | **Auth Token Refresh** | `refreshSession()` is called before each route; re-runs the login flow when the saved session has less than `sessionRefreshWindowMs` (default 5 min) remaining — prevents long crawls from failing mid-run when the auth cookie expires |
+| **Slack-optional mode** | When `SLACK_BOT_TOKEN` is not configured, Argus skips Slack entirely and auto-generates a local `report.html` (all findings + inline screenshots) and opens it in the default browser — zero setup required to start using Argus |
 | **Full Lighthouse Suite** | All 4 Lighthouse categories (performance, SEO, best-practices, accessibility) with per-audit items |
 | **Performance Budgets** | Enforces LCP < 2500ms, CLS < 0.1, FID < 100ms, TTFB < 800ms per route |
 | **Slack Notifications** | Rich Block Kit reports with inline screenshots routed to `#bugs-critical`, `#bugs-warnings`, `#bugs-digest` |
@@ -282,18 +283,19 @@ cp .env.example .env
 Open `.env` and fill in:
 
 ```env
-# Slack — get from api.slack.com/apps → BugBot → OAuth & Permissions
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_SIGNING_SECRET=...
-
-# Channel IDs (right-click channel in Slack → Copy link → last segment is the ID)
-SLACK_CHANNEL_CRITICAL=C0000000000
-SLACK_CHANNEL_WARNINGS=C0000000001
-SLACK_CHANNEL_DIGEST=C0000000002
-
-# Your app URLs
+# Your app URLs (required)
 TARGET_DEV_URL=http://localhost:3000
 TARGET_STAGING_URL=https://staging.yourapp.com   # leave blank → CSS-only analysis mode
+
+# Slack — OPTIONAL. Omit to get a local report.html instead of Slack messages.
+# Get from: api.slack.com/apps → BugBot → OAuth & Permissions
+# SLACK_BOT_TOKEN=xoxb-...
+# SLACK_SIGNING_SECRET=...
+
+# Channel IDs — only needed when SLACK_BOT_TOKEN is set
+# SLACK_CHANNEL_CRITICAL=C0000000000
+# SLACK_CHANNEL_WARNINGS=C0000000001
+# SLACK_CHANNEL_DIGEST=C0000000002
 ```
 
 ### 3. Configure your routes
@@ -436,6 +438,12 @@ Individual failing audit items (e.g., missing alt text, low contrast, render-blo
 
 ## Slack Channel Routing
 
+> **Slack is optional.** When `SLACK_BOT_TOKEN` is not set, Argus skips Slack entirely and
+> auto-generates a local `report.html` (all findings + inline screenshots) and opens it in
+> the default browser. No Slack setup needed to start using Argus.
+
+When Slack **is** configured, findings are routed by severity:
+
 | Severity | Channel | When |
 |---|---|---|
 | `critical` | `#bugs-critical` | JS exceptions, HTTP 5xx, blank page, auth failure, API called 5+ times, Lighthouse accessibility < 50, auth token in storage/URL, responsive overflow, slow API > 3s, payload > 2MB, > 100 detached DOM nodes, CORS policy violations, `debugger;` statements in production code, blocked mixed content (HTTP resource on HTTPS page) |
@@ -562,17 +570,18 @@ argus/
 │       ├── baseline-manager.js       # Baselines: loadBaseline, saveBaseline, applyBaseline, appendTrend
 │       ├── flakiness-detector.js     # Flakiness: mergeRunResults — confirmed vs flaky per double-crawl
 │       ├── flow-runner.js            # User flow assertions: runFlow / runAllFlows — assert DSL
-│       ├── html-reporter.js          # HTML dashboard: npm run report:html → self-contained report.html
+│       ├── html-reporter.js          # HTML dashboard: generateHtmlReport() + npm run report:html (D7.1 / D7.7)
 │       ├── parallel-crawler.js       # chunkArray sharding utility (ARGUS_CONCURRENCY=N parallel crawl)
 │       ├── contract-validator.js     # API contract validation: validateSchema, matchesContract (D7.4)
-│       ├── severity-overrides.js    # Severity policy overrides: applyOverrides (D7.5)
+│       ├── severity-overrides.js     # Severity policy overrides: applyOverrides (D7.5)
+│       ├── slack-guard.js            # Slack-optional guard: isSlackConfigured() (D7.7)
 │       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
-├── test-harness/                     # Fixture server + test runner (44 blocks, 189 hard assertions, 31 categories)
+├── test-harness/                     # Fixture server + test runner (45 blocks, 192 hard assertions, 31 categories)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner — 44 numbered blocks
+│   ├── validate.js                   # Test runner — 45 numbered blocks
 │   ├── pages/                        # 39 fixture pages (one per detection category)
 │   └── static/
 │       └── button-styles.css         # BEM card selectors in button file → component leak
@@ -613,11 +622,11 @@ argus/
 
 | Variable | Required | Description |
 |---|---|---|
-| `SLACK_BOT_TOKEN` | Yes | `xoxb-...` Bot User OAuth Token |
-| `SLACK_SIGNING_SECRET` | Yes | Verifies slash command / interaction requests from Slack |
-| `SLACK_CHANNEL_CRITICAL` | Yes | Channel ID for critical bugs |
-| `SLACK_CHANNEL_WARNINGS` | Yes | Channel ID for warnings |
-| `SLACK_CHANNEL_DIGEST` | Yes | Channel ID for info / daily digest |
+| `SLACK_BOT_TOKEN` | No | `xoxb-...` Bot User OAuth Token. **Omit to enable Slack-optional mode** — Argus generates `report.html` and opens it in the browser instead |
+| `SLACK_SIGNING_SECRET` | No* | Verifies slash command / interaction requests from Slack (required only when using `/argus-retest`) |
+| `SLACK_CHANNEL_CRITICAL` | No* | Channel ID for critical bugs (required when Slack is configured) |
+| `SLACK_CHANNEL_WARNINGS` | No* | Channel ID for warnings (required when Slack is configured) |
+| `SLACK_CHANNEL_DIGEST` | No* | Channel ID for info / daily digest (required when Slack is configured) |
 | `TARGET_DEV_URL` | Yes | Base URL of your dev environment |
 | `TARGET_STAGING_URL` | No | Base URL of staging. If blank → CSS analysis mode |
 | `SCREENSHOT_DIFF_THRESHOLD` | No | Pixel diff % to flag (default: `0.5`) |

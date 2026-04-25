@@ -25,7 +25,10 @@ import { fileURLToPath } from 'url';
 import 'dotenv/config';
 
 import { routes, config, auth, flows, apiContracts, severityOverrides } from '../config/targets.js';
+import { exec } from 'child_process';
 import { postBugReport } from './slack-notifier.js';
+import { isSlackConfigured } from '../utils/slack-guard.js';
+import { generateHtmlReport } from '../utils/html-reporter.js';
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../utils/css-analyzer.js';
 import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../utils/seo-analyzer.js';
 import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityConsole, analyzeSecurityNetwork } from '../utils/security-analyzer.js';
@@ -95,6 +98,25 @@ const CACHE_HEADER_SCRIPT = `async () => {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BASE_URL = process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
 const OUTPUT_DIR = path.resolve(__dirname, '../../', config.outputDir);
+
+// ── D7.7: HTML fallback helpers ───────────────────────────────────────────────
+
+/**
+ * Open a local file in the OS default browser. Best-effort: silently ignored
+ * in CI (`CI` env var set) or if no display is available (headless server, WSL).
+ */
+function openInBrowser(filePath) {
+  if (process.env.CI) return;
+  try {
+    const abs = path.resolve(filePath);
+    const cmd = process.platform === 'win32' ? `start "" "${abs}"`
+              : process.platform === 'darwin' ? `open "${abs}"`
+              : `xdg-open "${abs}"`;
+    exec(cmd, () => {});
+  } catch {
+    // no display available — skip silently
+  }
+}
 
 // ── Severity Classification ────────────────────────────────────────────────────
 
@@ -1143,8 +1165,15 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
   fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
   console.log(`[ARGUS] Report written: ${reportPath}`);
 
-  // Dispatch to Slack (only new findings trigger critical/warning alerts)
-  await dispatchToSlack(report, diff);
+  // D7.7: dispatch to Slack when configured; otherwise generate HTML report
+  if (isSlackConfigured()) {
+    await dispatchToSlack(report, diff);
+  } else {
+    console.log('\n[ARGUS] No Slack credentials — generating HTML report...');
+    const htmlPath = generateHtmlReport(reportPath);
+    console.log(`[ARGUS] ✓ Open in browser: ${htmlPath}\n`);
+    openInBrowser(htmlPath);
+  }
 
   // Persist baseline + append trend entry
   saveBaseline(baselinePath, report);

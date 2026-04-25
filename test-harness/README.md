@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-44 test blocks · 189 hard assertions · 31 detection categories · 39 fixture pages
+45 test blocks · 192 hard assertions · 31 detection categories · 39 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -65,6 +65,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 42 | _(pure function — no fixture page)_ | API contract validator: valid object → 0 violations · missing required field · wrong type · empty schema → passes · nested type mismatch · `matchesContract` path/method match, URL mismatch, method mismatch, no-method wildcard (D7.4) | Hard |
 | 43 | _(pure function — no fixture page)_ | Severity overrides: downgrade warning→info + overriddenCount=1 · suppress removes finding + suppressedCount · override on absent type → zero stats · empty overrides → zero stats · flow findings overridden · null overrides → zero stats · unknown override value → finding unchanged (D7.5) | Hard |
 | 44 | _(pure function — no fixture page)_ | Auth token refresh: null auth → refreshed:false · missing session file → refreshed:false · fresh session → refreshed:false · empty steps array → refreshed:false · corrupted session file → refreshed:false (D7.6) | Hard |
+| 45 | _(pure function — no fixture page)_ | Slack-optional mode: no token → isSlackConfigured()=false · token present → isSlackConfigured()=true · generateHtmlReport writes valid self-contained HTML with embedded findings (D7.7) | Hard |
 
 ---
 
@@ -234,7 +235,7 @@ The validator will:
   ✓ Flaky count: 2 (expected 2)
 
 ────────────────────────────────────────────────────────
-Results: 189/189 hard assertions passed, 0 failed
+Results: 192/192 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```

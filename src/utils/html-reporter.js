@@ -232,6 +232,30 @@ function buildHtml(report) {
 </html>`;
 }
 
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Convert a JSON report file into a self-contained HTML file.
+ *
+ * Reads the JSON at `reportPath`, renders the full HTML dashboard (screenshots
+ * inlined as base64), and writes `report.html` alongside the source JSON.
+ * Called automatically by crawl-and-report.js when Slack is not configured (D7.7).
+ *
+ * @param {string} reportPath - Absolute or relative path to the JSON report file
+ * @returns {string} Absolute path to the written report.html
+ */
+export function generateHtmlReport(reportPath) {
+  const report  = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+  const html    = buildHtml(report);
+  const outPath = path.join(path.dirname(path.resolve(reportPath)), 'report.html');
+
+  fs.writeFileSync(outPath, html, 'utf8');
+
+  const kb = Math.round(Buffer.byteLength(html, 'utf8') / 1024);
+  console.log(`[ARGUS] HTML report written: ${outPath} (${kb} KB)`);
+  return outPath;
+}
+
 // ── CLI entry ─────────────────────────────────────────────────────────────────
 
 function findLatestReport(dir) {
@@ -249,7 +273,8 @@ function findLatestReport(dir) {
   return path.join(dir, files[0].name);
 }
 
-(function main() {
+// Only runs when invoked directly (npm run report:html or node src/utils/html-reporter.js)
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const arg        = process.argv[2];
   const reportPath = arg ? path.resolve(arg) : findLatestReport(REPORTS_DIR);
 
@@ -258,13 +283,6 @@ function findLatestReport(dir) {
     process.exit(1);
   }
 
-  const report  = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
-  const html    = buildHtml(report);
-  const outPath = path.join(path.dirname(reportPath), 'report.html');
-
-  fs.writeFileSync(outPath, html, 'utf8');
-
-  const kb = Math.round(Buffer.byteLength(html, 'utf8') / 1024);
-  console.log(`[ARGUS] HTML report written: ${outPath} (${kb} KB)`);
+  generateHtmlReport(reportPath);
   console.log(`[ARGUS] Source report: ${reportPath}`);
-})();
+}

@@ -47,6 +47,8 @@ import { runFlow, normalizeArray } from '../src/utils/flow-runner.js';
 import { chunkArray } from '../src/utils/parallel-crawler.js';
 import { validateSchema, matchesContract } from '../src/utils/contract-validator.js';
 import { applyOverrides } from '../src/utils/severity-overrides.js';
+import { isSlackConfigured } from '../src/utils/slack-guard.js';
+import { generateHtmlReport } from '../src/utils/html-reporter.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
 
@@ -2048,6 +2050,47 @@ async function runTests(mcp, stagingProc) {
       `[44e] corrupted session file → refreshed: false (got: ${r44e.refreshed})`);
   } finally {
     if (fs.existsSync(tmpSession44e)) fs.unlinkSync(tmpSession44e);
+  }
+
+  // ── [45] Slack-optional mode — isSlackConfigured + generateHtmlReport (D7.7) ──
+  console.log('\n[45] Slack-optional mode — isSlackConfigured + generateHtmlReport (D7.7)');
+
+  // [45a] isSlackConfigured returns false when SLACK_BOT_TOKEN is absent
+  const savedToken = process.env.SLACK_BOT_TOKEN;
+  delete process.env.SLACK_BOT_TOKEN;
+  assert(isSlackConfigured() === false,
+    `[45a] no SLACK_BOT_TOKEN → isSlackConfigured() returns false`);
+
+  // [45b] isSlackConfigured returns true when SLACK_BOT_TOKEN is set
+  process.env.SLACK_BOT_TOKEN = 'xoxb-test-token';
+  assert(isSlackConfigured() === true,
+    `[45b] SLACK_BOT_TOKEN present → isSlackConfigured() returns true`);
+  // restore original value
+  if (savedToken !== undefined) process.env.SLACK_BOT_TOKEN = savedToken;
+  else delete process.env.SLACK_BOT_TOKEN;
+
+  // [45c] generateHtmlReport produces a valid self-contained HTML file
+  const tmpReportJson = path.join(__dirname, '..', 'reports', 'argus-test-report-45.json');
+  const minimalReport = {
+    generatedAt: new Date().toISOString(),
+    baseUrl: 'http://localhost:3100',
+    summary: { total: 1, critical: 0, warning: 1, info: 0 },
+    routes: [{ route: '/test', url: 'http://localhost:3100/test', errors: [{ type: 'test_finding', severity: 'warning', message: 'audit test' }] }],
+    flows: [],
+  };
+  fs.mkdirSync(path.dirname(tmpReportJson), { recursive: true });
+  fs.writeFileSync(tmpReportJson, JSON.stringify(minimalReport, null, 2), 'utf8');
+  const tmpReportHtml = path.join(path.dirname(tmpReportJson), 'report.html');
+  try {
+    const htmlPath = generateHtmlReport(tmpReportJson);
+    const html = fs.readFileSync(htmlPath, 'utf8');
+    assert(
+      fs.existsSync(htmlPath) && html.includes('<title>') && html.includes('Argus Report') && html.includes('audit test'),
+      `[45c] generateHtmlReport writes valid HTML with embedded findings`
+    );
+  } finally {
+    if (fs.existsSync(tmpReportJson)) fs.unlinkSync(tmpReportJson);
+    if (fs.existsSync(tmpReportHtml)) fs.unlinkSync(tmpReportHtml);
   }
 }
 
