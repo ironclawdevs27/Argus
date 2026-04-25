@@ -2251,6 +2251,58 @@ async function runTests(mcp, stagingProc) {
       `[49c] drag step with missing selector emits flow_step_failed with action "drag"`
     );
   }
+
+  // ── [50] upload_file step action — D8.5 ─────────────────────────────────────
+  console.log('\n[50] upload_file step action — D8.5 (upload_file action in flow-runner DSL)');
+  {
+    const uploadFilePath = path.resolve(__dirname, 'pages', 'test-upload.txt');
+
+    // [50a] upload_file step action is wired in runStep — runFlow completes without
+    // emitting a flow_step_failed for the upload_file action
+    const uploadFlow = {
+      name: 'upload-d8-5',
+      steps: [
+        { action: 'navigate', url: `${B}/upload-issues.html` },
+        { action: 'upload_file', selector: 'input[type=file]', filePath: uploadFilePath },
+      ],
+    };
+    const uploadResult = await runFlow(uploadFlow, B, mcp);
+    const unexpectedFail = uploadResult.findings.filter(
+      f => f.type === 'flow_step_failed' && f.action === 'upload_file'
+    );
+    assert(
+      unexpectedFail.length === 0,
+      `[50a] upload_file step action is registered in flow-runner — no flow_step_failed on valid file input`
+    );
+
+    // [50b] after upload_file, the file input has a file — files.length > 0
+    // (upload_file uses CDP to set files directly on the input element)
+    const rawB = await mcp.evaluate_script({
+      function: `() => document.getElementById('file-input').files.length`,
+    });
+    const fileCount = Number(unwrapEval(rawB) ?? 0);
+    assert(
+      fileCount > 0,
+      `[50b] upload_file delivers file to input — files.length > 0 (got ${fileCount})`
+    );
+
+    // [50c] upload_file with a non-existent filePath → MCP throws → flow_step_failed
+    const badUploadFlow = {
+      name: 'upload-bad-path',
+      steps: [
+        { action: 'navigate', url: `${B}/upload-issues.html` },
+        { action: 'upload_file', selector: 'input[type=file]', filePath: '/nonexistent/argus-does-not-exist.txt' },
+      ],
+    };
+    const badUploadResult = await runFlow(badUploadFlow, B, mcp);
+    const uploadFailed = badUploadResult.findings.filter(
+      f => f.type === 'flow_step_failed' && f.action === 'upload_file'
+    );
+    assert(
+      uploadFailed.length >= 1,
+      `[50c] upload_file with non-existent file path emits flow_step_failed with action "upload_file"`
+    );
+  }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────

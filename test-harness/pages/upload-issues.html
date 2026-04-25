@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Upload Issues Test</title>
+  <meta name="viewport" content="width=device-width">
+  <meta property="og:image" content="http://localhost:3100/static/og-image.png">
+  <meta property="og:title" content="Upload Issues Test">
+  <meta property="og:description" content="Fixture for D8.5 upload_file flow step testing">
+</head>
+<body>
+  <main>
+    <h1>File Upload Test</h1>
+    <form id="upload-form">
+      <label for="file-input">Choose file:</label>
+      <input type="file" id="file-input" name="upload">
+      <span id="file-name" data-filename="">No file chosen</span>
+    </form>
+  </main>
+  <script>
+    document.getElementById('file-input').addEventListener('change', function () {
+      var f = this.files[0];
+      var el = document.getElementById('file-name');
+      if (f) {
+        el.textContent = f.name;
+        el.setAttribute('data-filename', f.name);
+      } else {
+        el.textContent = 'No file chosen';
+        el.setAttribute('data-filename', '');
+      }
+    });
+  </script>
+</body>
+</html>

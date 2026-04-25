@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-49 test blocks · 207 hard assertions · 35 detection categories · 43 fixture pages
+50 test blocks · 210 hard assertions · 35 detection categories · 44 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -70,6 +70,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 47 | `snapshot-issues.html` | `a11y_missing_name` warning (SVG-only button) · `a11y_missing_form_label` warning (bare input) · `a11y_duplicate_landmark` warning (main + role=main) · all severity warning (D8.2) | Hard |
 | 48 | `typetext-issues.html` | `mcp.fill` does not fire input events (counter stays 0) · `mcp.type_text` fires input events (counter updates) · `typing: true` flow step completes without error · counter updated to 3 after "abc" (type_text called, not fill) (D8.3) | Hard |
 | 49 | `drag-issues.html` | `drag` step is registered in flow-runner (no flow_step_failed on valid selector) · drag to working drop zone fires `drop` event (`data-dropped="true"`) · drag with missing selector → `flow_step_failed` with `action: "drag"` (D8.4) | Hard |
+| 50 | `upload-issues.html` | `upload_file` step is registered in flow-runner (no flow_step_failed on valid input) · file delivered to input via CDP (`files.length > 0`) · missing filePath → `flow_step_failed` with `action: "upload_file"` (D8.5) | Hard |
 
 ---
 
@@ -124,7 +125,9 @@ test-harness/
 │   ├── hover-issues.html          test 46 — aria-haspopup with no JS open handler + tooltip opacity:0!important
 │   ├── snapshot-issues.html       test 47 — SVG-only button + bare input + duplicate <main> landmark
 │   ├── typetext-issues.html       test 48 — two inputs with input-event char counters (fill vs type_text)
-│   └── drag-issues.html           test 49 — working drop zone + broken drop zone (no dragover preventDefault)
+│   ├── drag-issues.html           test 49 — working drop zone + broken drop zone (no dragover preventDefault)
+│   ├── upload-issues.html         test 50 — file input with change-event filename display
+│   └── test-upload.txt            test 50 — tiny text file used as the upload payload
 └── static/
     └── button-styles.css       BEM card selectors in a button stylesheet
                                 → triggers component style leak detection
@@ -243,7 +246,7 @@ The validator will:
   ✓ Flaky count: 2 (expected 2)
 
 ────────────────────────────────────────────────────────
-Results: 207/207 hard assertions passed, 0 failed
+Results: 210/210 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```

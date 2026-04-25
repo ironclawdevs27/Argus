@@ -1,5 +1,5 @@
 /**
- * Argus v3 Phase B5 / D8.3–D8.4 — User Flow Runner
+ * Argus v3 Phase B5 / D8.3–D8.5 — User Flow Runner
  *
  * Executes reusable multi-step interaction sequences defined in targets.js flows[].
  * Each flow is a named sequence of steps that exercises a user journey end-to-end.
@@ -12,6 +12,12 @@
  *   click           — mcp.click on step.selector
  *   press_key       — mcp.press_key with step.key
  *   drag            — mcp.drag from step.selector to step.target (D8.4)
+ *   upload_file     — mcp.upload_file via uid from page snapshot; finds the
+ *                     file input by its [Upload] accessibility role (D8.5)
+ *                     DSL: { action: 'upload_file', selector: 'input[type=file]',
+ *                            filePath: '/path/to/file' }
+ *                     Pass uid directly to skip snapshot lookup:
+ *                            { action: 'upload_file', uid: 'e4', filePath: '...' }
  *   waitFor         — mcp.wait_for until step.selector appears
  *   sleep           — pause step.ms milliseconds
  *   handle_dialog   — mcp.handle_dialog (accept/dismiss + optional promptText)
@@ -29,6 +35,46 @@
 import { unwrapEval } from './mcp-client.js';
 
 const DEFAULT_TIMEOUT = 10_000;
+
+/**
+ * Extract the uid of the first file input from a take_snapshot response.
+ *
+ * chrome-devtools-mcp snapshot format uses "[Upload]" as the accessibility role
+ * for <input type="file"> elements, followed by the element uid (e.g. "e4").
+ * Multiple fallback patterns handle JSON tree formats and general uid placement.
+ */
+function extractFileInputUid(snapResponse) {
+  let text = typeof snapResponse === 'string'
+    ? snapResponse
+    : JSON.stringify(snapResponse ?? '');
+
+  // Strip markdown code fence if present (mirrors evaluate_script wrapping)
+  const fence = text.match(/```(?:json|text)?\s*([\s\S]*?)\s*```/);
+  if (fence) text = fence[1];
+
+  // Pattern 1: text-tree format — "- input [Upload] e4"
+  const uploadRole = text.match(/\[Upload\]\s+([A-Za-z0-9_-]+)/);
+  if (uploadRole) return uploadRole[1];
+
+  // Pattern 2: JSON tree — uid near inputType:"file" marker
+  const jsonA = text.match(/"inputType"\s*:\s*"file"[^}]{0,200}"uid"\s*:\s*"([^"]+)"/);
+  if (jsonA) return jsonA[1];
+  const jsonB = text.match(/"uid"\s*:\s*"([^"]+)"[^}]{0,200}"inputType"\s*:\s*"file"/);
+  if (jsonB) return jsonB[1];
+
+  // Pattern 3: line-scan — uid value on a line near upload/file keywords
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (/upload|file.input/i.test(lines[i])) {
+      for (let j = Math.max(0, i - 1); j <= Math.min(lines.length - 1, i + 2); j++) {
+        const m = lines[j].match(/\buid\b[:\s='"]+([A-Za-z0-9_-]+)/i);
+        if (m) return m[1];
+      }
+    }
+  }
+
+  return null;
+}
 
 export function normalizeArray(val) {
   if (!val) return [];
@@ -239,6 +285,27 @@ export async function runFlow(flow, baseUrl, mcp) {
           // event.preventDefault() — broken drop zones won't fire drop (D8.4).
           await mcp.drag({ selector: step.selector, targetSelector: step.target });
           break;
+
+        case 'upload_file': {
+          // upload_file requires a uid from the page accessibility snapshot.
+          // If step.uid is provided directly, use it. Otherwise take a snapshot
+          // and locate the file input via its [Upload] accessibility role (D8.5).
+          let uploadUid = step.uid;
+          if (!uploadUid) {
+            const snap = await mcp.take_snapshot();
+            uploadUid = extractFileInputUid(snap);
+            if (!uploadUid) {
+              throw new Error(
+                `upload_file: no file-input uid found in page snapshot` +
+                (step.selector ? ` for "${step.selector}"` : '') +
+                `. Ensure the page has a visible <input type="file"> element, ` +
+                `or pass uid directly: { action: 'upload_file', uid: 'e4', filePath: '...' }`
+              );
+            }
+          }
+          await mcp.upload_file({ uid: uploadUid, filePath: step.filePath });
+          break;
+        }
 
         case 'handle_dialog':
           await mcp.handle_dialog({ accept: step.accept ?? true, promptText: step.text ?? '' });

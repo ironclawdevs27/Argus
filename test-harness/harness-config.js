@@ -321,6 +321,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'drag step wired in flow-runner; drag to working zone sets data-dropped="true"; bad selector → flow_step_failed',
   },
+  // D8.5 — upload_file step action: take_snapshot finds [Upload] uid; upload sets files on input
+  {
+    path: '/upload-issues.html',
+    name: 'Upload Issues',
+    critical: false,
+    waitFor: null,
+    expected: 'upload_file step wired in flow-runner; file delivered to input (files.length > 0); bad filePath → flow_step_failed',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */
