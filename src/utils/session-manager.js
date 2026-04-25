@@ -1,5 +1,5 @@
 /**
- * ARGUS Session Manager (v3 Phase B2)
+ * ARGUS Session Manager (v3 Phase B2 / D7.6)
  *
  * Saves and restores browser session state (cookies + localStorage + sessionStorage)
  * so Argus can crawl authenticated routes without re-logging in for each route.
@@ -26,7 +26,8 @@
  *       await saveSession(mcp, sf);
  *     }
  *   }
- *   // … before each route:
+ *   // … before each route (D7.6 refresh comes first):
+ *   await refreshSession(mcp, auth, baseUrl);
  *   await restoreSession(mcp, baseUrl, sf);
  */
 
@@ -224,4 +225,58 @@ export function clearSession(sessionFile) {
     fs.unlinkSync(sessionFile);
     console.log(`[ARGUS] Session cleared: ${sessionFile}`);
   }
+}
+
+// ── Session Refresh (D7.6) ─────────────────────────────────────────────────────
+
+/**
+ * Refresh the session mid-run if it is approaching expiry.
+ *
+ * Called between routes in crawl-and-report.js (before restoreSession). When the
+ * saved session has less than `auth.sessionRefreshWindowMs` of validity remaining,
+ * the full login flow is re-run and a fresh session is saved. This prevents long
+ * crawls from failing on their last routes when the auth cookie expires mid-run.
+ *
+ * No-ops when:
+ *   - auth is null or has no steps (public crawl)
+ *   - no session file exists yet (initial login not done)
+ *   - the session still has more than refreshWindowMs remaining
+ *
+ * Note: when ARGUS_CONCURRENCY > 1, multiple shard workers call this independently.
+ * Concurrent refreshes are harmless — both logins succeed — but may produce two
+ * sequential login flows. The last saveSession write wins (valid credentials).
+ *
+ * @param {object} mcp     - MCP tool interface (navigate_page, evaluate_script)
+ * @param {object|null} auth - Auth config from targets.js (steps, sessionFile,
+ *                             sessionMaxAgeMs, sessionRefreshWindowMs)
+ * @param {string} baseUrl - Base URL used for the login navigate step
+ * @returns {Promise<{ refreshed: boolean }>}
+ */
+export async function refreshSession(mcp, auth, baseUrl) {
+  if (!auth?.steps?.length) return { refreshed: false };
+
+  const sessionFile      = auth.sessionFile         ?? '.argus-session.json';
+  const maxAgeMs         = auth.sessionMaxAgeMs      ?? 60 * 60 * 1000;  // default 1 h
+  const refreshWindowMs  = auth.sessionRefreshWindowMs ?? 5 * 60 * 1000; // default 5 min
+
+  if (!fs.existsSync(sessionFile)) return { refreshed: false };
+
+  let state;
+  try {
+    state = JSON.parse(fs.readFileSync(sessionFile, 'utf8'));
+  } catch {
+    return { refreshed: false };
+  }
+
+  const age         = Date.now() - new Date(state.savedAt).getTime();
+  const remainingMs = maxAgeMs - age;
+
+  if (remainingMs > refreshWindowMs) return { refreshed: false };
+
+  console.log(
+    `[ARGUS] Auth: session expires in ${Math.round(remainingMs / 1000)}s — refreshing login...`
+  );
+  await runLoginFlow(mcp, baseUrl, auth.steps);
+  await saveSession(mcp, sessionFile);
+  return { refreshed: true };
 }

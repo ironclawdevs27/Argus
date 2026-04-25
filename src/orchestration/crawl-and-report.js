@@ -32,7 +32,7 @@ import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityC
 import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../utils/content-analyzer.js';
 import { analyzeResponsive } from '../utils/responsive-analyzer.js';
 import { analyzeMemory } from '../utils/memory-analyzer.js';
-import { runLoginFlow, saveSession, restoreSession, hasSession } from '../utils/session-manager.js';
+import { runLoginFlow, saveSession, restoreSession, hasSession, refreshSession } from '../utils/session-manager.js';
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend, getCurrentBranch } from '../utils/baseline-manager.js';
 import { mergeRunResults } from '../utils/flakiness-detector.js';
 import { runAllFlows, normalizeArray } from '../utils/flow-runner.js';
@@ -932,6 +932,8 @@ async function crawlRouteExpensive(route, baseUrl, mcp) {
 async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
   if (auth?.steps?.length > 0) {
     try {
+      // D7.6: refresh before restoring so the injected session is always fresh
+      await refreshSession(mcp, auth, targetBaseUrl);
       await restoreSession(mcp, targetBaseUrl, sessionFile);
     } catch (err) {
       console.warn(`[ARGUS] Auth: session restore skipped for ${route.name}: ${err.message}`);

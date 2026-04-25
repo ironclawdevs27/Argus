@@ -91,16 +91,24 @@ export const severityOverrides = {
 };
 
 /**
- * Auth session persistence (v3 Phase B2).
+ * Auth session persistence (v3 Phase B2 / D7.6).
  *
  * When set, runCrawl() runs the login flow once before crawling, saves the
  * session state (cookies + localStorage), and restores it before each route.
  * This unlocks crawling of authenticated routes without re-logging in per page.
  *
+ * D7.6 mid-run refresh: before each route, if the saved session has less than
+ * `sessionRefreshWindowMs` of validity remaining, the login flow is re-run
+ * automatically so long crawls never fail due to an expired auth cookie.
+ *
  * Credentials MUST come from environment variables — never hardcode them here.
  * Add ARGUS_AUTH_EMAIL and ARGUS_AUTH_PASSWORD to your .env file.
  *
- * Supported step actions: navigate, fill, click, waitFor, sleep
+ * Fields:
+ *   sessionFile           — path for the saved session JSON (default: .argus-session.json)
+ *   sessionMaxAgeMs       — max session lifetime before forcing re-login (default: 1 h)
+ *   sessionRefreshWindowMs — refresh when this many ms remain before expiry (default: 5 min)
+ *   steps                 — login flow steps (navigate, fill, click, waitFor, sleep)
  *
  * Set to null to disable auth (public crawl only).
  */
@@ -146,8 +154,9 @@ export const flows = [];
 
 // Uncomment and configure for authenticated crawls:
 // export const auth = {
-//   sessionFile:      '.argus-session.json',
-//   sessionMaxAgeMs:  60 * 60 * 1000,   // 1 hour — re-login after this
+//   sessionFile:             '.argus-session.json',
+//   sessionMaxAgeMs:         60 * 60 * 1000,   // 1 hour — re-login after this
+//   sessionRefreshWindowMs:  5 * 60 * 1000,    // refresh when < 5 min remain (D7.6)
 //   steps: [
 //     { action: 'navigate', path: '/login' },
 //     { action: 'fill',     selector: '#email',    value: process.env.ARGUS_AUTH_EMAIL    ?? '' },

@@ -223,6 +223,7 @@ Argus watches your running application and automatically surfaces issues that te
 | **User Flow Assertions** | Named multi-step flows (`navigate/fill/click/press_key/waitFor/sleep/handle_dialog/assert`) with baseline-sliced `no_console_errors`, `no_network_errors`, `element_visible`, `url_contains`, `no_js_errors` asserts — runs end-to-end user journeys without writing Playwright specs |
 | **API Contract Validation** | Define `apiContracts[]` in `targets.js` with inline `schema` or `schemaFile`; validates captured response bodies against JSON Schema (type, required, properties, items) — emits `api_contract_violation` warnings when shapes diverge from spec |
 | **Severity Policy Overrides** | Define `severityOverrides` in `targets.js` (`{ finding_type: 'info' \| 'warning' \| 'critical' \| 'suppress' }`); applied before Slack routing — remap or silence specific detections without touching analyzer code |
+| **Auth Token Refresh** | `refreshSession()` is called before each route; re-runs the login flow when the saved session has less than `sessionRefreshWindowMs` (default 5 min) remaining — prevents long crawls from failing mid-run when the auth cookie expires |
 | **Full Lighthouse Suite** | All 4 Lighthouse categories (performance, SEO, best-practices, accessibility) with per-audit items |
 | **Performance Budgets** | Enforces LCP < 2500ms, CLS < 0.1, FID < 100ms, TTFB < 800ms per route |
 | **Slack Notifications** | Rich Block Kit reports with inline screenshots routed to `#bugs-critical`, `#bugs-warnings`, `#bugs-digest` |
@@ -557,7 +558,7 @@ argus/
 │       ├── content-analyzer.js       # Content quality: null text, placeholders, broken images
 │       ├── responsive-analyzer.js    # Responsive: overflow + touch targets at 4 breakpoints
 │       ├── memory-analyzer.js        # Memory leaks: V8 heap snapshot + heap growth
-│       ├── session-manager.js        # Auth: saveSession, restoreSession, runLoginFlow
+│       ├── session-manager.js        # Auth: saveSession, restoreSession, runLoginFlow, refreshSession (D7.6)
 │       ├── baseline-manager.js       # Baselines: loadBaseline, saveBaseline, applyBaseline, appendTrend
 │       ├── flakiness-detector.js     # Flakiness: mergeRunResults — confirmed vs flaky per double-crawl
 │       ├── flow-runner.js            # User flow assertions: runFlow / runAllFlows — assert DSL
@@ -567,11 +568,11 @@ argus/
 │       ├── severity-overrides.js    # Severity policy overrides: applyOverrides (D7.5)
 │       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
-├── test-harness/                     # Fixture server + test runner (43 blocks, 184 hard assertions, 31 categories)
+├── test-harness/                     # Fixture server + test runner (44 blocks, 189 hard assertions, 31 categories)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner — 43 numbered blocks
+│   ├── validate.js                   # Test runner — 44 numbered blocks
 │   ├── pages/                        # 39 fixture pages (one per detection category)
 │   └── static/
 │       └── button-styles.css         # BEM card selectors in button file → component leak

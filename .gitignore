@@ -14,5 +14,8 @@ session.md
 solution.md
 *-strategy.md
 
+# Argus auth session files — contain live cookies/localStorage tokens, never commit
+.argus-*.json
+
 # Claude Code local config — never commit
 .claude/

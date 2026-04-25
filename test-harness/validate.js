@@ -40,7 +40,7 @@ import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityC
 import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../src/utils/content-analyzer.js';
 import { analyzeResponsive } from '../src/utils/responsive-analyzer.js';
 import { analyzeMemory }    from '../src/utils/memory-analyzer.js';
-import { saveSession, restoreSession } from '../src/utils/session-manager.js';
+import { saveSession, restoreSession, refreshSession } from '../src/utils/session-manager.js';
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend, getCurrentBranch } from '../src/utils/baseline-manager.js';
 import { mergeRunResults } from '../src/utils/flakiness-detector.js';
 import { runFlow, normalizeArray } from '../src/utils/flow-runner.js';
@@ -2009,6 +2009,46 @@ async function runTests(mcp, stagingProc) {
   const s43g = applyOverrides(rep43g, { network: 'critial' }); // deliberate typo — unrecognised value
   assert(rep43g.routes[0].errors[0].severity === 'warning' && s43g.overriddenCount === 0,
     `[43g] unknown override value → finding unchanged (severity=${rep43g.routes[0].errors[0].severity}, overridden=${s43g.overriddenCount})`);
+
+  // ── [44] Auth token refresh — refreshSession (pure function, no Chrome) ────────
+  console.log('\n[44] Auth Token Refresh — refreshSession (D7.6)');
+
+  // [44a] null auth → { refreshed: false } (public crawl, no-op)
+  const r44a = await refreshSession(null, null, 'http://localhost:3100');
+  assert(r44a.refreshed === false,
+    `[44a] null auth → refreshed: false (got: ${r44a.refreshed})`);
+
+  // [44b] auth with steps but no session file yet → { refreshed: false }
+  const r44b = await refreshSession(null, { steps: [{ action: 'navigate', path: '/login' }], sessionFile: '.argus-no-such-session-44b.json' }, 'http://localhost:3100');
+  assert(r44b.refreshed === false,
+    `[44b] missing session file → refreshed: false (got: ${r44b.refreshed})`);
+
+  // [44c] fresh session (maxAge=1h, refreshWindow=5min, age≈0) → { refreshed: false }
+  const tmpSession44c = '.argus-test-session-44c.json';
+  fs.writeFileSync(tmpSession44c, JSON.stringify({ savedAt: new Date().toISOString(), cookies: '', localStorage: {}, sessionStorage: {} }), 'utf8');
+  try {
+    const r44c = await refreshSession(null, { steps: [{ action: 'navigate', path: '/login' }], sessionFile: tmpSession44c, sessionMaxAgeMs: 60 * 60 * 1000, sessionRefreshWindowMs: 5 * 60 * 1000 }, 'http://localhost:3100');
+    assert(r44c.refreshed === false,
+      `[44c] fresh session → refreshed: false (got: ${r44c.refreshed})`);
+  } finally {
+    if (fs.existsSync(tmpSession44c)) fs.unlinkSync(tmpSession44c);
+  }
+
+  // [44d] auth with empty steps array → same early-return as null auth
+  const r44d = await refreshSession(null, { steps: [], sessionFile: '.argus-no-such-session-44d.json' }, 'http://localhost:3100');
+  assert(r44d.refreshed === false,
+    `[44d] empty steps array → refreshed: false (got: ${r44d.refreshed})`);
+
+  // [44e] corrupted/unparseable session file → { refreshed: false } (parse error branch)
+  const tmpSession44e = '.argus-test-session-44e.json';
+  fs.writeFileSync(tmpSession44e, 'not-valid-json', 'utf8');
+  try {
+    const r44e = await refreshSession(null, { steps: [{ action: 'navigate', path: '/login' }], sessionFile: tmpSession44e }, 'http://localhost:3100');
+    assert(r44e.refreshed === false,
+      `[44e] corrupted session file → refreshed: false (got: ${r44e.refreshed})`);
+  } finally {
+    if (fs.existsSync(tmpSession44e)) fs.unlinkSync(tmpSession44e);
+  }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
