@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-45 test blocks · 192 hard assertions · 31 detection categories · 39 fixture pages
+47 test blocks · 200 hard assertions · 33 detection categories · 41 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -66,6 +66,8 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 43 | _(pure function — no fixture page)_ | Severity overrides: downgrade warning→info + overriddenCount=1 · suppress removes finding + suppressedCount · override on absent type → zero stats · empty overrides → zero stats · flow findings overridden · null overrides → zero stats · unknown override value → finding unchanged (D7.5) | Hard |
 | 44 | _(pure function — no fixture page)_ | Auth token refresh: null auth → refreshed:false · missing session file → refreshed:false · fresh session → refreshed:false · empty steps array → refreshed:false · corrupted session file → refreshed:false (D7.6) | Hard |
 | 45 | _(pure function — no fixture page)_ | Slack-optional mode: no token → isSlackConfigured()=false · token present → isSlackConfigured()=true · generateHtmlReport writes valid self-contained HTML with embedded findings (D7.7) | Hard |
+| 46 | `hover-issues.html` | `hover_dropdown_broken` warning (aria-haspopup with no JS open handler) · `hover_tooltip_missing` warning (tooltip opacity:0!important · severity warning on non-critical route (D8.1) | Hard |
+| 47 | `snapshot-issues.html` | `a11y_missing_name` warning (SVG-only button) · `a11y_missing_form_label` warning (bare input) · `a11y_duplicate_landmark` warning (main + role=main) · all severity warning (D8.2) | Hard |
 
 ---
 
@@ -116,7 +118,9 @@ test-harness/
 │   ├── cache-headers.html         test 37 — /api/nocache.css + /api/nocache.js served without cache headers
 │   ├── debugger-statement.html    test 38 — inline + external script with debugger; statement
 │   ├── duplicate-ids.html         test 39 — id="card" ×3 + id="header" ×2 duplicate ids
-│   └── mixed-content.html         test 40 — console.error (blocked) + console.warn (passive) mixed content messages
+│   ├── mixed-content.html         test 40 — console.error (blocked) + console.warn (passive) mixed content messages
+│   ├── hover-issues.html          test 46 — aria-haspopup with no JS open handler + tooltip opacity:0!important
+│   └── snapshot-issues.html       test 47 — SVG-only button + bare input + duplicate <main> landmark
 └── static/
     └── button-styles.css       BEM card selectors in a button stylesheet
                                 → triggers component style leak detection

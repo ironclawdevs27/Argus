@@ -14,7 +14,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 | 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
 |:---:|:---:|:---:|:---:|
-| **96 distinct issue types detected** | **18 analysis engines** | **192 test assertions** | **45 test blocks** |
+| **101 distinct issue types detected** | **20 analysis engines** | **200 test assertions** | **47 test blocks** |
 
 </div>
 
@@ -22,7 +22,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 ## What Argus Catches
 
-Argus runs **18 analysis engines** per run and detects **96 distinct issue types** across JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, and runtime anti-patterns — plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity (`critical` / `warning` / `info`) and routed to the right Slack channel — or rendered as a local `report.html` when Slack is not configured.
+Argus runs **20 analysis engines** per run and detects **101 distinct issue types** across JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, runtime anti-patterns, hover-state interactions, and accessibility tree snapshots — plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity (`critical` / `warning` / `info`) and routed to the right Slack channel — or rendered as a local `report.html` when Slack is not configured.
 
 ### JavaScript Runtime
 
@@ -176,6 +176,21 @@ Argus runs **18 analysis engines** per run and detects **96 distinct issue types
 | 🔵 Info | Pre-existing finding still present — no change since last run | Suppressed from real-time alerts; included in info digest only |
 | 🔵 Info | Run trend summary — new vs resolved counts, saved per run | Appended to `reports/baselines/<branch>-trends.json`; surfaced as a trend line in Slack digest |
 
+### Hover-State Bugs
+
+| Severity | Bug / Issue | Detection Method |
+|---|---|---|
+| 🟡 Warning / 🔴 Critical | `[aria-haspopup]` element whose controlled popup does not become visible after hover — `aria-expanded` stays false and popup remains `display:none` / `visibility:hidden` / `opacity:0` | `hover` dispatches `mousemove`; `evaluate_script` checks `aria-expanded` + `getComputedStyle` on the controlled element; critical on routes marked `critical: true` |
+| 🟡 Warning | `[data-tooltip]` element whose `[role="tooltip"]` is not visible in the DOM after hover — not found or opacity ≤ 0.05 | Same hover + `evaluate_script` checks tooltip opacity, `display`, `visibility`, and `offsetHeight` |
+
+### Accessibility Snapshot Analysis
+
+| Severity | Bug / Issue | Detection Method |
+|---|---|---|
+| 🟡 Warning | Interactive element (`<button>`, `<a>`, `[role="button"]`, `[role="link"]`) with no accessible name — no text content, `aria-label`, `aria-labelledby`, `title`, or `alt` | `take_snapshot` captures DOM/AX state; `evaluate_script` queries each visible interactive element for accessible name sources |
+| 🟡 Warning | Form control (`<input>`, `<select>`, `<textarea>`) with no associated label — no `<label for="...">`, `aria-label`, or `aria-labelledby` | `evaluate_script` checks `label[for]`, ancestor `<label>`, `aria-label`, and `aria-labelledby` for each visible control |
+| 🟡 Warning | Landmark role appearing more than once without distinct `aria-label` / `aria-labelledby` — screen readers cannot differentiate them | `evaluate_script` counts `[role=X]` instances and checks for unique label values across: `main`, `banner`, `contentinfo`, `navigation`, `search`, `complementary`, `form`, `region` |
+
 ### Flakiness Detection
 
 | Severity | Bug / Issue | Detection Method |
@@ -226,6 +241,8 @@ Argus watches your running application and automatically surfaces issues that te
 | **Responsive Analysis** | Overflow + touch target checks at 375/768px; screenshot grid at 4 breakpoints dispatched to Slack |
 | **Memory Leak Detection** | V8 heap snapshot → detached DOM node count; heap growth across navigate-away + navigate-back |
 | **Runtime Anti-Patterns** | Synchronous XHR, `document.write`, long tasks > 50ms, CORS violations, service worker registration failures, and missing cache headers on static assets — detected via script injection and post-load HEAD checks |
+| **Hover-State Bug Detection** | Fires `hover` on every `[aria-haspopup]` and `[data-tooltip]` element; detects broken dropdowns and invisible tooltips that CSS `:hover` was supposed to reveal |
+| **Accessibility Snapshot Analysis** | Calls `take_snapshot` then `evaluate_script`; flags interactive elements missing accessible names, unlabelled form controls, and duplicate landmark regions |
 | **Historical Baselines** | Saves finding keys after each run; subsequent runs only alert on *new* issues; trend summary in Slack digest |
 | **Flakiness Detection** | Crawls each route twice per run; findings in both runs are confirmed (original severity); findings in only one run are marked flaky (`severity: info`, `:zap: _flaky_` label) |
 | **User Flow Assertions** | Named multi-step flows (`navigate/fill/click/press_key/waitFor/sleep/handle_dialog/assert`) with baseline-sliced `no_console_errors`, `no_network_errors`, `element_visible`, `url_contains`, `no_js_errors` asserts — runs end-to-end user journeys without writing Playwright specs |
@@ -587,12 +604,12 @@ argus/
 │       ├── slack-guard.js            # Slack-optional guard: isSlackConfigured() (D7.7)
 │       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
-├── test-harness/                     # Fixture server + test runner (45 blocks, 192 hard assertions, 31 categories)
+├── test-harness/                     # Fixture server + test runner (47 blocks, 200 hard assertions, 33 categories)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner — 45 numbered blocks
-│   ├── pages/                        # 39 fixture pages (one per detection category)
+│   ├── validate.js                   # Test runner — 47 numbered blocks
+│   ├── pages/                        # 41 fixture pages (one per detection category)
 │   └── static/
 │       └── button-styles.css         # BEM card selectors in button file → component leak
 └── reports/                          # Output: JSON reports + screenshots (gitignored)

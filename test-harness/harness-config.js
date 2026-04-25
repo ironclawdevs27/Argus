@@ -289,6 +289,22 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'security_mixed_content critical (blocked) + security_mixed_content warning (passive)',
   },
+  // D8.1 — hover-state bug detection (broken dropdown + missing tooltip)
+  {
+    path: '/hover-issues.html',
+    name: 'Hover Issues',
+    critical: false,
+    waitFor: null,
+    expected: 'hover_dropdown_broken warning (aria-haspopup with no JS open handler), hover_tooltip_missing warning (opacity:0!important tooltip)',
+  },
+  // D8.2 — accessibility snapshot analysis (missing name, missing label, duplicate landmark)
+  {
+    path: '/snapshot-issues.html',
+    name: 'Snapshot Issues',
+    critical: false,
+    waitFor: null,
+    expected: 'a11y_missing_name warning (SVG-only button), a11y_missing_form_label warning (bare input), a11y_duplicate_landmark warning (main + role=main)',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

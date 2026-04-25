@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Snapshot Issues Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; }
+    .icon-btn { width: 40px; height: 40px; border: 1px solid #ccc; background: #f5f5f5; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Accessibility Snapshot Issues Fixture</h1>
+  <p>This page intentionally has accessibility violations for Argus D8.2 detection.</p>
+
+  <!-- Missing accessible name: SVG-only button with no aria-label -->
+  <button class="icon-btn" id="icon-only-btn">
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0z"/>
+    </svg>
+  </button>
+
+  <!-- Missing form label: input with no <label>, no aria-label, no placeholder -->
+  <div style="margin-top: 2rem;">
+    <input type="text" name="search" id="bare-input">
+  </div>
+
+  <!-- Duplicate landmark: two elements with role="main" / <main> without distinct labels -->
+  <main style="margin-top: 2rem;">
+    <p>Primary content area</p>
+  </main>
+
+  <div role="main" style="margin-top: 1rem;">
+    <p>Secondary content area (duplicate landmark — no aria-label to distinguish)</p>
+  </div>
+</body>
+</html>

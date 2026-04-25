@@ -35,6 +35,8 @@ import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityC
 import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../utils/content-analyzer.js';
 import { analyzeResponsive } from '../utils/responsive-analyzer.js';
 import { analyzeMemory } from '../utils/memory-analyzer.js';
+import { analyzeHover } from '../utils/hover-analyzer.js';
+import { analyzeSnapshot } from '../utils/snapshot-analyzer.js';
 import { runLoginFlow, saveSession, restoreSession, hasSession, refreshSession } from '../utils/session-manager.js';
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend, getCurrentBranch } from '../utils/baseline-manager.js';
 import { mergeRunResults } from '../utils/flakiness-detector.js';
@@ -998,6 +1000,22 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
     result.errors.push(...memoryFindings);
   } catch (err) {
     console.warn(`[ARGUS] Memory analysis skipped for ${route.name}: ${err.message}`);
+  }
+
+  // Hover-state bug detection (v3 Phase D8.1) — once
+  try {
+    const hoverFindings = await analyzeHover(mcp, `${targetBaseUrl}${route.path}`, !!route.critical);
+    result.errors.push(...hoverFindings);
+  } catch (err) {
+    console.warn(`[ARGUS] Hover analysis skipped for ${route.name}: ${err.message}`);
+  }
+
+  // Accessibility snapshot analysis (v3 Phase D8.2) — once
+  try {
+    const snapshotFindings = await analyzeSnapshot(mcp, `${targetBaseUrl}${route.path}`);
+    result.errors.push(...snapshotFindings);
+  } catch (err) {
+    console.warn(`[ARGUS] Snapshot analysis skipped for ${route.name}: ${err.message}`);
   }
 
   return result;

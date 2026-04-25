@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Hover Issues Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; }
+    #nav-menu { display: none; }
+    #tip-tooltip { opacity: 0 !important; position: absolute; background: #333; color: #fff; padding: 4px 8px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Hover Issues Fixture</h1>
+  <p>This page intentionally has broken hover interactions for Argus D8.1 detection.</p>
+
+  <!-- Broken dropdown: aria-haspopup declared but no JS to open menu on hover -->
+  <nav>
+    <button id="nav-btn" aria-haspopup="menu" aria-controls="nav-menu" aria-expanded="false">
+      Navigation
+    </button>
+    <ul id="nav-menu" role="menu" style="display:none;">
+      <li role="menuitem"><a href="#">Home</a></li>
+      <li role="menuitem"><a href="#">About</a></li>
+      <li role="menuitem"><a href="#">Contact</a></li>
+    </ul>
+  </nav>
+
+  <!-- Missing tooltip: data-tooltip declared but tooltip element forced hidden -->
+  <div style="margin-top: 2rem;">
+    <button
+      id="tip-btn"
+      data-tooltip="More information about this action"
+      aria-describedby="tip-tooltip"
+    >
+      Help
+    </button>
+    <div id="tip-tooltip" role="tooltip" style="opacity: 0 !important; position: absolute;">
+      More information about this action
+    </div>
+  </div>
+</body>
+</html>

@@ -40,6 +40,8 @@ import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityC
 import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../src/utils/content-analyzer.js';
 import { analyzeResponsive } from '../src/utils/responsive-analyzer.js';
 import { analyzeMemory }    from '../src/utils/memory-analyzer.js';
+import { analyzeHover }     from '../src/utils/hover-analyzer.js';
+import { analyzeSnapshot }  from '../src/utils/snapshot-analyzer.js';
 import { saveSession, restoreSession, refreshSession } from '../src/utils/session-manager.js';
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend, getCurrentBranch } from '../src/utils/baseline-manager.js';
 import { mergeRunResults } from '../src/utils/flakiness-detector.js';
@@ -2091,6 +2093,63 @@ async function runTests(mcp, stagingProc) {
   } finally {
     if (fs.existsSync(tmpReportJson)) fs.unlinkSync(tmpReportJson);
     if (fs.existsSync(tmpReportHtml)) fs.unlinkSync(tmpReportHtml);
+  }
+
+  // ── [46] Hover-state bug detection — D8.1 ────────────────────────────────────
+  console.log('\n[46] Hover-state bug detection — D8.1 (analyzeHover)');
+  {
+    const findings = await analyzeHover(mcp, `${B}/hover-issues.html`, false);
+
+    const dropdownBroken = findings.filter(f => f.type === 'hover_dropdown_broken');
+    assert(
+      dropdownBroken.length >= 1,
+      `[46a] hover_dropdown_broken detected for #nav-btn (aria-haspopup with no JS open handler)`
+    );
+
+    const tooltipMissing = findings.filter(f => f.type === 'hover_tooltip_missing');
+    assert(
+      tooltipMissing.length >= 1,
+      `[46b] hover_tooltip_missing detected for #tip-btn (tooltip forced opacity:0!important)`
+    );
+
+    assert(
+      dropdownBroken.every(f => f.severity === 'warning'),
+      `[46c] hover_dropdown_broken severity is "warning" (non-critical route)`
+    );
+
+    assert(
+      tooltipMissing.every(f => f.severity === 'warning'),
+      `[46d] hover_tooltip_missing severity is always "warning"`
+    );
+  }
+
+  // ── [47] Accessibility snapshot analysis — D8.2 ───────────────────────────────
+  console.log('\n[47] Accessibility snapshot analysis — D8.2 (analyzeSnapshot)');
+  {
+    const findings = await analyzeSnapshot(mcp, `${B}/snapshot-issues.html`);
+
+    const missingName = findings.filter(f => f.type === 'a11y_missing_name');
+    assert(
+      missingName.length >= 1,
+      `[47a] a11y_missing_name detected for SVG-only button with no accessible name`
+    );
+
+    const missingLabel = findings.filter(f => f.type === 'a11y_missing_form_label');
+    assert(
+      missingLabel.length >= 1,
+      `[47b] a11y_missing_form_label detected for bare <input> with no label`
+    );
+
+    const dupeLandmark = findings.filter(f => f.type === 'a11y_duplicate_landmark');
+    assert(
+      dupeLandmark.length >= 1,
+      `[47c] a11y_duplicate_landmark detected for <main> + [role="main"] without distinct labels`
+    );
+
+    assert(
+      findings.every(f => f.severity === 'warning'),
+      `[47d] all snapshot findings have severity "warning"`
+    );
   }
 }
 
