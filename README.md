@@ -2,7 +2,7 @@
 
 > *Argus Panoptes — the all-seeing giant of Greek mythology with a hundred eyes who never slept.*
 
-Automated browser testing pipeline that catches bugs, compares environments, and sends rich reports to Slack — powered by Chrome DevTools MCP and Claude Code.
+Automated browser testing pipeline that catches bugs, compares environments, and sends rich reports to Slack (or generates a self-contained HTML dashboard when Slack is not configured) — powered by Chrome DevTools MCP and Claude Code.
 
 <div align="center">
 
@@ -10,11 +10,19 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 </div>
 
+<div align="center">
+
+| 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
+|:---:|:---:|:---:|:---:|
+| **96 distinct issue types detected** | **18 analysis engines** | **192 test assertions** | **45 test blocks** |
+
+</div>
+
 ---
 
 ## What Argus Catches
 
-Argus runs eighteen analysis engines per run and detects **96 distinct issue types** — fourteen fire on every page crawl (JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, and runtime anti-patterns), plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity and routed to the right Slack channel automatically.
+Argus runs **18 analysis engines** per run and detects **96 distinct issue types** across JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, and runtime anti-patterns — plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity (`critical` / `warning` / `info`) and routed to the right Slack channel — or rendered as a local `report.html` when Slack is not configured.
 
 ### JavaScript Runtime
 
@@ -260,7 +268,7 @@ In interactive mode (running from Claude Code), MCP tools are called natively. I
 | Node.js | v20.19+ | Required by Chrome DevTools MCP |
 | Chrome | Stable (current) | Must be installed |
 | Claude Code | Latest | `npm install -g @anthropic-ai/claude-code` |
-| Slack workspace | — | Admin access or permission to install apps |
+| Slack workspace | — | **Optional** — only needed if you want Slack reports. Without it, Argus generates a local `report.html` instead |
 
 ---
 
@@ -325,7 +333,9 @@ Verify it's working — in Claude Code, ask:
 
 You should see a list of tabs. If you do, the MCP connection is live.
 
-### 5. Set up the Slack App (BugBot)
+### 5. Set up the Slack App (BugBot) *(optional)*
+
+> Skip this step if you don't need Slack notifications. Argus will generate a local `report.html` and open it in the browser instead.
 
 1. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → From scratch → name it **BugBot**
 2. **OAuth & Permissions** → Bot Token Scopes: add `chat:write`, `files:write`, `files:read`
@@ -514,14 +524,14 @@ BugBot should reply within 3 seconds with a "running" acknowledgement, then post
 
 Go to GitHub repo → **Settings** → **Secrets and variables** → **Actions** → add:
 
-| Secret name | Value |
-|---|---|
-| `SLACK_BOT_TOKEN` | Your `xoxb-...` token |
-| `SLACK_SIGNING_SECRET` | From Slack App → Basic Information |
-| `SLACK_CHANNEL_CRITICAL` | Channel ID |
-| `SLACK_CHANNEL_WARNINGS` | Channel ID |
-| `SLACK_CHANNEL_DIGEST` | Channel ID |
-| `TARGET_STAGING_URL` | Your staging base URL |
+| Secret name | Required | Value |
+|---|---|---|
+| `SLACK_BOT_TOKEN` | No | Your `xoxb-...` token. **Omit entirely to use Slack-optional mode** — Argus generates `report.html` instead |
+| `SLACK_SIGNING_SECRET` | No* | From Slack App → Basic Information (only needed for `/argus-retest` slash command) |
+| `SLACK_CHANNEL_CRITICAL` | No* | Channel ID (required when Slack is configured) |
+| `SLACK_CHANNEL_WARNINGS` | No* | Channel ID (required when Slack is configured) |
+| `SLACK_CHANNEL_DIGEST` | No* | Channel ID (required when Slack is configured) |
+| `TARGET_STAGING_URL` | Yes | Your staging base URL |
 
 The workflow at [.github/workflows/argus.yml](.github/workflows/argus.yml) runs:
 - On every push to `main` / `master`
