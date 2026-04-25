@@ -46,6 +46,7 @@ import { mergeRunResults } from '../src/utils/flakiness-detector.js';
 import { runFlow, normalizeArray } from '../src/utils/flow-runner.js';
 import { chunkArray } from '../src/utils/parallel-crawler.js';
 import { validateSchema, matchesContract } from '../src/utils/contract-validator.js';
+import { applyOverrides } from '../src/utils/severity-overrides.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
 
@@ -1959,6 +1960,55 @@ async function runTests(mcp, stagingProc) {
   // [42i] matchesContract: no method constraint → matches any method
   assert(matchesContract('http://localhost:3000/api/data', 'POST', { url: '/api/data' }),
     `[42i] matchesContract no method constraint → true for any method`);
+
+  // ── [43] Severity overrides — applyOverrides (pure function, no Chrome) ──────
+  console.log('\n[43] Severity Overrides — applyOverrides (D7.5)');
+
+  // [43a] Override downgrades severity: warning → info; overriddenCount reflects it
+  const rep43a = { routes: [{ url: '/', errors: [{ type: 'seo_missing_description', severity: 'warning', message: 't' }] }], flows: [] };
+  const s43a = applyOverrides(rep43a, { seo_missing_description: 'info' });
+  assert(rep43a.routes[0].errors[0].severity === 'info',
+    `[43a] override downgrades warning → info (got: "${rep43a.routes[0].errors[0].severity}")`);
+  assert(s43a.overriddenCount === 1,
+    `[43a] overriddenCount is 1 (got: ${s43a.overriddenCount})`);
+
+  // [43b] suppress removes finding + suppressedCount reflects it
+  const rep43b = { routes: [{ url: '/', errors: [{ type: 'cache_headers_missing', severity: 'info', message: 't' }, { type: 'network', severity: 'critical', message: 't2' }] }], flows: [] };
+  const s43b = applyOverrides(rep43b, { cache_headers_missing: 'suppress' });
+  assert(rep43b.routes[0].errors.length === 1 && rep43b.routes[0].errors[0].type === 'network',
+    `[43b] suppress removes finding from errors array (length: ${rep43b.routes[0].errors.length})`);
+  assert(s43b.suppressedCount === 1,
+    `[43b] suppressedCount is 1 (got: ${s43b.suppressedCount})`);
+
+  // [43c] override type not present in findings → zero stats, no mutation
+  const rep43c = { routes: [{ url: '/', errors: [{ type: 'network', severity: 'critical', message: 't' }] }], flows: [] };
+  const s43c = applyOverrides(rep43c, { seo_missing_description: 'info' });
+  assert(s43c.overriddenCount === 0 && s43c.suppressedCount === 0,
+    `[43c] override on absent type → zero stats (overridden=${s43c.overriddenCount}, suppressed=${s43c.suppressedCount})`);
+
+  // [43d] empty overrides map → no mutations, zero stats
+  const rep43d = { routes: [{ url: '/', errors: [{ type: 'network', severity: 'critical', message: 't' }] }], flows: [] };
+  const s43d = applyOverrides(rep43d, {});
+  assert(s43d.overriddenCount === 0 && s43d.suppressedCount === 0,
+    `[43d] empty overrides → zero stats (overridden=${s43d.overriddenCount}, suppressed=${s43d.suppressedCount})`);
+
+  // [43e] override applies to flow findings
+  const rep43e = { routes: [], flows: [{ flowName: 'checkout', findings: [{ type: 'flow_assert_failed', severity: 'critical', message: 't' }] }] };
+  applyOverrides(rep43e, { flow_assert_failed: 'warning' });
+  assert(rep43e.flows[0].findings[0].severity === 'warning',
+    `[43e] override applies to flow findings (got: "${rep43e.flows[0].findings[0].severity}")`);
+
+  // [43f] null severityOverrides → same early-return as empty map (zero stats, no mutation)
+  const rep43f = { routes: [{ url: '/', errors: [{ type: 'network', severity: 'critical', message: 't' }] }], flows: [] };
+  const s43f = applyOverrides(rep43f, null);
+  assert(s43f.overriddenCount === 0 && s43f.suppressedCount === 0,
+    `[43f] null overrides → zero stats (overridden=${s43f.overriddenCount}, suppressed=${s43f.suppressedCount})`);
+
+  // [43g] unknown/invalid override value → finding left unchanged
+  const rep43g = { routes: [{ url: '/', errors: [{ type: 'network', severity: 'warning', message: 't' }] }], flows: [] };
+  const s43g = applyOverrides(rep43g, { network: 'critial' }); // deliberate typo — unrecognised value
+  assert(rep43g.routes[0].errors[0].severity === 'warning' && s43g.overriddenCount === 0,
+    `[43g] unknown override value → finding unchanged (severity=${rep43g.routes[0].errors[0].severity}, overridden=${s43g.overriddenCount})`);
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────

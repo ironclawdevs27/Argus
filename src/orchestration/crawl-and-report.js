@@ -24,7 +24,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 
-import { routes, config, auth, flows, apiContracts } from '../config/targets.js';
+import { routes, config, auth, flows, apiContracts, severityOverrides } from '../config/targets.js';
 import { postBugReport } from './slack-notifier.js';
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../utils/css-analyzer.js';
 import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../utils/seo-analyzer.js';
@@ -41,6 +41,7 @@ import { slugify } from '../utils/slug.js';
 import { unwrapEval, createMcpClient } from '../utils/mcp-client.js';
 import { chunkArray } from '../utils/parallel-crawler.js';
 import { validateApiContracts } from '../utils/contract-validator.js';
+import { applyOverrides } from '../utils/severity-overrides.js';
 import { checkLighthouse } from '../utils/lighthouse-checker.js';
 
 // ── Performance Budgets ────────────────────────────────────────────────────────
@@ -1093,6 +1094,26 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
     const { results: flowResults, findings: flowFindings } = await runAllFlows(flows, targetBaseUrl, mcp);
     report.flows = flowResults;
     for (const finding of flowFindings) {
+      report.summary.total++;
+      report.summary[finding.severity] = (report.summary[finding.severity] ?? 0) + 1;
+    }
+  }
+
+  // D7.5: Severity policy overrides — remap or suppress findings before baseline + Slack
+  const { overriddenCount, suppressedCount } = applyOverrides(report, severityOverrides);
+  if (overriddenCount > 0 || suppressedCount > 0) {
+    console.log(`[ARGUS] Severity overrides: ${overriddenCount} remapped, ${suppressedCount} suppressed`);
+  }
+  // Rebuild summary after overrides (suppressed findings change counts)
+  report.summary = { total: 0, critical: 0, warning: 0, info: 0 };
+  for (const routeResult of report.routes) {
+    for (const err of routeResult.errors) {
+      report.summary.total++;
+      report.summary[err.severity] = (report.summary[err.severity] ?? 0) + 1;
+    }
+  }
+  for (const flowResult of (report.flows ?? [])) {
+    for (const finding of flowResult.findings) {
       report.summary.total++;
       report.summary[finding.severity] = (report.summary[finding.severity] ?? 0) + 1;
     }

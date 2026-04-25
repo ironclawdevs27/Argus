@@ -72,6 +72,25 @@ export const apiContracts = [
 ];
 
 /**
+ * Severity policy overrides (D7.5).
+ * Post-processes all findings before Slack routing, letting teams adjust or
+ * silence specific detection types without editing analyzer source code.
+ *
+ * Keys are finding type strings (e.g. 'seo_missing_description').
+ * Values are one of: 'critical' | 'warning' | 'info' | 'suppress'
+ *   'suppress' removes the finding entirely from the report and Slack alerts.
+ *
+ * Examples:
+ *   seo_missing_description: 'info'     — demote noisy SEO finding to info
+ *   cache_headers_missing:   'suppress' — silence entirely on this project
+ *   redirect_chain:          'warning'  — keep at warning (already is; no-op)
+ */
+export const severityOverrides = {
+  // seo_missing_description: 'info',
+  // cache_headers_missing:   'suppress',
+};
+
+/**
  * Auth session persistence (v3 Phase B2).
  *
  * When set, runCrawl() runs the login flow once before crawling, saves the

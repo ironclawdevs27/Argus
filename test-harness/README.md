@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-42 test blocks · 175 hard assertions · 31 detection categories · 39 fixture pages
+43 test blocks · 184 hard assertions · 31 detection categories · 39 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -63,6 +63,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 40 | `mixed-content.html` | `security_mixed_content` critical (blocked active content) + warning (passive image/audio) · critical message contains "blocked" | Hard |
 | 41 | _(pure function — no fixture page)_ | Parallel crawler: chunkArray even split (6→3) · uneven split (5→3, items preserved) · fewer items than chunks (3→5 gives 3) · empty array → [] · n=1 → single chunk · `ARGUS_CONCURRENCY` defaults to 1 (D7.3) | Hard |
 | 42 | _(pure function — no fixture page)_ | API contract validator: valid object → 0 violations · missing required field · wrong type · empty schema → passes · nested type mismatch · `matchesContract` path/method match, URL mismatch, method mismatch, no-method wildcard (D7.4) | Hard |
+| 43 | _(pure function — no fixture page)_ | Severity overrides: downgrade warning→info + overriddenCount=1 · suppress removes finding + suppressedCount · override on absent type → zero stats · empty overrides → zero stats · flow findings overridden · null overrides → zero stats · unknown override value → finding unchanged (D7.5) | Hard |
 
 ---
 
@@ -232,7 +233,7 @@ The validator will:
   ✓ Flaky count: 2 (expected 2)
 
 ────────────────────────────────────────────────────────
-Results: 175/175 hard assertions passed, 0 failed
+Results: 184/184 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```
