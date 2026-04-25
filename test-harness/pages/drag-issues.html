@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Drag Issues Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; }
+    #drag-source {
+      display: inline-block;
+      padding: 0.5rem 1rem;
+      background: #4f86f7;
+      color: #fff;
+      border-radius: 4px;
+      cursor: grab;
+      user-select: none;
+    }
+    #drop-zone {
+      margin-top: 1.5rem;
+      padding: 1.5rem;
+      border: 2px dashed #4caf50;
+      border-radius: 4px;
+      min-height: 60px;
+      color: #555;
+    }
+    #drop-zone.over { background: #e8f5e9; border-color: #2e7d32; }
+    #broken-zone {
+      margin-top: 1rem;
+      padding: 1.5rem;
+      border: 2px dashed #e53935;
+      border-radius: 4px;
+      min-height: 60px;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <h1>Drag Issues Fixture</h1>
+  <p>
+    <strong>#drag-source</strong> is draggable.<br>
+    <strong>#drop-zone</strong> is a working drop target — calls <code>event.preventDefault()</code>
+    in <code>dragover</code>, fires <code>drop</code>, sets <code>data-dropped="true"</code>.<br>
+    <strong>#broken-zone</strong> is broken — <code>dragover</code> does NOT call
+    <code>preventDefault()</code>, so the <code>drop</code> event never fires.
+  </p>
+
+  <div id="drag-source" draggable="true">Drag me</div>
+
+  <div id="drop-zone">Working drop zone (drop fires here)</div>
+
+  <div id="broken-zone">Broken drop zone (drop never fires — no preventDefault in dragover)</div>
+
+  <script>
+    var src = document.getElementById('drag-source');
+    var zone = document.getElementById('drop-zone');
+    var broken = document.getElementById('broken-zone');
+
+    // Working drop zone: dragover prevents default → drop fires
+    zone.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      zone.classList.add('over');
+    });
+    zone.addEventListener('dragleave', function () {
+      zone.classList.remove('over');
+    });
+    zone.addEventListener('drop', function (e) {
+      e.preventDefault();
+      zone.classList.remove('over');
+      zone.setAttribute('data-dropped', 'true');
+      zone.textContent = 'Dropped! ✓';
+    });
+
+    // Broken drop zone: dragover does NOT call preventDefault → drop never fires
+    broken.addEventListener('dragover', function (/* e */) {
+      // INTENTIONALLY no e.preventDefault() — drop event will not fire
+    });
+    broken.addEventListener('drop', function (e) {
+      // This handler is registered but will never be called
+      // because dragover did not prevent the default action.
+      e.preventDefault();
+      broken.setAttribute('data-dropped', 'true');
+    });
+  </script>
+</body>
+</html>

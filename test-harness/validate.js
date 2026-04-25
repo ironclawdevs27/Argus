@@ -2151,6 +2151,106 @@ async function runTests(mcp, stagingProc) {
       `[47d] all snapshot findings have severity "warning"`
     );
   }
+
+  // ── [48] type_text step action — D8.3 (typing: true flag in fill step) ───────
+  console.log('\n[48] type_text step action — D8.3 (typing: true flag in fill step)');
+  {
+    // [48a] mcp.fill sets .value but does NOT fire input events — char counter stays at 0
+    await mcp.navigate_page({ url: `${B}/typetext-issues.html` });
+    await new Promise(r => setTimeout(r, 300));
+    await mcp.fill({ selector: '#fill-input', value: 'hello world' });
+    const rawA = await mcp.evaluate_script({
+      function: `() => document.getElementById('fill-counter').getAttribute('data-count')`,
+    });
+    const countA = String(unwrapEval(rawA) ?? '');
+    assert(
+      countA === '0' || countA === '',
+      `[48a] mcp.fill does not fire input events — char counter stays at 0 (got "${countA}")`
+    );
+
+    // [48b] mcp.type_text dispatches keyboard events — char counter updates
+    await mcp.navigate_page({ url: `${B}/typetext-issues.html` });
+    await new Promise(r => setTimeout(r, 300));
+    await mcp.type_text({ selector: '#type-input', text: 'hi' });
+    const rawB = await mcp.evaluate_script({
+      function: `() => document.getElementById('type-counter').getAttribute('data-count')`,
+    });
+    const countB = String(unwrapEval(rawB) ?? '');
+    assert(
+      countB === '2',
+      `[48b] mcp.type_text fires input events — char counter updates to 2 (got "${countB}")`
+    );
+
+    // [48c] flow step with typing: true executes without error (step is wired to type_text)
+    const typingFlow = {
+      name: 'typetext-d8-3',
+      steps: [
+        { action: 'navigate', url: `${B}/typetext-issues.html` },
+        { action: 'fill', selector: '#type-input', value: 'abc', typing: true },
+      ],
+    };
+    const typingResult = await runFlow(typingFlow, B, mcp);
+    assert(
+      typingResult.findings.length === 0,
+      `[48c] flow with typing: true completes without error (type_text wired in fill step)`
+    );
+
+    // [48d] after typing: true flow, char counter is updated — proves type_text was called, not fill
+    const rawD = await mcp.evaluate_script({
+      function: `() => document.getElementById('type-counter').getAttribute('data-count')`,
+    });
+    const countD = String(unwrapEval(rawD) ?? '');
+    assert(
+      countD === '3',
+      `[48d] typing: true dispatches type_text — char counter updated to 3 after "abc" (got "${countD}")`
+    );
+  }
+
+  // ── [49] drag step action — D8.4 (drag action in flow-runner DSL) ────────────
+  console.log('\n[49] drag step action — D8.4 (drag action in flow-runner DSL)');
+  {
+    // [49a] drag step action is wired in runStep — runFlow with drag step doesn't emit flow_step_failed
+    const dragFlow = {
+      name: 'drag-d8-4',
+      steps: [
+        { action: 'navigate', url: `${B}/drag-issues.html` },
+        { action: 'drag', selector: '#drag-source', target: '#drop-zone' },
+      ],
+    };
+    const dragResult = await runFlow(dragFlow, B, mcp);
+    const unexpectedFail = dragResult.findings.filter(f => f.type === 'flow_step_failed' && f.action === 'drag');
+    assert(
+      unexpectedFail.length === 0,
+      `[49a] drag step action is registered in flow-runner — no flow_step_failed on valid selector`
+    );
+
+    // [49b] after drag to working drop zone, drop event fired (data-dropped="true")
+    const rawB = await mcp.evaluate_script({
+      function: `() => document.getElementById('drop-zone').getAttribute('data-dropped')`,
+    });
+    const dropped = String(unwrapEval(rawB) ?? '');
+    assert(
+      dropped === 'true',
+      `[49b] drag to working drop zone fires drop event — data-dropped="true" set by drop handler`
+    );
+
+    // [49c] drag step with non-existent selector → flow_step_failed with action: 'drag'
+    const badDragFlow = {
+      name: 'drag-bad-selector',
+      steps: [
+        { action: 'navigate', url: `${B}/drag-issues.html` },
+        { action: 'drag', selector: '#does-not-exist', target: '#drop-zone' },
+      ],
+    };
+    const badDragResult = await runFlow(badDragFlow, B, mcp);
+    const dragFailed = badDragResult.findings.filter(
+      f => f.type === 'flow_step_failed' && f.action === 'drag'
+    );
+    assert(
+      dragFailed.length >= 1,
+      `[49c] drag step with missing selector emits flow_step_failed with action "drag"`
+    );
+  }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────

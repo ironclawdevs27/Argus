@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Type-Text Issues Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; }
+    .field { margin-bottom: 1.5rem; }
+    .counter { font-size: 0.85rem; color: #555; margin-left: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Type-Text Issues Fixture</h1>
+  <p>
+    Two identical inputs with <code>input</code>-event-triggered character counters.
+    <code>mcp.fill</code> sets <code>.value</code> directly and does NOT fire <code>input</code>
+    events — the counter stays at 0. <code>mcp.type_text</code> dispatches real keyboard events —
+    the counter updates per keystroke.
+  </p>
+
+  <!-- Input for the fill test — counter must stay at 0 after mcp.fill -->
+  <div class="field">
+    <label for="fill-input">Fill input (counter should stay at 0 after mcp.fill):</label><br>
+    <input id="fill-input" type="text" autocomplete="off">
+    <span id="fill-counter" class="counter" data-count="0">0 chars</span>
+  </div>
+
+  <!-- Input for the type_text test — counter must update after mcp.type_text -->
+  <div class="field">
+    <label for="type-input">Type-text input (counter should update after mcp.type_text):</label><br>
+    <input id="type-input" type="text" autocomplete="off">
+    <span id="type-counter" class="counter" data-count="0">0 chars</span>
+  </div>
+
+  <script>
+    function setupCounter(inputId, counterId) {
+      document.getElementById(inputId).addEventListener('input', function () {
+        var len = this.value.length;
+        var el = document.getElementById(counterId);
+        el.textContent = len + ' chars';
+        el.setAttribute('data-count', String(len));
+      });
+    }
+    setupCounter('fill-input', 'fill-counter');
+    setupCounter('type-input', 'type-counter');
+  </script>
+</body>
+</html>

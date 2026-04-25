@@ -1,19 +1,29 @@
 /**
- * Argus v3 Phase B5 — User Flow Runner
+ * Argus v3 Phase B5 / D8.3–D8.4 — User Flow Runner
  *
  * Executes reusable multi-step interaction sequences defined in targets.js flows[].
  * Each flow is a named sequence of steps that exercises a user journey end-to-end.
  *
  * Supported step actions:
- *   navigate, fill, click, press_key, waitFor, sleep, handle_dialog, assert
+ *   navigate        — navigate_page to step.url or baseUrl + step.path
+ *   fill            — mcp.fill (sets .value directly, no keyboard events)
+ *                     Add typing: true to use mcp.type_text instead, which
+ *                     dispatches real keydown/keyup/input events (D8.3)
+ *   click           — mcp.click on step.selector
+ *   press_key       — mcp.press_key with step.key
+ *   drag            — mcp.drag from step.selector to step.target (D8.4)
+ *   waitFor         — mcp.wait_for until step.selector appears
+ *   sleep           — pause step.ms milliseconds
+ *   handle_dialog   — mcp.handle_dialog (accept/dismiss + optional promptText)
+ *   assert          — run an inline assertion (see assert types below)
  *
  * Assert types:
- *   no_console_errors  — list_console_messages must return zero errors
- *   no_network_errors  — list_network_requests must return zero 4xx/5xx
- *   element_visible    — wait_for(selector) must succeed within timeout
+ *   no_console_errors   — list_console_messages must return zero errors
+ *   no_network_errors   — list_network_requests must return zero 4xx/5xx
+ *   element_visible     — selector must appear in DOM within timeout
  *   element_not_visible — selector must not exist in DOM
- *   url_contains       — window.location.href must include value
- *   no_js_errors       — window.__argusErrors must be empty
+ *   url_contains        — window.location.href must include value
+ *   no_js_errors        — window.__argusErrors must be empty
  */
 
 import { unwrapEval } from './mcp-client.js';
@@ -197,7 +207,14 @@ export async function runFlow(flow, baseUrl, mcp) {
           break;
 
         case 'fill':
-          await mcp.fill({ selector: step.selector, value: step.value ?? '' });
+          // typing: true uses mcp.type_text (dispatches real keyboard events) instead of
+          // mcp.fill (which sets .value directly and does not fire keydown/input events).
+          // Use typing: true when the target input has input-event-driven validation (D8.3).
+          if (step.typing) {
+            await mcp.type_text({ selector: step.selector, text: step.value ?? '' });
+          } else {
+            await mcp.fill({ selector: step.selector, value: step.value ?? '' });
+          }
           break;
 
         case 'click':
@@ -214,6 +231,13 @@ export async function runFlow(flow, baseUrl, mcp) {
 
         case 'sleep':
           await new Promise(r => setTimeout(r, step.ms ?? 1000));
+          break;
+
+        case 'drag':
+          // Drag from step.selector to step.target. Fires dragstart → dragover → drop
+          // on the target. The drop only lands if the target's dragover handler calls
+          // event.preventDefault() — broken drop zones won't fire drop (D8.4).
+          await mcp.drag({ selector: step.selector, targetSelector: step.target });
           break;
 
         case 'handle_dialog':

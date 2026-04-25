@@ -14,7 +14,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 | 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
 |:---:|:---:|:---:|:---:|
-| **101 distinct issue types detected** | **20 analysis engines** | **200 test assertions** | **47 test blocks** |
+| **101 distinct issue types detected** | **20 analysis engines** | **207 test assertions** | **49 test blocks** |
 
 </div>
 
@@ -245,7 +245,7 @@ Argus watches your running application and automatically surfaces issues that te
 | **Accessibility Snapshot Analysis** | Calls `take_snapshot` then `evaluate_script`; flags interactive elements missing accessible names, unlabelled form controls, and duplicate landmark regions |
 | **Historical Baselines** | Saves finding keys after each run; subsequent runs only alert on *new* issues; trend summary in Slack digest |
 | **Flakiness Detection** | Crawls each route twice per run; findings in both runs are confirmed (original severity); findings in only one run are marked flaky (`severity: info`, `:zap: _flaky_` label) |
-| **User Flow Assertions** | Named multi-step flows (`navigate/fill/click/press_key/waitFor/sleep/handle_dialog/assert`) with baseline-sliced `no_console_errors`, `no_network_errors`, `element_visible`, `url_contains`, `no_js_errors` asserts — runs end-to-end user journeys without writing Playwright specs |
+| **User Flow Assertions** | Named multi-step flows (`navigate/fill/click/press_key/drag/waitFor/sleep/handle_dialog/assert`) with baseline-sliced `no_console_errors`, `no_network_errors`, `element_visible`, `url_contains`, `no_js_errors` asserts — runs end-to-end user journeys without writing Playwright specs · Use `typing: true` on a fill step to dispatch real keyboard events via `mcp.type_text` (triggers input-event validation) · Use `drag` step to fire dragstart→dragover→drop sequences |
 | **API Contract Validation** | Define `apiContracts[]` in `targets.js` with inline `schema` or `schemaFile`; validates captured response bodies against JSON Schema (type, required, properties, items) — emits `api_contract_violation` warnings when shapes diverge from spec |
 | **Severity Policy Overrides** | Define `severityOverrides` in `targets.js` (`{ finding_type: 'info' \| 'warning' \| 'critical' \| 'suppress' }`); applied before Slack routing — remap or silence specific detections without touching analyzer code |
 | **Auth Token Refresh** | `refreshSession()` is called before each route; re-runs the login flow when the saved session has less than `sessionRefreshWindowMs` (default 5 min) remaining — prevents long crawls from failing mid-run when the auth cookie expires |
@@ -604,12 +604,12 @@ argus/
 │       ├── slack-guard.js            # Slack-optional guard: isSlackConfigured() (D7.7)
 │       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
-├── test-harness/                     # Fixture server + test runner (47 blocks, 200 hard assertions, 33 categories)
+├── test-harness/                     # Fixture server + test runner (49 blocks, 207 hard assertions, 35 categories)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner — 47 numbered blocks
-│   ├── pages/                        # 41 fixture pages (one per detection category)
+│   ├── validate.js                   # Test runner — 49 numbered blocks
+│   ├── pages/                        # 43 fixture pages (one per detection category)
 │   └── static/
 │       └── button-styles.css         # BEM card selectors in button file → component leak
 └── reports/                          # Output: JSON reports + screenshots (gitignored)

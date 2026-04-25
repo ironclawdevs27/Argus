@@ -305,6 +305,22 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'a11y_missing_name warning (SVG-only button), a11y_missing_form_label warning (bare input), a11y_duplicate_landmark warning (main + role=main)',
   },
+  // D8.3 — type_text step action: fill bypasses input events; type_text fires them
+  {
+    path: '/typetext-issues.html',
+    name: 'Type-Text Issues',
+    critical: false,
+    waitFor: null,
+    expected: 'fill does not update char counter (no input event); type_text updates counter; typing: true flow step completes',
+  },
+  // D8.4 — drag step action: drag to working drop zone fires drop event; broken zone does not
+  {
+    path: '/drag-issues.html',
+    name: 'Drag Issues',
+    critical: false,
+    waitFor: null,
+    expected: 'drag step wired in flow-runner; drag to working zone sets data-dropped="true"; bad selector → flow_step_failed',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */
