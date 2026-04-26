@@ -51,7 +51,7 @@ import { validateSchema, matchesContract } from '../src/utils/contract-validator
 import { applyOverrides } from '../src/utils/severity-overrides.js';
 import { auditEnvVariables, detectFeatureFlagLeakage, enrichErrorsWithSource, detectDeadRoutes, INTERNAL_LINKS_SCRIPT } from '../src/utils/codebase-analyzer.js';
 import { isSlackConfigured } from '../src/utils/slack-guard.js';
-import { formatPrComment, buildStatusPayload, isGitHubConfigured } from '../src/utils/github-reporter.js';
+import { formatPrComment, buildStatusPayload } from '../src/utils/github-reporter.js';
 import { generateHtmlReport } from '../src/utils/html-reporter.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
@@ -2468,20 +2468,27 @@ async function runTests(mcp, stagingProc) {
       `[55c] comment contains the report base URL`
     );
     assert(
-      comment.includes('1') && comment.includes('Critical'),
-      `[55d] comment references critical count from summary`
+      comment.includes('| **Total** | 1 | 1 | 1 | 3 |'),
+      `[55d] summary table Total row contains correct per-severity and overall counts`
     );
     assert(
       comment.includes('New Findings'),
-      `[55e] New Findings section present when diff has new findings`
+      `[55e] New Findings section present when diff.isFirstRun is false and findings exist`
     );
     assert(
       comment.includes('Resolved'),
-      `[55f] Resolved section present when diff.resolvedCount > 0`
+      `[55f] Resolved section present when combined resolvedCount > 0`
     );
     assert(
       comment.includes('Codebase Analysis'),
       `[55g] Codebase Analysis section present when report.codebase is non-empty`
+    );
+
+    // First-run case: New Findings section must be suppressed
+    const firstRunComment = formatPrComment(syntheticReport, { isFirstRun: true, newCount: 0, resolvedCount: 0, flowNewCount: 0, flowResolvedCount: 0 });
+    assert(
+      !firstRunComment.includes('New Findings'),
+      `[55h] New Findings section absent on first run (would show all findings as new — misleading)`
     );
   }
 

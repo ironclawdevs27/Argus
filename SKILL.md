@@ -12,7 +12,7 @@ Argus is an AI-driven automated QA harness that audits web pages against 35+ det
 **Entry points**
 - `src/argus.js` — single-page audit (CLI)
 - `src/batch-runner.js` — multi-page batch audit
-- `test-harness/validate.js` — 56-block correctness harness (236 hard assertions)
+- `test-harness/validate.js` — 56-block correctness harness (237 hard assertions)
 - `test-harness/harness-config.js` — fixture page routing table
 
 ---
@@ -973,13 +973,13 @@ for (const bp of breakpoints) {
 | Metric | Value |
 |--------|-------|
 | Test blocks | 56 |
-| Hard assertions | 236 |
+| Hard assertions | 237 |
 | Detection categories | 39 |
 | Fixture pages | 45 |
 | Flow step actions | 14 |
 | Phases complete | C1, C2, D1–D8.5 |
 
-Expected harness output: `236/236 hard assertions passed`
+Expected harness output: `237/237 hard assertions passed`
 
 ---
 
@@ -1031,7 +1031,7 @@ Expected harness output: `236/236 hard assertions passed`
 
 ### Key implementation notes
 
-- `formatPrComment` and `buildStatusPayload` are **pure functions** (no I/O) — safely unit-testable without mocking.
+- `formatPrComment` and `buildStatusPayload` are **pure functions** (no env var reads, no I/O) — safely unit-testable without mocking. `target_url` is attached by `setCommitStatus` after calling the builder.
 - `isGitHubConfigured()` gates both Slack and GitHub independently — you can have both, one, or neither.
 - `reportToGitHub` always runs **after** Slack dispatch, never blocks it.
 - The COMMENT_MARKER `<!-- argus-qa-report -->` is used to find the existing comment to update — don't remove it.

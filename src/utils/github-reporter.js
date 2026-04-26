@@ -69,7 +69,8 @@ export function formatPrComment(report, diff) {
   const newCriticals = allNewFindings.filter(f => f.severity === 'critical').length;
   const newWarnings  = allNewFindings.filter(f => f.severity === 'warning').length;
   const newInfos     = allNewFindings.filter(f => f.severity === 'info').length;
-  const resolvedCount = diff?.resolvedCount ?? 0;
+  // Sum route + flow resolved findings for the display count
+  const resolvedCount = (diff?.resolvedCount ?? 0) + (diff?.flowResolvedCount ?? 0);
 
   const lines = [
     COMMENT_MARKER,
@@ -90,8 +91,8 @@ export function formatPrComment(report, diff) {
     lines.push(`| **Resolved** | — | — | — | ${resolvedCount} |`);
   }
 
-  // ── New findings table ──
-  if (allNewFindings.length > 0) {
+  // ── New findings table — skipped on first run (all findings would be "new") ──
+  if (allNewFindings.length > 0 && !isFirst) {
     lines.push('', `### 🆕 New Findings (${allNewFindings.length})`);
     lines.push('| Severity | Source | Type | Details |');
     lines.push('|---|---|---|---|');
@@ -140,10 +141,11 @@ export function formatPrComment(report, diff) {
 /**
  * Build the payload for the GitHub commit status API.
  * State is 'failure' when any new critical findings exist (blocks PR merge).
+ * Pure function — reads no env vars; callers attach target_url if desired.
  *
  * @param {object} report
  * @param {object|null} diff
- * @returns {{ state: string, description: string, context: string, target_url?: string }}
+ * @returns {{ state: string, description: string, context: string }}
  */
 export function buildStatusPayload(report, diff) {
   const newCriticals = [
@@ -157,30 +159,28 @@ export function buildStatusPayload(report, diff) {
   ].length;
 
   const passing = newCriticals === 0;
-  const payload = {
+  return {
     state:       passing ? 'success' : 'failure',
     description: passing
       ? `Argus: All checks passed (${report.summary.total} total finding(s))`
       : `Argus: ${newCriticals} new critical issue(s) — merge blocked`,
     context:     'argus-qa',
   };
-  if (process.env.ARGUS_REPORT_URL) {
-    payload.target_url = process.env.ARGUS_REPORT_URL;
-  }
-  return payload;
 }
 
 // ── GitHub API helper ─────────────────────────────────────────────────────────
 
 async function ghFetch(urlPath, method, body) {
+  const headers = {
+    'Authorization':        `Bearer ${process.env.GITHUB_TOKEN}`,
+    'Accept':               'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+  if (body) headers['Content-Type'] = 'application/json';
+
   const res = await fetch(`${GITHUB_API}${urlPath}`, {
     method,
-    headers: {
-      'Authorization':        `Bearer ${process.env.GITHUB_TOKEN}`,
-      'Accept':               'application/vnd.github+json',
-      'Content-Type':         'application/json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
+    headers,
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(15000),
   });
@@ -231,6 +231,10 @@ export async function setCommitStatus(report, diff) {
   if (!repo || !sha) throw new Error('[ARGUS] C2: GITHUB_REPOSITORY or GITHUB_SHA not set');
 
   const payload = buildStatusPayload(report, diff);
+  // ARGUS_REPORT_URL is I/O-dependent — attached here, not in the pure builder
+  if (process.env.ARGUS_REPORT_URL) {
+    payload.target_url = process.env.ARGUS_REPORT_URL;
+  }
   await ghFetch(`/repos/${repo}/statuses/${sha}`, 'POST', payload);
   console.log(`[ARGUS] C2: Commit status → ${payload.state} (${payload.description})`);
 }
