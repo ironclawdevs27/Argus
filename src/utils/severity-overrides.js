@@ -70,6 +70,9 @@ export function applyOverrides(report, severityOverrides) {
   for (const flowResult of (report.flows ?? [])) {
     flowResult.findings = processFindings(flowResult.findings);
   }
+  if (report.codebase) {
+    report.codebase = processFindings(report.codebase);
+  }
 
   return { overriddenCount, suppressedCount };
 }

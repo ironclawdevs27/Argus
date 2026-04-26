@@ -202,15 +202,18 @@ export function enrichErrorsWithSource(consoleFindings) {
 // HEAD-request each internal link discovered on crawled pages that was not already
 // in the targeted route list. 404 responses are emitted as dead_route warnings.
 
+// Uses getAttribute('href') so '#section' is caught before a.href resolves it to
+// an absolute URL (a.href always returns a fully-qualified URL in browsers).
 const INTERNAL_LINKS_SCRIPT = `() => {
   try {
     var o = window.location.origin;
     return Array.from(document.querySelectorAll('a[href]'))
-      .map(function(a){ return a.href; })
-      .filter(function(h){
-        if (!h || h.startsWith('#') || h.startsWith('mailto:') || h.startsWith('tel:') || h.startsWith('javascript:')) return false;
-        try { return new URL(h).origin === o; } catch { return false; }
-      });
+      .filter(function(a){
+        var raw = a.getAttribute('href') || '';
+        if (!raw || raw.startsWith('#') || raw.startsWith('mailto:') || raw.startsWith('tel:') || raw.startsWith('javascript:')) return false;
+        try { return new URL(a.href).origin === o; } catch { return false; }
+      })
+      .map(function(a){ return a.href; });
   } catch(e) { return []; }
 }`;
 

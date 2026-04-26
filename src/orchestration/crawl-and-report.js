@@ -25,7 +25,7 @@ import { fileURLToPath } from 'url';
 import 'dotenv/config';
 
 import { routes, config, auth, flows, apiContracts, severityOverrides, codebase } from '../config/targets.js';
-import { analyzeCodebase, detectDeadRoutes, INTERNAL_LINKS_SCRIPT } from '../utils/codebase-analyzer.js';
+import { analyzeCodebase, detectDeadRoutes } from '../utils/codebase-analyzer.js';
 import { exec } from 'child_process';
 import { postBugReport } from './slack-notifier.js';
 import { isSlackConfigured } from '../utils/slack-guard.js';
@@ -421,17 +421,20 @@ async function checkPerformanceBudgets(mcp, url) {
 // before the final document was received. Present in all modern browsers.
 const REDIRECT_COUNT_SCRIPT = `() => window.performance.getEntriesByType('navigation')[0]?.redirectCount ?? 0`;
 
-// ── Internal Link Collection Script (D2.3) ────────────────────────────────────
+// ── Internal Link Collection Script (D2.3 + C1.4) ────────────────────────────
 // Returns absolute hrefs for same-origin <a> links, skipping anchors/mailto/tel.
+// Uses getAttribute('href') for the raw value so '#section' is caught before
+// a.href resolves it to an absolute URL.
 const INTERNAL_LINKS_SCRIPT = `() => {
   try {
     var orig = window.location.origin;
     return Array.from(document.querySelectorAll('a[href]'))
-      .map(function(a) { return a.href; })
-      .filter(function(h) {
-        if (!h || h.indexOf('#') === 0 || h.indexOf('mailto:') === 0 || h.indexOf('tel:') === 0) return false;
-        try { return new URL(h).origin === orig; } catch { return false; }
-      });
+      .filter(function(a) {
+        var raw = a.getAttribute('href') || '';
+        if (!raw || raw.startsWith('#') || raw.startsWith('mailto:') || raw.startsWith('tel:') || raw.startsWith('javascript:')) return false;
+        try { return new URL(a.href).origin === orig; } catch { return false; }
+      })
+      .map(function(a) { return a.href; });
   } catch (e) { return []; }
 }`;
 
@@ -1206,6 +1209,10 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
       report.summary[finding.severity] = (report.summary[finding.severity] ?? 0) + 1;
     }
   }
+  for (const finding of (report.codebase ?? [])) {
+    report.summary.total++;
+    report.summary[finding.severity] = (report.summary[finding.severity] ?? 0) + 1;
+  }
 
   // Historical baselines + trend tracking (v3 Phase B3 / D7.2 per-branch)
   const branch       = getCurrentBranch();
@@ -1367,7 +1374,7 @@ async function dispatchToSlack(report, diff) {
   }
 
   // ── C1 codebase criticals + warnings: bundle into one message each ───────
-  const cbCriticals = (report.codebase ?? []).filter(f => f.severity === 'critical');
+  const cbCriticals = (report.codebase ?? []).filter(f => f.severity === 'critical' && f.isNew !== false);
   if (cbCriticals.length > 0) {
     await postBugReport({
       severity: 'critical',
@@ -1378,7 +1385,7 @@ async function dispatchToSlack(report, diff) {
       details: { codebase: cbCriticals },
     });
   }
-  const cbWarnings = (report.codebase ?? []).filter(f => f.severity === 'warning');
+  const cbWarnings = (report.codebase ?? []).filter(f => f.severity === 'warning' && f.isNew !== false);
   if (cbWarnings.length > 0) {
     await postBugReport({
       severity: 'warning',

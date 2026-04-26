@@ -83,7 +83,8 @@ export function loadBaseline(baselineFile) {
     for (const [flowName, keys] of Object.entries(raw.flows ?? {})) {
       flows.set(flowName, new Set(keys));
     }
-    return { savedAt: raw.savedAt, routes, flows };
+    const codebase = new Set(raw.codebase ?? []);
+    return { savedAt: raw.savedAt, routes, flows, codebase };
   } catch {
     return null;
   }
@@ -104,9 +105,10 @@ export function saveBaseline(baselineFile, report) {
   for (const flowResult of (report.flows ?? [])) {
     flows[flowResult.flowName] = flowResult.findings.map(findingKey);
   }
+  const codebase = (report.codebase ?? []).map(findingKey);
   fs.writeFileSync(
     baselineFile,
-    JSON.stringify({ savedAt: new Date().toISOString(), routes, flows }, null, 2),
+    JSON.stringify({ savedAt: new Date().toISOString(), routes, flows, codebase }, null, 2),
   );
 }
 
@@ -131,6 +133,9 @@ export function applyBaseline(report, baseline) {
     }
     const newCount     = report.routes.reduce((n, r) => n + r.errors.length, 0);
     const flowNewCount = (report.flows ?? []).reduce((n, f) => n + f.findings.length, 0);
+    for (const finding of (report.codebase ?? [])) {
+      finding.isNew = true;
+    }
     return { isFirstRun: true, newCount, resolvedCount: 0, flowNewCount, flowResolvedCount: 0 };
   }
 
@@ -171,6 +176,15 @@ export function applyBaseline(report, baseline) {
     for (const key of baselineKeys) {
       if (!currentKeys.has(key)) flowResolvedCount++;
     }
+  }
+
+  // C1 codebase findings — annotate isNew against saved codebase keys
+  const baselineCodebase = baseline.codebase ?? new Set();
+  const currentCodebaseKeys = new Set();
+  for (const finding of (report.codebase ?? [])) {
+    const key = findingKey(finding);
+    currentCodebaseKeys.add(key);
+    finding.isNew = !baselineCodebase.has(key);
   }
 
   return { isFirstRun: false, newCount, resolvedCount, flowNewCount, flowResolvedCount };

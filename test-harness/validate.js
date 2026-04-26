@@ -2401,8 +2401,9 @@ async function runTests(mcp, stagingProc) {
     await sleep(500);
 
     // Extract internal links from the page
-    const linksRaw = await mcp.evaluate_script({ function: INTERNAL_LINKS_SCRIPT });
-    const links    = JSON.parse(String(unwrapEval(linksRaw) ?? '[]'));
+    const linksRaw  = await mcp.evaluate_script({ function: INTERNAL_LINKS_SCRIPT });
+    const rawLinks  = unwrapEval(linksRaw);
+    const links     = Array.isArray(rawLinks) ? rawLinks : JSON.parse(String(rawLinks ?? '[]'));
 
     // Test untested paths — clean.html is already "known" so it won't be HEAD-requested
     const knownPaths = ['/dead-routes.html', '/clean.html'];
