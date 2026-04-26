@@ -168,6 +168,27 @@ export const codebase = {
   envFile:   process.env.ARGUS_ENV_FILE   ?? null,
 };
 
+/**
+ * GitHub PR integration (Phase C2).
+ *
+ * All configuration is via environment variables — no settings object needed here.
+ *
+ * Required env vars (set in .env or GitHub Actions secrets):
+ *   GITHUB_TOKEN        — personal access token or Actions GITHUB_TOKEN
+ *   GITHUB_REPOSITORY   — "owner/repo"  (set automatically in GitHub Actions)
+ *
+ * Optional env vars:
+ *   GITHUB_SHA          — commit SHA for status checks (auto in GitHub Actions)
+ *   GITHUB_PR_NUMBER    — PR number; add to your workflow:
+ *                           env:
+ *                             GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+ *   ARGUS_REPORT_URL    — URL to the full HTML report; linked from the commit status check
+ *
+ * When GITHUB_TOKEN + GITHUB_REPOSITORY are present, Argus will:
+ *   - Post (or update) a findings summary comment on the open PR
+ *   - Set a commit status check: 'failure' if new criticals exist, 'success' otherwise
+ */
+
 // Uncomment and configure for authenticated crawls:
 // export const auth = {
 //   sessionFile:             '.argus-session.json',

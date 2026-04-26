@@ -12,7 +12,7 @@ Argus is an AI-driven automated QA harness that audits web pages against 35+ det
 **Entry points**
 - `src/argus.js` — single-page audit (CLI)
 - `src/batch-runner.js` — multi-page batch audit
-- `test-harness/validate.js` — 54-block correctness harness (225 hard assertions)
+- `test-harness/validate.js` — 56-block correctness harness (236 hard assertions)
 - `test-harness/harness-config.js` — fixture page routing table
 
 ---
@@ -972,14 +972,70 @@ for (const bp of breakpoints) {
 
 | Metric | Value |
 |--------|-------|
-| Test blocks | 54 |
-| Hard assertions | 225 |
+| Test blocks | 56 |
+| Hard assertions | 236 |
 | Detection categories | 39 |
 | Fixture pages | 45 |
 | Flow step actions | 14 |
-| Phases complete | C1, D1–D8.5 |
+| Phases complete | C1, C2, D1–D8.5 |
 
-Expected harness output: `225/225 hard assertions passed`
+Expected harness output: `236/236 hard assertions passed`
+
+---
+
+## 14a. Phase C2 — GitHub PR Integration
+
+### Required env vars
+
+| Variable | Source | Purpose |
+|----------|--------|---------|
+| `GITHUB_TOKEN` | Secret | GitHub PAT or `${{ secrets.GITHUB_TOKEN }}` in Actions |
+| `GITHUB_REPOSITORY` | Auto (GHA) | `owner/repo` — set automatically by GitHub Actions |
+| `GITHUB_SHA` | Auto (GHA) | Commit SHA for status check — auto in GitHub Actions |
+| `GITHUB_PR_NUMBER` | Workflow env | Set via `${{ github.event.pull_request.number }}` |
+| `ARGUS_REPORT_URL` | Optional | URL to the full HTML report — linked in the status check |
+
+### GitHub Actions workflow snippet
+
+```yaml
+- name: Run Argus QA
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+    ARGUS_REPORT_URL: ${{ steps.upload.outputs.artifact-url }}
+  run: npm run crawl
+```
+
+### What it does
+
+1. **PR comment** (`postPrComment`) — posts a structured Markdown comment with a findings table; updates in-place on subsequent runs (one comment per PR, no spam).
+2. **Commit status** (`setCommitStatus`) — sets `argus-qa` status to `failure` when new critical findings exist (blocks merge if branch protection requires it), `success` otherwise.
+
+### Comment structure
+
+```
+<!-- argus-qa-report -->        ← update sentinel
+## 🔍 Argus QA Report
+| | 🔴 Critical | 🟡 Warning | 🔵 Info | Total |
+| Total  | 3 | 12 | 5 | 20 |
+| New    | 1 |  0 | 0 |  1 |
+| Resolved | — | — | — | 2 |
+
+### 🆕 New Findings (1)
+| Severity | Source | Type | Details |
+| 🔴 critical | Home | console | TypeError: ... |
+
+### 📦 Codebase Analysis — 2 finding(s)
+...
+```
+
+### Key implementation notes
+
+- `formatPrComment` and `buildStatusPayload` are **pure functions** (no I/O) — safely unit-testable without mocking.
+- `isGitHubConfigured()` gates both Slack and GitHub independently — you can have both, one, or neither.
+- `reportToGitHub` always runs **after** Slack dispatch, never blocks it.
+- The COMMENT_MARKER `<!-- argus-qa-report -->` is used to find the existing comment to update — don't remove it.
+- Tables are capped at 15 rows (`MAX_TABLE_ROWS`) to stay under GitHub's 65536-char comment limit.
 
 ---
 

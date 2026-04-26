@@ -51,6 +51,7 @@ import { validateSchema, matchesContract } from '../src/utils/contract-validator
 import { applyOverrides } from '../src/utils/severity-overrides.js';
 import { auditEnvVariables, detectFeatureFlagLeakage, enrichErrorsWithSource, detectDeadRoutes, INTERNAL_LINKS_SCRIPT } from '../src/utils/codebase-analyzer.js';
 import { isSlackConfigured } from '../src/utils/slack-guard.js';
+import { formatPrComment, buildStatusPayload, isGitHubConfigured } from '../src/utils/github-reporter.js';
 import { generateHtmlReport } from '../src/utils/html-reporter.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
@@ -2420,6 +2421,115 @@ async function runTests(mcp, stagingProc) {
     assert(
       deadRoutes.every(f => f.severity === 'warning'),
       `[54c] all dead_route findings are severity "warning"`
+    );
+  }
+
+  // ── [55] C2.1 PR comment formatter ───────────────────────────────────────
+  console.log('\n[55] C2.1 formatPrComment — Markdown PR comment body');
+  {
+    const syntheticReport = {
+      generatedAt: new Date().toISOString(),
+      baseUrl: 'http://localhost:3100',
+      summary: { total: 3, critical: 1, warning: 1, info: 1 },
+      routes: [{
+        route: 'Home',
+        url: 'http://localhost:3100/',
+        errors: [
+          { type: 'console', severity: 'critical', message: 'TypeError: foo is null', isNew: true },
+          { type: 'seo_missing_h1', severity: 'warning', message: 'Missing H1 heading', isNew: false },
+        ],
+        screenshot: null,
+      }],
+      flows: [],
+      codebase: [
+        { type: 'env_var_missing', severity: 'warning', message: 'process.env.API_KEY referenced but not declared', isNew: true },
+      ],
+    };
+    const syntheticDiff = {
+      isFirstRun: false,
+      newCount: 2,
+      resolvedCount: 1,
+      flowNewCount: 0,
+      flowResolvedCount: 0,
+    };
+
+    const comment = formatPrComment(syntheticReport, syntheticDiff);
+
+    assert(
+      typeof comment === 'string' && comment.length > 0,
+      `[55a] formatPrComment returns a non-empty string (got type: ${typeof comment})`
+    );
+    assert(
+      comment.includes('<!-- argus-qa-report -->'),
+      `[55b] comment contains the COMMENT_MARKER sentinel for update detection`
+    );
+    assert(
+      comment.includes('http://localhost:3100'),
+      `[55c] comment contains the report base URL`
+    );
+    assert(
+      comment.includes('1') && comment.includes('Critical'),
+      `[55d] comment references critical count from summary`
+    );
+    assert(
+      comment.includes('New Findings'),
+      `[55e] New Findings section present when diff has new findings`
+    );
+    assert(
+      comment.includes('Resolved'),
+      `[55f] Resolved section present when diff.resolvedCount > 0`
+    );
+    assert(
+      comment.includes('Codebase Analysis'),
+      `[55g] Codebase Analysis section present when report.codebase is non-empty`
+    );
+  }
+
+  // ── [56] C2.2 Commit status payload builder ───────────────────────────────
+  console.log('\n[56] C2.2 buildStatusPayload — GitHub commit status payload');
+  {
+    const baseReport = {
+      generatedAt: new Date().toISOString(),
+      baseUrl: 'http://localhost:3100',
+      summary: { total: 2, critical: 1, warning: 1, info: 0 },
+      routes: [{
+        route: 'Home',
+        url: 'http://localhost:3100/',
+        errors: [{ type: 'console', severity: 'critical', message: 'TypeError', isNew: true }],
+      }],
+      flows: [],
+      codebase: [],
+    };
+
+    // Scenario A: new critical → failure
+    const statusFail = buildStatusPayload(baseReport, { isFirstRun: false, newCount: 1 });
+    assert(
+      statusFail.state === 'failure',
+      `[56a] state is "failure" when new critical findings exist (got: "${statusFail.state}")`
+    );
+
+    // Scenario B: no new criticals → success
+    const cleanReport = {
+      ...baseReport,
+      routes: [{
+        route: 'Home',
+        url: 'http://localhost:3100/',
+        errors: [{ type: 'console', severity: 'critical', message: 'TypeError', isNew: false }],
+      }],
+    };
+    const statusPass = buildStatusPayload(cleanReport, { isFirstRun: false, newCount: 0 });
+    assert(
+      statusPass.state === 'success',
+      `[56b] state is "success" when no new critical findings (got: "${statusPass.state}")`
+    );
+
+    assert(
+      statusFail.context === 'argus-qa',
+      `[56c] context field is "argus-qa" (got: "${statusFail.context}")`
+    );
+    assert(
+      typeof statusFail.description === 'string' && statusFail.description.includes('Argus'),
+      `[56d] description is a string containing "Argus" (got: "${statusFail.description}")`
     );
   }
 }

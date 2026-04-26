@@ -29,6 +29,7 @@ import { analyzeCodebase, detectDeadRoutes } from '../utils/codebase-analyzer.js
 import { exec } from 'child_process';
 import { postBugReport } from './slack-notifier.js';
 import { isSlackConfigured } from '../utils/slack-guard.js';
+import { isGitHubConfigured, reportToGitHub } from '../utils/github-reporter.js';
 import { generateHtmlReport } from '../utils/html-reporter.js';
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../utils/css-analyzer.js';
 import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../utils/seo-analyzer.js';
@@ -1244,6 +1245,11 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
     const htmlPath = generateHtmlReport(reportPath);
     console.log(`[ARGUS] ✓ Open in browser: ${htmlPath}\n`);
     openInBrowser(htmlPath);
+  }
+
+  // C2: GitHub PR comment + commit status (independent of Slack — runs whenever configured)
+  if (isGitHubConfigured()) {
+    await reportToGitHub(report, diff);
   }
 
   // Persist baseline + append trend entry
