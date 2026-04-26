@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<!-- Argus C1.4 fixture: dead route detection -->
+<!-- Two links point to non-existent server paths; one is valid; skip-targets ignored -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Fixture for C1.4 dead route detection testing">
+  <meta property="og:title" content="Dead Routes Test">
+  <meta property="og:description" content="C1.4 dead route detection fixture">
+  <meta property="og:image" content="http://localhost:3100/static/og-image.png">
+  <link rel="canonical" href="http://localhost:3100/dead-routes.html">
+  <title>Dead Routes</title>
+</head>
+<body>
+  <h1>Dead Route Detection Fixture</h1>
+  <nav>
+    <!-- Two internal links that return 404 — detectDeadRoutes should flag both -->
+    <a href="/argus-dead-route-alpha">Dead link alpha</a>
+    <a href="/argus-dead-route-beta">Dead link beta</a>
+    <!-- Valid internal link — should NOT be flagged -->
+    <a href="/clean.html">Valid link (clean page)</a>
+    <!-- Should be skipped -->
+    <a href="mailto:test@example.com">Skip: mailto</a>
+    <a href="#section">Skip: anchor</a>
+    <a href="tel:+15551234">Skip: tel</a>
+  </nav>
+  <section id="section"><p>Section content.</p></section>
+</body>
+</html>

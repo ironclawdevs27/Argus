@@ -152,6 +152,22 @@ export const flows = [];
 //   },
 // ];
 
+/**
+ * Codebase cross-reference (Phase C1).
+ *
+ * Point sourceDir at your app's source code to enable:
+ *   - env_var_missing      — process.env.X used in code but absent from .env files
+ *   - feature_flag_leakage — conditional env var that is falsy/unset in .env
+ *   - error_source_linked  — console error stack trace parsed to file:line (info)
+ *   - dead_route           — internal nav link that returns 404
+ *
+ * Set to null to disable (default).
+ */
+export const codebase = {
+  sourceDir: process.env.ARGUS_SOURCE_DIR ?? null,
+  envFile:   process.env.ARGUS_ENV_FILE   ?? null,
+};
+
 // Uncomment and configure for authenticated crawls:
 // export const auth = {
 //   sessionFile:             '.argus-session.json',

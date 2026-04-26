@@ -329,6 +329,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'upload_file step wired in flow-runner; file delivered to input (files.length > 0); bad filePath → flow_step_failed',
   },
+  // C1.4 — dead route detection (2 dead links: /argus-dead-route-alpha + /argus-dead-route-beta)
+  {
+    path: '/dead-routes.html',
+    name: 'Dead Routes',
+    critical: false,
+    waitFor: null,
+    expected: 'dead_route warning ×2 (/argus-dead-route-alpha, /argus-dead-route-beta); valid /clean.html and skip-targets not flagged',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

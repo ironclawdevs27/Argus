@@ -24,7 +24,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 
-import { routes, config, auth, flows, apiContracts, severityOverrides } from '../config/targets.js';
+import { routes, config, auth, flows, apiContracts, severityOverrides, codebase } from '../config/targets.js';
+import { analyzeCodebase, detectDeadRoutes, INTERNAL_LINKS_SCRIPT } from '../utils/codebase-analyzer.js';
 import { exec } from 'child_process';
 import { postBugReport } from './slack-notifier.js';
 import { isSlackConfigured } from '../utils/slack-guard.js';
@@ -1018,6 +1019,15 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
     console.warn(`[ARGUS] Snapshot analysis skipped for ${route.name}: ${err.message}`);
   }
 
+  // C1.4: collect internal navigation links for dead route detection
+  try {
+    const linksRaw = await mcp.evaluate_script({ function: INTERNAL_LINKS_SCRIPT });
+    const parsed   = unwrapEval(linksRaw);
+    result.discoveredLinks = Array.isArray(parsed) ? parsed : JSON.parse(String(parsed ?? '[]'));
+  } catch {
+    result.discoveredLinks = [];
+  }
+
   return result;
 }
 
@@ -1139,6 +1149,42 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
       report.summary.total++;
       report.summary[finding.severity] = (report.summary[finding.severity] ?? 0) + 1;
     }
+  }
+
+  // Phase C1: Codebase cross-reference — static analysis (env audit, feature flags, error enrichment)
+  report.codebase = [];
+  const allConsoleFindings = report.routes.flatMap(r => r.errors.filter(e => e.type === 'console'));
+  try {
+    const cbFindings = await analyzeCodebase({
+      sourceDir:       codebase?.sourceDir ?? null,
+      envFile:         codebase?.envFile   ?? null,
+      consoleFindings: allConsoleFindings,
+    });
+    report.codebase.push(...cbFindings);
+    if (cbFindings.length > 0) {
+      console.log(`[ARGUS] C1: ${cbFindings.length} codebase finding(s) (${cbFindings.filter(f => f.type === 'env_var_missing').length} env, ${cbFindings.filter(f => f.type === 'feature_flag_leakage').length} flag, ${cbFindings.filter(f => f.type === 'error_source_linked').length} stack)`);
+    }
+  } catch (err) {
+    console.warn(`[ARGUS] C1: codebase analysis skipped: ${err.message}`);
+  }
+
+  // C1.4: Dead route detection — HEAD-test internal links not in the target route list
+  try {
+    const allLinks      = [...new Set(report.routes.flatMap(r => r.discoveredLinks ?? []))];
+    const testedPaths   = targetRoutes.map(r => r.path);
+    const deadFindings  = await detectDeadRoutes(targetBaseUrl, allLinks, testedPaths);
+    report.codebase.push(...deadFindings);
+    if (deadFindings.length > 0) {
+      console.log(`[ARGUS] C1: ${deadFindings.length} dead route(s) detected`);
+    }
+  } catch (err) {
+    console.warn(`[ARGUS] C1: dead route detection skipped: ${err.message}`);
+  }
+
+  // Add codebase findings to summary
+  for (const finding of report.codebase) {
+    report.summary.total++;
+    report.summary[finding.severity] = (report.summary[finding.severity] ?? 0) + 1;
   }
 
   // D7.5: Severity policy overrides — remap or suppress findings before baseline + Slack
@@ -1320,6 +1366,30 @@ async function dispatchToSlack(report, diff) {
     }
   }
 
+  // ── C1 codebase criticals + warnings: bundle into one message each ───────
+  const cbCriticals = (report.codebase ?? []).filter(f => f.severity === 'critical');
+  if (cbCriticals.length > 0) {
+    await postBugReport({
+      severity: 'critical',
+      title: `${cbCriticals.length} codebase critical(s) — ${report.baseUrl}`,
+      description: cbCriticals.map(f => `• *[${f.type}]* ${errorText(f)}`).join('\n'),
+      url: report.baseUrl,
+      screenshotPath: null,
+      details: { codebase: cbCriticals },
+    });
+  }
+  const cbWarnings = (report.codebase ?? []).filter(f => f.severity === 'warning');
+  if (cbWarnings.length > 0) {
+    await postBugReport({
+      severity: 'warning',
+      title: `${cbWarnings.length} codebase warning(s) — ${report.baseUrl}`,
+      description: cbWarnings.map(f => `• *[${f.type}]* ${errorText(f)}`).join('\n'),
+      url: report.baseUrl,
+      screenshotPath: null,
+      details: { codebase: cbWarnings },
+    });
+  }
+
   // ── Info digest: one summary message across all routes ────────────────────
   const allInfos = report.routes.flatMap(r =>
     r.errors.filter(e => e.severity === 'info').map(e => ({ ...e, routeName: r.route }))
@@ -1355,9 +1425,16 @@ async function dispatchToSlack(report, diff) {
     }
   }
 
+  // Codebase info findings in digest
+  const cbInfos = (report.codebase ?? []).filter(f => f.severity === 'info');
+  if (cbInfos.length > 0) {
+    digestLines.push('*Codebase (C1)*');
+    for (const f of cbInfos) digestLines.push(`  • [${f.type}] ${errorText(f)}`);
+  }
+
   const allFlowInfos = (report.flows ?? []).flatMap(f => f.findings.filter(e => e.severity === 'info'));
 
-  if (allInfos.length > 0 || allFlowInfos.length > 0) {
+  if (allInfos.length > 0 || allFlowInfos.length > 0 || cbInfos.length > 0) {
     const runDate = new Date(report.generatedAt).toLocaleString();
     const trendLine = diff
       ? diff.isFirstRun

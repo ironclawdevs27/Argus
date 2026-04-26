@@ -12,7 +12,7 @@ Argus is an AI-driven automated QA harness that audits web pages against 35+ det
 **Entry points**
 - `src/argus.js` — single-page audit (CLI)
 - `src/batch-runner.js` — multi-page batch audit
-- `test-harness/validate.js` — 50-block correctness harness (210 hard assertions)
+- `test-harness/validate.js` — 54-block correctness harness (225 hard assertions)
 - `test-harness/harness-config.js` — fixture page routing table
 
 ---
@@ -972,14 +972,14 @@ for (const bp of breakpoints) {
 
 | Metric | Value |
 |--------|-------|
-| Test blocks | 50 |
-| Hard assertions | 210 |
-| Detection categories | 35 |
-| Fixture pages | 44 |
+| Test blocks | 54 |
+| Hard assertions | 225 |
+| Detection categories | 39 |
+| Fixture pages | 45 |
 | Flow step actions | 14 |
-| Phases complete | D1–D8.5 |
+| Phases complete | C1, D1–D8.5 |
 
-Expected harness output: `210/210 hard assertions passed`
+Expected harness output: `225/225 hard assertions passed`
 
 ---
 

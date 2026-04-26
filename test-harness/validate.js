@@ -49,6 +49,7 @@ import { runFlow, normalizeArray } from '../src/utils/flow-runner.js';
 import { chunkArray } from '../src/utils/parallel-crawler.js';
 import { validateSchema, matchesContract } from '../src/utils/contract-validator.js';
 import { applyOverrides } from '../src/utils/severity-overrides.js';
+import { auditEnvVariables, detectFeatureFlagLeakage, enrichErrorsWithSource, detectDeadRoutes, INTERNAL_LINKS_SCRIPT } from '../src/utils/codebase-analyzer.js';
 import { isSlackConfigured } from '../src/utils/slack-guard.js';
 import { generateHtmlReport } from '../src/utils/html-reporter.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
@@ -2301,6 +2302,123 @@ async function runTests(mcp, stagingProc) {
     assert(
       uploadFailed.length >= 1,
       `[50c] upload_file with non-existent file path emits flow_step_failed with action "upload_file"`
+    );
+  }
+
+  // ── [51] C1.1 Env variable audit ─────────────────────────────────────────
+  console.log('\n[51] C1.1 Env variable audit — process.env refs vs declared vars in .env');
+  {
+    const sourceDir = path.join(__dirname, 'source-fixture');
+    const envFile   = path.join(sourceDir, '.env.fixture');
+    const findings  = auditEnvVariables(sourceDir, envFile);
+
+    assert(
+      findings.length > 0,
+      `[51a] auditEnvVariables produces findings for undeclared env vars (got ${findings.length})`
+    );
+    assert(
+      findings.some(f => f.varName === 'MISSING_VAR'),
+      `[51b] MISSING_VAR flagged as env_var_missing (found: ${findings.map(f => f.varName).join(', ')})`
+    );
+    assert(
+      findings.every(f => f.severity === 'warning'),
+      `[51c] all env_var_missing findings are severity "warning"`
+    );
+    // PRESENT_VAR is in .env.fixture — must not be flagged
+    assert(
+      !findings.some(f => f.varName === 'PRESENT_VAR'),
+      `[51d] PRESENT_VAR is declared and must NOT be flagged (wrongly flagged: ${findings.filter(f => f.varName === 'PRESENT_VAR').length})`
+    );
+  }
+
+  // ── [52] C1.2 Feature flag leakage ───────────────────────────────────────
+  console.log('\n[52] C1.2 Feature flag leakage — conditional env var that is falsy/unset');
+  {
+    const sourceDir = path.join(__dirname, 'source-fixture');
+    const envFile   = path.join(sourceDir, '.env.fixture');
+    const findings  = detectFeatureFlagLeakage(sourceDir, envFile);
+
+    assert(
+      findings.length > 0,
+      `[52a] detectFeatureFlagLeakage produces findings (got ${findings.length})`
+    );
+    assert(
+      findings.some(f => f.varName === 'FEATURE_DISABLED'),
+      `[52b] FEATURE_DISABLED flagged as feature_flag_leakage (found: ${findings.map(f => f.varName).join(', ')})`
+    );
+    assert(
+      findings.every(f => f.severity === 'warning'),
+      `[52c] all feature_flag_leakage findings are severity "warning"`
+    );
+    // FEATURE_ENABLED is 'true' in .env.fixture — must not be flagged
+    assert(
+      !findings.some(f => f.varName === 'FEATURE_ENABLED'),
+      `[52d] FEATURE_ENABLED is truthy and must NOT be flagged (wrongly flagged: ${findings.filter(f => f.varName === 'FEATURE_ENABLED').length})`
+    );
+  }
+
+  // ── [53] C1.3 Error-to-source linking ────────────────────────────────────
+  console.log('\n[53] C1.3 Error-to-source linking — console error stack traces parsed to file:line');
+  {
+    const syntheticFindings = [
+      {
+        type:    'console',
+        level:   'error',
+        message: 'TypeError: Cannot read property \'foo\' of undefined\n    at handleClick (http://localhost:3000/static/js/main.abc123.js:1:4567)\n    at HTMLButtonElement.onclick (http://localhost:3000/static/js/main.abc123.js:1:8910)',
+        severity: 'warning',
+      },
+      {
+        type:    'console',
+        level:   'warning',
+        message: 'Some warning with no stack trace',
+        severity: 'info',
+      },
+    ];
+    const enriched = enrichErrorsWithSource(syntheticFindings);
+
+    assert(
+      enriched.length > 0,
+      `[53a] enrichErrorsWithSource produces findings for errors with stack traces (got ${enriched.length})`
+    );
+    assert(
+      enriched[0].stackFrames?.length > 0,
+      `[53b] stack frames extracted from console error (got ${enriched[0]?.stackFrames?.length ?? 0})`
+    );
+    assert(
+      enriched[0].stackFrames[0].file === 'main.abc123.js',
+      `[53c] top stack frame file resolved correctly (got: ${enriched[0]?.stackFrames?.[0]?.file})`
+    );
+    assert(
+      enriched.every(f => f.severity === 'info'),
+      `[53d] all error_source_linked findings are severity "info"`
+    );
+  }
+
+  // ── [54] C1.4 Dead route detection ───────────────────────────────────────
+  console.log('\n[54] C1.4 Dead route detection — internal links that return 404');
+  {
+    await mcp.navigate_page({ url: `${B}/dead-routes.html` });
+    await sleep(500);
+
+    // Extract internal links from the page
+    const linksRaw = await mcp.evaluate_script({ function: INTERNAL_LINKS_SCRIPT });
+    const links    = JSON.parse(String(unwrapEval(linksRaw) ?? '[]'));
+
+    // Test untested paths — clean.html is already "known" so it won't be HEAD-requested
+    const knownPaths = ['/dead-routes.html', '/clean.html'];
+    const deadRoutes = await detectDeadRoutes(B, links, knownPaths);
+
+    assert(
+      deadRoutes.length >= 2,
+      `[54a] detectDeadRoutes finds ≥ 2 dead routes (found: ${deadRoutes.length} — paths: ${deadRoutes.map(f => f.path).join(', ')})`
+    );
+    assert(
+      deadRoutes.some(f => f.path.includes('argus-dead-route')),
+      `[54b] dead paths flagged match expected /argus-dead-route-* pattern (found: ${deadRoutes.map(f => f.path).join(', ')})`
+    );
+    assert(
+      deadRoutes.every(f => f.severity === 'warning'),
+      `[54c] all dead_route findings are severity "warning"`
     );
   }
 }
