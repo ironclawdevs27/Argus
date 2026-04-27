@@ -26,7 +26,7 @@ import 'dotenv/config';
 
 import { routes, config, auth, flows, apiContracts, severityOverrides, codebase, autoDiscover } from '../config/targets.js';
 import { discoverRoutes } from '../utils/route-discoverer.js';
-import { analyzeCodebase, detectDeadRoutes } from '../utils/codebase-analyzer.js';
+import { analyzeCodebase, detectDeadRoutes, INTERNAL_LINKS_SCRIPT } from '../utils/codebase-analyzer.js';
 import { exec } from 'child_process';
 import { postBugReport } from './slack-notifier.js';
 import { isSlackConfigured } from '../utils/slack-guard.js';
@@ -415,22 +415,7 @@ async function checkPerformanceBudgets(mcp, url) {
 // before the final document was received. Present in all modern browsers.
 const REDIRECT_COUNT_SCRIPT = `() => window.performance.getEntriesByType('navigation')[0]?.redirectCount ?? 0`;
 
-// ── Internal Link Collection Script (D2.3 + C1.4) ────────────────────────────
-// Returns absolute hrefs for same-origin <a> links, skipping anchors/mailto/tel.
-// Uses getAttribute('href') for the raw value so '#section' is caught before
-// a.href resolves it to an absolute URL.
-const INTERNAL_LINKS_SCRIPT = `() => {
-  try {
-    var orig = window.location.origin;
-    return Array.from(document.querySelectorAll('a[href]'))
-      .filter(function(a) {
-        var raw = a.getAttribute('href') || '';
-        if (!raw || raw.startsWith('#') || raw.startsWith('mailto:') || raw.startsWith('tel:') || raw.startsWith('javascript:')) return false;
-        try { return new URL(a.href).origin === orig; } catch { return false; }
-      })
-      .map(function(a) { return a.href; });
-  } catch (e) { return []; }
-}`;
+// INTERNAL_LINKS_SCRIPT is imported from codebase-analyzer.js (single source of truth)
 
 // ── Network Performance Analysis (v3 Phase A2) ────────────────────────────────
 

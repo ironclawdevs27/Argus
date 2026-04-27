@@ -33,6 +33,26 @@ const SEVERITY_EMOJI = {
   info: '🔵',
 };
 
+// ── Rate-limit-aware postMessage wrapper ─────────────────────────────────────
+
+const SLACK_RATE_LIMIT_RETRIES = 3;
+
+async function slackPostWithBackoff(args) {
+  for (let attempt = 0; attempt < SLACK_RATE_LIMIT_RETRIES; attempt++) {
+    try {
+      return await slack.chat.postMessage(args);
+    } catch (err) {
+      const isRateLimit = err.code === 'slack_webapi_rate_limited'
+        || err.message?.toLowerCase().includes('ratelimited')
+        || err.message?.includes('429');
+      if (!isRateLimit || attempt === SLACK_RATE_LIMIT_RETRIES - 1) throw err;
+      const retryAfterMs = (err.retryAfter ?? 1) * 1000;
+      console.warn(`[ARGUS] Slack rate limited — retrying in ${retryAfterMs}ms (attempt ${attempt + 1})`);
+      await new Promise(r => setTimeout(r, retryAfterMs));
+    }
+  }
+}
+
 // ── File Upload (Current Slack API) ───────────────────────────────────────────
 
 /**
@@ -224,7 +244,7 @@ export async function postBugReport({ severity, title, description, url, screens
 
   // Post message
   try {
-    const result = await slack.chat.postMessage({
+    const result = await slackPostWithBackoff({
       channel: channelId,
       text: `[${severity.toUpperCase()}] ${title} — ${url}`, // fallback text
       blocks,
@@ -254,7 +274,7 @@ export async function postRetestResult(originalTs, channelId, outcome, details) 
   const text = `${emoji} *Retest ${outcome.toUpperCase()}*\n${details}`;
 
   try {
-    await slack.chat.postMessage({
+    await slackPostWithBackoff({
       channel: channelId,
       text,
       thread_ts: originalTs,

@@ -182,7 +182,13 @@ export async function restoreSession(mcp, baseUrl, sessionFile) {
     return false;
   }
 
-  const state = JSON.parse(fs.readFileSync(sessionFile, 'utf8'));
+  let state;
+  try {
+    state = JSON.parse(fs.readFileSync(sessionFile, 'utf8'));
+  } catch (err) {
+    console.warn(`[ARGUS] Failed to parse session file ${sessionFile}: ${err.message}`);
+    return false;
+  }
 
   // Navigate to the origin so cookies land on the right domain
   await mcp.navigate_page({ url: baseUrl });
@@ -276,7 +282,25 @@ export async function refreshSession(mcp, auth, baseUrl) {
   console.log(
     `[ARGUS] Auth: session expires in ${Math.round(remainingMs / 1000)}s — refreshing login...`
   );
-  await runLoginFlow(mcp, baseUrl, auth.steps);
-  await saveSession(mcp, sessionFile);
-  return { refreshed: true };
+
+  // Lock file prevents concurrent shard workers from running redundant login flows
+  const lockFile = sessionFile + '.lock';
+  let lockFd = null;
+  try {
+    lockFd = fs.openSync(lockFile, 'wx');
+  } catch (err) {
+    if (err.code === 'EEXIST') {
+      console.log('[ARGUS] Auth: refresh lock held by another shard — skipping duplicate login');
+      return { refreshed: false };
+    }
+    throw err;
+  }
+  try {
+    await runLoginFlow(mcp, baseUrl, auth.steps);
+    await saveSession(mcp, sessionFile);
+    return { refreshed: true };
+  } finally {
+    try { fs.closeSync(lockFd); } catch {}
+    try { fs.unlinkSync(lockFile); } catch {}
+  }
 }

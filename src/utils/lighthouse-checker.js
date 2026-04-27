@@ -45,7 +45,9 @@ export async function checkLighthouse(mcp, url) {
     const audits     = result?.audits     ?? {};
 
     for (const [catKey, thresholds] of Object.entries(LIGHTHOUSE_THRESHOLDS)) {
-      const catData = categories[catKey] ?? categories[catKey.replace('-', '_')];
+      const catData = categories[catKey]
+        ?? categories[catKey.replace('-', '_')]
+        ?? categories[catKey.replace(/-([a-z])/g, (_, c) => c.toUpperCase())];
       const score   = catData?.score ?? result?.[catKey]?.score ?? null;
       if (score == null) continue;
 
@@ -76,7 +78,7 @@ export async function checkLighthouse(mcp, url) {
     }
 
     for (const [auditId, audit] of Object.entries(audits)) {
-      if (audit.score !== 0) continue;
+      if (audit.score == null || audit.score !== 0) continue;
       if (audit.details?.type === 'manual') continue;
 
       const auditCategory = Object.entries(categories).find(([, cat]) =>

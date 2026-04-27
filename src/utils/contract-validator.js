@@ -73,6 +73,7 @@ export function validateSchema(value, schema, path = '') {
  * @returns {boolean}
  */
 export function matchesContract(reqUrl, reqMethod, contract) {
+  if (!contract?.url) return false;
   const method = (reqMethod ?? 'GET').toUpperCase();
   if (contract.method && contract.method.toUpperCase() !== method) return false;
 

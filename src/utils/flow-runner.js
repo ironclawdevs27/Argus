@@ -34,6 +34,18 @@
 
 import { unwrapEval } from './mcp-client.js';
 
+const INJECT_ERROR_LISTENER = `() => {
+  if (window.__argusErrorsPatched) return;
+  window.__argusErrorsPatched = true;
+  window.__argusErrors = [];
+  window.addEventListener('error', function(e) {
+    window.__argusErrors.push({ message: e.message, source: e.filename, line: e.lineno });
+  });
+  window.addEventListener('unhandledrejection', function(e) {
+    window.__argusErrors.push({ message: String(e.reason), source: 'unhandledrejection' });
+  });
+}`;
+
 const DEFAULT_TIMEOUT = 10_000;
 
 /**
@@ -250,6 +262,8 @@ export async function runFlow(flow, baseUrl, mcp) {
         case 'navigate':
           // step.url = absolute URL override; step.path = relative to baseUrl
           await mcp.navigate_page({ url: step.url ?? (baseUrl + (step.path ?? '')) });
+          // Re-inject error listener — navigation destroys the previous page context
+          await mcp.evaluate_script({ function: INJECT_ERROR_LISTENER }).catch(() => {});
           break;
 
         case 'fill':

@@ -2848,7 +2848,11 @@ async function main() {
     serverProc = await startServer(HARNESS_DEV_PORT);
 
     console.log('\u25B6 Starting staging fixture server on port', HARNESS_STAGING_PORT, '...');
-    stagingProc = await startServer(HARNESS_STAGING_PORT);
+    try {
+      stagingProc = await startServer(HARNESS_STAGING_PORT);
+    } catch (stagingErr) {
+      console.warn('  ⚠  Staging server failed to start: ' + stagingErr.message + ' — env-comparison tests will be skipped');
+    }
 
     console.log('\u25B6 Connecting to Chrome DevTools MCP ...');
     mcp = await createMcpClient();

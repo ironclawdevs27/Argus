@@ -74,7 +74,7 @@ const MISSING_LABEL_SCRIPT = `() => {
     if (!hasLabel && el.closest('label')) hasLabel = true;
     if (!hasLabel && el.getAttribute('aria-label')) hasLabel = true;
     if (!hasLabel && el.getAttribute('aria-labelledby')) hasLabel = true;
-    if (!hasLabel && el.getAttribute('placeholder')) hasLabel = true;
+    // placeholder is not a valid accessible name — intentionally excluded (WCAG 2.1 §3.3.2)
     if (!hasLabel) {
       results.push({
         tag:  el.tagName.toLowerCase(),

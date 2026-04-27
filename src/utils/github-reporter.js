@@ -171,6 +171,9 @@ export function buildStatusPayload(report, diff) {
 // ── GitHub API helper ─────────────────────────────────────────────────────────
 
 async function ghFetch(urlPath, method, body) {
+  if (!process.env.GITHUB_TOKEN) {
+    throw new Error('GITHUB_TOKEN environment variable is not set — GitHub reporting is disabled');
+  }
   const headers = {
     'Authorization':        `Bearer ${process.env.GITHUB_TOKEN}`,
     'Accept':               'application/vnd.github+json',

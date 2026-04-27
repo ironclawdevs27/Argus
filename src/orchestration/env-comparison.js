@@ -97,24 +97,17 @@ async function compareRoute(route, mcp) {
   const devUrl = `${DEV_URL}${route.path}`;
   const stagingUrl = `${STAGING_URL}${route.path}`;
 
-  const [dev, staging] = await Promise.allSettled([
-    capturePage(devUrl, 'dev', route.name, mcp),
-    capturePage(stagingUrl, 'staging', route.name, mcp),
-  ]);
-
-  // Handle capture failures
-  if (dev.status === 'rejected' || staging.status === 'rejected') {
-    return {
-      route: route.name,
-      devUrl,
-      stagingUrl,
-      error: `Capture failed: dev=${dev.reason ?? 'ok'}, staging=${staging.reason ?? 'ok'}`,
-      diffs: [],
-    };
+  let devData, stagingData;
+  try {
+    devData = await capturePage(devUrl, 'dev', route.name, mcp);
+  } catch (err) {
+    return { route: route.name, devUrl, stagingUrl, error: `dev capture failed: ${err.message}`, diffs: [] };
   }
-
-  const devData = dev.value;
-  const stagingData = staging.value;
+  try {
+    stagingData = await capturePage(stagingUrl, 'staging', route.name, mcp);
+  } catch (err) {
+    return { route: route.name, devUrl, stagingUrl, error: `staging capture failed: ${err.message}`, diffs: [] };
+  }
 
   const diffs = [];
 

@@ -281,10 +281,15 @@ async function main() {
                                              githubToken, githubRepo, sourceDir, envFile: envFilePath });
     const targetsContent = generateTargetsJs(finalRoutes, { framework, sourceDir, envFile: envFilePath });
 
-    fs.writeFileSync('.env', envContent, 'utf8');
+    if (fs.existsSync('.env')) {
+      console.warn('  ⚠  .env already exists — skipping write to preserve existing credentials. Delete it manually to regenerate.');
+    } else {
+      fs.writeFileSync('.env', envContent, 'utf8');
+    }
     tick('Wrote .env');
 
     const targetsPath = path.join('src', 'config', 'targets.js');
+    fs.mkdirSync(path.dirname(targetsPath), { recursive: true });
     fs.writeFileSync(targetsPath, targetsContent, 'utf8');
     tick(`Wrote ${targetsPath}`);
 
