@@ -176,9 +176,10 @@ function deduplicateErrors(errors) {
  * Sets up window.onerror and unhandledrejection listeners that store
  * structured error objects on window.__argusErrors for later extraction.
  */
-const INJECT_ERROR_LISTENER = `
-(function() {
-  window.__argusErrors = window.__argusErrors || [];
+const INJECT_ERROR_LISTENER = `() => {
+  if (window.__argusErrorsPatched) return;
+  window.__argusErrorsPatched = true;
+  window.__argusErrors = [];
   window.onerror = function(message, source, lineno, colno, error) {
     window.__argusErrors.push({
       type: 'uncaught_exception',
@@ -189,7 +190,7 @@ const INJECT_ERROR_LISTENER = `
       stack: error ? error.stack : null,
       ts: Date.now()
     });
-    return false; // don't suppress default handling
+    return false;
   };
   window.addEventListener('unhandledrejection', function(event) {
     window.__argusErrors.push({
@@ -199,17 +200,15 @@ const INJECT_ERROR_LISTENER = `
       ts: Date.now()
     });
   });
-})();
-`;
+}`;
 
 /** Extracts the injected errors from the page after settle time. */
-const EXTRACT_ERROR_LISTENER = `JSON.stringify(window.__argusErrors || [])`;
+const EXTRACT_ERROR_LISTENER = `() => JSON.stringify(window.__argusErrors ?? [])`;
 
 // ── D6.2 — document.write / document.writeln detection ───────────────────────
 
-/** Patches document.write and document.writeln before navigation to record calls. */
-const INJECT_DOC_WRITE_LISTENER = `
-(function() {
+/** Patches document.write and document.writeln after navigation to record calls. */
+const INJECT_DOC_WRITE_LISTENER = `() => {
   if (window.__argusDocWritePatched) return;
   window.__argusDocWritePatched = true;
   window.__argusDocWrites = [];
@@ -223,17 +222,15 @@ const INJECT_DOC_WRITE_LISTENER = `
     window.__argusDocWrites.push({ method: 'writeln', content: String(arguments[0] ?? '').slice(0, 200) });
     return _writeln.apply(document, arguments);
   };
-})();
-`;
+}`;
 
 /** Extracts the list of document.write calls recorded by the injected listener. */
 const EXTRACT_DOC_WRITE_LISTENER = `() => JSON.stringify(window.__argusDocWrites ?? [])`;
 
 // ── D6.5 — Service worker registration failure detection ─────────────────────
 
-/** Patches navigator.serviceWorker.register before navigation to intercept failures. */
-const INJECT_SW_LISTENER = `
-(function() {
+/** Patches navigator.serviceWorker.register after navigation to intercept failures. */
+const INJECT_SW_LISTENER = `() => {
   if (window.__argusSwPatched) return;
   window.__argusSwPatched = true;
   window.__argusSwErrors = [];
@@ -249,8 +246,7 @@ const INJECT_SW_LISTENER = `
     });
     return reg;
   };
-})();
-`;
+}`;
 
 /** Extracts the list of service worker registration failures recorded by the listener. */
 const EXTRACT_SW_LISTENER = `() => JSON.stringify(window.__argusSwErrors ?? [])`;
@@ -314,9 +310,8 @@ const DUPLICATE_ID_SCRIPT = `() => {
 
 // ── D6.3 — Long task (>50 ms) detection ──────────────────────────────────────
 
-/** Registers a PerformanceObserver for 'longtask' entries before navigation. */
-const INJECT_LONG_TASK_LISTENER = `
-(function() {
+/** Registers a PerformanceObserver for 'longtask' entries after navigation. */
+const INJECT_LONG_TASK_LISTENER = `() => {
   if (window.__argusLongTaskPatched) return;
   window.__argusLongTaskPatched = true;
   window.__argusLongTasks = [];
@@ -339,17 +334,15 @@ const INJECT_LONG_TASK_LISTENER = `
     });
     obs.observe({ entryTypes: ['longtask'] });
   } catch (e) { /* longtask not supported — skip */ }
-})();
-`;
+}`;
 
 /** Extracts the list of long-task entries recorded by the PerformanceObserver. */
 const EXTRACT_LONG_TASK_LISTENER = `() => JSON.stringify(window.__argusLongTasks ?? [])`;
 
 // ── D6.1 — Synchronous XHR detection ─────────────────────────────────────────
 
-/** Patches XMLHttpRequest.prototype.open before navigation to record sync calls. */
-const INJECT_SYNC_XHR_LISTENER = `
-(function() {
+/** Patches XMLHttpRequest.prototype.open after navigation to record sync calls. */
+const INJECT_SYNC_XHR_LISTENER = `() => {
   if (window.__argusSyncXhrPatched) return;
   window.__argusSyncXhrPatched = true;
   window.__argusSyncXhrs = [];
@@ -360,8 +353,7 @@ const INJECT_SYNC_XHR_LISTENER = `
     }
     return _open.apply(this, arguments);
   };
-})();
-`;
+}`;
 
 /** Extracts the list of synchronous XHR calls recorded by the injected listener. */
 const EXTRACT_SYNC_XHR_LISTENER = `() => JSON.stringify(window.__argusSyncXhrs ?? [])`;
@@ -540,21 +532,10 @@ async function crawlRouteCheap(route, baseUrl, mcp) {
   const consoleBaseline = normalizeArray(await mcp.list_console_messages().catch(() => [])).length;
   const networkBaseline = normalizeArray(await mcp.list_network_requests().catch(() => [])).length;
 
-  // 1. Inject error listener before navigation
-  await mcp.evaluate_script({ function:INJECT_ERROR_LISTENER });
-  // 1b. Inject sync XHR listener (D6.1) — patches XMLHttpRequest.prototype.open
-  await mcp.evaluate_script({ function:INJECT_SYNC_XHR_LISTENER });
-  // 1c. Inject document.write listener (D6.2)
-  await mcp.evaluate_script({ function:INJECT_DOC_WRITE_LISTENER });
-  // 1d. Inject long-task PerformanceObserver (D6.3)
-  await mcp.evaluate_script({ function:INJECT_LONG_TASK_LISTENER });
-  // 1e. Inject service worker registration listener (D6.5)
-  await mcp.evaluate_script({ function:INJECT_SW_LISTENER });
-
-  // 2. Navigate to the URL
+  // 1. Navigate to the URL first — injections must happen on the live page context
   await mcp.navigate_page({ url });
 
-  // 3. Wait for page settle
+  // 2. Wait for page settle
   if (route.waitFor) {
     await mcp.wait_for({ selector: route.waitFor, timeout: 10000 }).catch(() => {
       result.errors.push({
@@ -568,10 +549,19 @@ async function crawlRouteCheap(route, baseUrl, mcp) {
     await new Promise(r => setTimeout(r, config.pageSettleMs));
   }
 
+  // 3. Inject listeners on the live page context (D6.1–D6.5)
+  // These must run AFTER navigation — evaluate_script targets the current page context,
+  // which is destroyed and recreated by navigate_page.
+  await mcp.evaluate_script({ function:INJECT_ERROR_LISTENER });
+  await mcp.evaluate_script({ function:INJECT_SYNC_XHR_LISTENER });
+  await mcp.evaluate_script({ function:INJECT_DOC_WRITE_LISTENER });
+  await mcp.evaluate_script({ function:INJECT_LONG_TASK_LISTENER });
+  await mcp.evaluate_script({ function:INJECT_SW_LISTENER });
+
   // 4. Blank/error page check
-  const titleResult = await mcp.evaluate_script({ function:'document.title' });
+  const titleResult = await mcp.evaluate_script({ function:'() => document.title' });
   result.pageTitle = String(unwrapEval(titleResult) ?? '');
-  const bodyText = await mcp.evaluate_script({ function:'document.body?.innerText?.trim() ?? ""' });
+  const bodyText = await mcp.evaluate_script({ function:'() => document.body?.innerText?.trim() ?? ""' });
   const bodyTextVal = String(unwrapEval(bodyText) ?? '');
   result.isBlankPage = !bodyTextVal || bodyTextVal.length < 50;
   if (result.isBlankPage) {

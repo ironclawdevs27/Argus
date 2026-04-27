@@ -158,8 +158,7 @@ const NET_SCRIPT = `() => window.performance.getEntriesByType('resource').map(fu
 const CONSOLE_READ_SCRIPT = `() => (window.__argus_console||[])`;
 
 // D6.1 — Synchronous XHR detection (same logic as crawl-and-report.js)
-const INJECT_SYNC_XHR_LISTENER = `
-(function() {
+const INJECT_SYNC_XHR_LISTENER = `() => {
   if (window.__argusSyncXhrPatched) return;
   window.__argusSyncXhrPatched = true;
   window.__argusSyncXhrs = [];
@@ -170,13 +169,11 @@ const INJECT_SYNC_XHR_LISTENER = `
     }
     return _open.apply(this, arguments);
   };
-})();
-`;
+}`;
 const EXTRACT_SYNC_XHR_LISTENER = `() => JSON.stringify(window.__argusSyncXhrs ?? [])`;
 
 // D6.2 — document.write / document.writeln detection (same logic as crawl-and-report.js)
-const INJECT_DOC_WRITE_LISTENER = `
-(function() {
+const INJECT_DOC_WRITE_LISTENER = `() => {
   if (window.__argusDocWritePatched) return;
   window.__argusDocWritePatched = true;
   window.__argusDocWrites = [];
@@ -190,13 +187,11 @@ const INJECT_DOC_WRITE_LISTENER = `
     window.__argusDocWrites.push({ method: 'writeln', content: String(arguments[0] ?? '').slice(0, 200) });
     return _writeln.apply(document, arguments);
   };
-})();
-`;
+}`;
 const EXTRACT_DOC_WRITE_LISTENER = `() => JSON.stringify(window.__argusDocWrites ?? [])`;
 
 // D6.3 — Long task detection (same logic as crawl-and-report.js)
-const INJECT_LONG_TASK_LISTENER = `
-(function() {
+const INJECT_LONG_TASK_LISTENER = `() => {
   if (window.__argusLongTaskPatched) return;
   window.__argusLongTaskPatched = true;
   window.__argusLongTasks = [];
@@ -219,13 +214,11 @@ const INJECT_LONG_TASK_LISTENER = `
     });
     obs.observe({ entryTypes: ['longtask'] });
   } catch (e) { /* longtask not supported — skip */ }
-})();
-`;
+}`;
 const EXTRACT_LONG_TASK_LISTENER = `() => JSON.stringify(window.__argusLongTasks ?? [])`;
 
 // D6.5 — Service worker registration failure detection (same logic as crawl-and-report.js)
-const INJECT_SW_LISTENER = `
-(function() {
+const INJECT_SW_LISTENER = `() => {
   if (window.__argusSwPatched) return;
   window.__argusSwPatched = true;
   window.__argusSwErrors = [];
@@ -241,8 +234,7 @@ const INJECT_SW_LISTENER = `
     });
     return reg;
   };
-})();
-`;
+}`;
 const EXTRACT_SW_LISTENER = `() => JSON.stringify(window.__argusSwErrors ?? [])`;
 
 // D6.8 — Duplicate id="" attribute detection

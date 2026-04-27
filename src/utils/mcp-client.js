@@ -131,10 +131,14 @@ export async function createMcpClient() {
   function tool(name, args = {}) {
     return call('tools/call', { name, arguments: args })
       .then(result => {
-        // MCP returns { content: [{ type, text }] } — extract the value
+        // MCP returns { content: [{ type, text|data }] } — extract the value
         const content = result?.content;
         if (Array.isArray(content) && content.length > 0) {
           const item = content[0];
+          if (item.type === 'image') {
+            // take_screenshot returns base64 image data — return in a shape callers expect
+            return { data: item.data, mimeType: item.mimeType ?? 'image/png' };
+          }
           if (item.type === 'text') {
             const text = item.text;
             // chrome-devtools-mcp wraps evaluate_script results in a markdown code block:
