@@ -14,7 +14,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 | 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
 |:---:|:---:|:---:|:---:|
-| **105 distinct issue types detected** | **21 analysis engines** | **276 test assertions** | **64 test blocks** |
+| **106 distinct issue types detected** | **21 analysis engines** | **276 test assertions** | **64 test blocks** |
 
 </div>
 
@@ -93,6 +93,7 @@ Argus runs **21 analysis engines** per run and detects **105 distinct issue type
 |---|---|---|
 | 🟡 Warning | Missing `<meta name="description">` | DOM inspection via `evaluate_script` |
 | 🟡 Warning | Missing Open Graph tags (`og:title`, `og:description`, `og:image`) | DOM inspection via `evaluate_script` |
+| 🟡 Warning | `og:image` URL is relative — Open Graph requires an absolute URL | DOM inspection + URL prefix check (`http://` / `https://`) |
 | 🟡 Warning | Multiple `<h1>` tags on one page | DOM inspection — `querySelectorAll('h1').length > 1` |
 | 🟡 Warning | Zero `<h1>` tags — page has no primary heading | DOM inspection — `querySelectorAll('h1').length === 0` |
 | 🟡 Warning | Generic page title (less than 10 characters, or default placeholder) | DOM inspection + length check |
@@ -188,7 +189,7 @@ Argus runs **21 analysis engines** per run and detects **105 distinct issue type
 | Severity | Bug / Issue | Detection Method |
 |---|---|---|
 | 🟡 Warning | Interactive element (`<button>`, `<a>`, `[role="button"]`, `[role="link"]`) with no accessible name — no text content, `aria-label`, `aria-labelledby`, `title`, or `alt` | `take_snapshot` captures DOM/AX state; `evaluate_script` queries each visible interactive element for accessible name sources |
-| 🟡 Warning | Form control (`<input>`, `<select>`, `<textarea>`) with no associated label — no `<label for="...">`, `aria-label`, or `aria-labelledby` | `evaluate_script` checks `label[for]`, ancestor `<label>`, `aria-label`, and `aria-labelledby` for each visible control |
+| 🟡 Warning | Form control (`<input>`, `<select>`, `<textarea>`) with no associated label — no `<label for="...">`, `aria-label`, or `aria-labelledby` (placeholder is intentionally excluded — not a valid accessible name per WCAG 2.1 §3.3.2) | `evaluate_script` checks `label[for]`, ancestor `<label>`, `aria-label`, and `aria-labelledby` for each visible control |
 | 🟡 Warning | Landmark role appearing more than once without distinct `aria-label` / `aria-labelledby` — screen readers cannot differentiate them | `evaluate_script` counts `[role=X]` instances and checks for unique label values across: `main`, `banner`, `contentinfo`, `navigation`, `search`, `complementary`, `form`, `region` |
 
 ### Flakiness Detection

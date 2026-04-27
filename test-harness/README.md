@@ -2,6 +2,8 @@
 
 Validates that every Argus detection category fires correctly by running the full crawl pipeline against deliberately broken fixture pages hosted on a local Express server.
 
+> **v4 Quality Audit complete** — all 30 gaps from `argus-v4-strategy.md` resolved across 4 sprints. Core fixes: `evaluate_script` callable requirement enforced, listener injections moved after `navigate_page`, screenshot content-type handler added, `env-comparison.js` captures serialized, form-label placeholder removed (WCAG 2.1 §3.3.2), `og:image` relative URL now flagged.
+
 <br/>
 
 [![Node.js](https://skillicons.dev/icons?i=nodejs)](https://nodejs.org)
