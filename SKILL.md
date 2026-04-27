@@ -972,14 +972,14 @@ for (const bp of breakpoints) {
 
 | Metric | Value |
 |--------|-------|
-| Test blocks | 60 |
-| Hard assertions | 253 |
+| Test blocks | 61 |
+| Hard assertions | 260 |
 | Detection categories | 39 |
-| Fixture pages | 45 |
+| Fixture pages | 46 |
 | Flow step actions | 14 |
 | Phases complete | C1, C2, C3, D1–D8.5 |
 
-Expected harness output: `253/253 hard assertions passed`
+Expected harness output: `260/260 hard assertions passed`
 
 ---
 
@@ -1075,9 +1075,12 @@ Parenthesized directory names like `(auth)` are stripped from the path:
 - `app/(auth)/login/page.tsx` → `/login`
 - `app/(marketing)/about/page.tsx` → `/about`
 
-### Key implementation rule
+### Key implementation rules
 
-`discoverFromSitemap` returns `[]` on any network or parse error — a missing or malformed sitemap never fails a crawl.
+- `discoverFromSitemap` returns `[]` on any network or parse error — a missing or malformed sitemap never fails a crawl.
+- Dynamic segments (`[slug]`, `[id]`, `[...params]`) are **skipped** — they have no concrete crawlable URL and would produce 404s.
+- `discoverRoutes(null)` has an early `if (!autoDiscover) return manualRoutes` guard — passing `null` returns manual routes unchanged without running any discovery.
+- Sitemap-index `<loc>` match is scoped to `<sitemap[^>]*>...` to avoid picking up a `<url><loc>` entry that appears first in the document.
 
 ---
 

@@ -52,7 +52,7 @@ import { applyOverrides } from '../src/utils/severity-overrides.js';
 import { auditEnvVariables, detectFeatureFlagLeakage, enrichErrorsWithSource, detectDeadRoutes, INTERNAL_LINKS_SCRIPT } from '../src/utils/codebase-analyzer.js';
 import { isSlackConfigured } from '../src/utils/slack-guard.js';
 import { formatPrComment, buildStatusPayload } from '../src/utils/github-reporter.js';
-import { discoverFromSitemap, discoverFromNextJs, discoverFromReactRouter, mergeRoutes } from '../src/utils/route-discoverer.js';
+import { discoverFromSitemap, discoverFromNextJs, discoverFromReactRouter, mergeRoutes, discoverRoutes } from '../src/utils/route-discoverer.js';
 import os from 'os';
 import { generateHtmlReport } from '../src/utils/html-reporter.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
@@ -2594,6 +2594,19 @@ async function runTests(mcp, stagingProc) {
       routes58.includes('/login'),
       `[58e] app/(auth)/login/page.tsx → '/login' with route group stripped (found: ${routes58.join(', ')})`
     );
+    assert(
+      !routes58.some(p => p.includes('[')),
+      `[58f] dynamic [param] route segments excluded (found: ${routes58.filter(p => p.includes('[')).join(', ')})`
+    );
+
+    // Gap 3: sourceDir with no pages/ or app/ → returns []
+    const tmpNextDir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-nextjs-'));
+    const emptyNextJs = discoverFromNextJs(tmpNextDir);
+    fs.rmSync(tmpNextDir, { recursive: true, force: true });
+    assert(
+      Array.isArray(emptyNextJs) && emptyNextJs.length === 0,
+      `[58g] returns [] when sourceDir has no pages/ or app/ directory (got ${emptyNextJs.length})`
+    );
   }
 
   // ── [59] C3.3 React Router discovery ─────────────────────────────────────
@@ -2622,6 +2635,13 @@ async function runTests(mcp, stagingProc) {
       !paths59.some(p => p.includes(':id')),
       `[59c] dynamic :id path excluded (found: ${paths59.filter(p => p.includes(':')).join(', ')})`
     );
+
+    // Gap 4: non-existent sourceDir → returns []
+    const nonExistentResult = discoverFromReactRouter('/this/path/does/not/exist/argus-rr');
+    assert(
+      Array.isArray(nonExistentResult) && nonExistentResult.length === 0,
+      `[59d] non-existent sourceDir returns [] (got ${nonExistentResult.length})`
+    );
   }
 
   // ── [60] C3.4 mergeRoutes ─────────────────────────────────────────────────
@@ -2649,6 +2669,48 @@ async function runTests(mcp, stagingProc) {
     assert(
       merged60.some(r => r.path === '/about' && r.discovered === true),
       `[60d] auto-found route '/about' has discovered: true flag`
+    );
+  }
+
+  // ── [61] C3.5 discoverRoutes orchestrator ─────────────────────────────────
+  console.log('\n[61] C3.5 discoverRoutes — orchestrator integrates all discovery sources');
+  {
+    const manual61 = [
+      { path: '/', name: 'Home', critical: true, waitFor: 'main' },
+    ];
+    const fixtureDir = path.join(__dirname, 'nextjs-fixture');
+
+    // sitemap disabled to avoid network fetch; Next.js discovery against fixture
+    const merged61 = await discoverRoutes(
+      'http://localhost:3100',
+      fixtureDir,
+      { sitemap: false, nextjs: true, reactRouter: false },
+      manual61
+    );
+
+    assert(
+      Array.isArray(merged61),
+      `[61a] discoverRoutes returns an array (got: ${typeof merged61})`
+    );
+    assert(
+      merged61.length > 1,
+      `[61b] orchestrator adds Next.js routes beyond the single manual route (got ${merged61.length})`
+    );
+    assert(
+      merged61[0].critical === true && merged61[0].waitFor === 'main',
+      `[61c] manual route config preserved by orchestrator (critical=${merged61[0].critical}, waitFor=${merged61[0].waitFor})`
+    );
+
+    // Gap 1 verification: null autoDiscover → manual routes returned unchanged
+    const nullResult = await discoverRoutes(
+      'http://localhost:3100',
+      fixtureDir,
+      null,
+      manual61
+    );
+    assert(
+      nullResult.length === manual61.length && nullResult[0] === manual61[0],
+      `[61d] null autoDiscover returns manual routes unchanged (got ${nullResult.length}, expected ${manual61.length})`
     );
   }
 }

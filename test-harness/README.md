@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-56 test blocks · 237 hard assertions · 39 detection categories · 45 fixture pages
+61 test blocks · 260 hard assertions · 39 detection categories · 46 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -77,6 +77,11 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 54 | `dead-routes.html` | C1.4 dead route detection — ≥2 `dead_route` warnings for `/argus-dead-route-alpha` + `/argus-dead-route-beta` hrefs · valid link excluded · all severity warning (C1) | Hard |
 | 55 | _(pure function — no fixture page)_ | C2.1 `formatPrComment` — returns non-empty string · contains COMMENT_MARKER sentinel · correct summary table row · New Findings section present on diff run · absent on first run · Codebase Analysis section present (C2) | Hard |
 | 56 | _(pure function — no fixture page)_ | C2.2 `buildStatusPayload` — state `"failure"` when new critical findings exist · state `"success"` when no new criticals · context is `"argus-qa"` · description contains `"Argus"` (C2) | Hard |
+| 57 | `pages/sitemap.xml` | C3.1 Sitemap discovery — `/about` parsed · off-origin URL excluded · unreachable server returns `[]` (C3) | Hard |
+| 58 | `nextjs-fixture/` | C3.2 Next.js discovery — `pages/index.jsx` → `/` · `pages/api/` excluded · `_app.jsx` excluded · `(auth)/login/page.tsx` → `/login` · `[slug].jsx` excluded · empty sourceDir returns `[]` (C3) | Hard |
+| 59 | _(temp dir)_ | C3.3 React Router discovery — `/dashboard` from `<Route path>` · `:id` excluded · non-existent sourceDir returns `[]` (C3) | Hard |
+| 60 | _(pure function — no fixture page)_ | C3.4 `mergeRoutes` — 2 manual + 2 new = 4 total · manual config preserved · existing route not marked discovered · new route has `discovered: true` (C3) | Hard |
+| 61 | `nextjs-fixture/` | C3.5 `discoverRoutes` orchestrator — returns array · adds Next.js routes · manual config preserved · `null` autoDiscover returns manual routes unchanged (C3) | Hard |
 
 ---
 
@@ -134,7 +139,27 @@ test-harness/
 │   ├── drag-issues.html           test 49 — working drop zone + broken drop zone (no dragover preventDefault)
 │   ├── upload-issues.html         test 50 — file input with change-event filename display
 │   ├── dead-routes.html           test 54 — 2 dead internal hrefs + 1 valid link + external skip targets
-│   └── test-upload.txt            test 50 — tiny text file used as the upload payload
+│   ├── test-upload.txt            test 50 — tiny text file used as the upload payload
+│   └── sitemap.xml                test 57 — 4 same-origin <loc> entries + 1 off-origin entry
+├── nextjs-fixture/                C3 Next.js file-structure fixture (10 files)
+│   ├── pages/
+│   │   ├── index.jsx              test 58 — discoverable root route
+│   │   ├── about.jsx              test 58 — discoverable /about route
+│   │   ├── blog/
+│   │   │   └── index.jsx          test 58 — discoverable /blog route
+│   │   ├── _app.jsx               test 58 — excluded (underscore file)
+│   │   ├── api/
+│   │   │   └── health.js          test 58 — excluded (api/ directory)
+│   │   └── [slug].jsx             test 58 — excluded (dynamic [param] segment)
+│   └── app/
+│       ├── page.tsx               test 58 — discoverable root route
+│       ├── about/
+│       │   └── page.tsx           test 58 — discoverable /about route
+│       ├── (auth)/
+│       │   └── login/
+│       │       └── page.tsx       test 58 — /login (route group stripped)
+│       └── api/
+│           └── route.ts           test 58 — excluded (api/ + not page.*)
 └── static/
     └── button-styles.css       BEM card selectors in a button stylesheet
                                 → triggers component style leak detection
@@ -253,7 +278,7 @@ The validator will:
   ✓ Flaky count: 2 (expected 2)
 
 ────────────────────────────────────────────────────────
-Results: 237/237 hard assertions passed, 0 failed
+Results: 260/260 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```

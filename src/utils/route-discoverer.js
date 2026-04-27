@@ -71,8 +71,9 @@ export async function discoverFromSitemap(baseUrl) {
     const xml = await res.text();
 
     // Sitemap index: follow first child sitemap only (avoid unbounded fan-out)
+    // Match <loc> inside a <sitemap> element to avoid picking up a <url><loc> entry.
     if (/<sitemapindex/i.test(xml)) {
-      const childMatch = xml.match(/<loc>([\s\S]*?)<\/loc>/i);
+      const childMatch = xml.match(/<sitemap[^>]*>[\s\S]*?<loc>([\s\S]*?)<\/loc>/i);
       if (!childMatch) return [];
       const childRes = await fetch(childMatch[1].trim(), { signal: AbortSignal.timeout(10000) });
       if (!childRes.ok) return [];
@@ -108,7 +109,7 @@ function parseLocElements(xml, baseUrl) {
  *   - pages/index.jsx        → /
  *   - pages/blog/index.jsx   → /blog
  *   - pages/about.tsx        → /about
- *   - pages/[slug].tsx       → /[slug]  (dynamic — included with brackets)
+ *   - pages/[slug].tsx       → skipped  (dynamic — no concrete URL to crawl)
  *   - pages/_app.jsx         → skipped
  *   - pages/api/*            → skipped
  *
@@ -141,6 +142,9 @@ export function discoverFromNextJs(sourceDir) {
       const urlParts = parts.map((p, i) => i === parts.length - 1 ? p.replace(ext, '') : p);
       if (urlParts[urlParts.length - 1] === 'index') urlParts.pop();
 
+      // Skip dynamic segments like [slug] — no concrete URL to crawl
+      if (urlParts.some(p => p.includes('['))) continue;
+
       discovered.add(urlParts.length === 0 ? '/' : '/' + urlParts.join('/'));
     }
   }
@@ -158,6 +162,9 @@ export function discoverFromNextJs(sourceDir) {
       // Skip api/ and private _folders; strip route groups (parenthesized dirs)
       if (parts.some(p => p === 'api' || p.startsWith('_'))) continue;
       const filtered = parts.filter(p => !/^\(.*\)$/.test(p));
+
+      // Skip dynamic segments like [id] — no concrete URL to crawl
+      if (filtered.some(p => p.includes('['))) continue;
 
       discovered.add(filtered.length === 0 ? '/' : '/' + filtered.join('/'));
     }
@@ -253,7 +260,8 @@ export function mergeRoutes(manualRoutes, discoveredPaths) {
  * @returns {Promise<Array>}
  */
 export async function discoverRoutes(baseUrl, sourceDir, autoDiscover, manualRoutes) {
-  const { sitemap = true, nextjs = true, reactRouter = false } = autoDiscover ?? {};
+  if (!autoDiscover) return manualRoutes;
+  const { sitemap = true, nextjs = true, reactRouter = false } = autoDiscover;
   const allPaths = [];
 
   if (sitemap) {
