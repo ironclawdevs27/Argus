@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-50 test blocks · 210 hard assertions · 35 detection categories · 44 fixture pages
+56 test blocks · 237 hard assertions · 39 detection categories · 45 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -71,6 +71,12 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 48 | `typetext-issues.html` | `mcp.fill` does not fire input events (counter stays 0) · `mcp.type_text` fires input events (counter updates) · `typing: true` flow step completes without error · counter updated to 3 after "abc" (type_text called, not fill) (D8.3) | Hard |
 | 49 | `drag-issues.html` | `drag` step is registered in flow-runner (no flow_step_failed on valid selector) · drag to working drop zone fires `drop` event (`data-dropped="true"`) · drag with missing selector → `flow_step_failed` with `action: "drag"` (D8.4) | Hard |
 | 50 | `upload-issues.html` | `upload_file` step is registered in flow-runner (no flow_step_failed on valid input) · file delivered to input via CDP (`files.length > 0`) · missing filePath → `flow_step_failed` with `action: "upload_file"` (D8.5) | Hard |
+| 51 | `source-fixture/app.js` + `.env.fixture` | C1.1 env variable audit — `MISSING_VAR` flagged as `env_var_missing` warning · `PRESENT_VAR` declared in `.env` excluded · all severity warning (C1) | Hard |
+| 52 | `source-fixture/app.js` + `.env.fixture` | C1.2 feature flag leakage — `FEATURE_DISABLED` flagged (falsy in `.env`) · `FEATURE_ENABLED` truthy and excluded · all severity warning (C1) | Hard |
+| 53 | _(pure function — no fixture page)_ | C1.3 error-to-source linking — stack frames extracted from console error message · top frame file resolved to `main.abc123.js` · all findings severity info (C1) | Hard |
+| 54 | `dead-routes.html` | C1.4 dead route detection — ≥2 `dead_route` warnings for `/argus-dead-route-alpha` + `/argus-dead-route-beta` hrefs · valid link excluded · all severity warning (C1) | Hard |
+| 55 | _(pure function — no fixture page)_ | C2.1 `formatPrComment` — returns non-empty string · contains COMMENT_MARKER sentinel · correct summary table row · New Findings section present on diff run · absent on first run · Codebase Analysis section present (C2) | Hard |
+| 56 | _(pure function — no fixture page)_ | C2.2 `buildStatusPayload` — state `"failure"` when new critical findings exist · state `"success"` when no new criticals · context is `"argus-qa"` · description contains `"Argus"` (C2) | Hard |
 
 ---
 
@@ -127,6 +133,7 @@ test-harness/
 │   ├── typetext-issues.html       test 48 — two inputs with input-event char counters (fill vs type_text)
 │   ├── drag-issues.html           test 49 — working drop zone + broken drop zone (no dragover preventDefault)
 │   ├── upload-issues.html         test 50 — file input with change-event filename display
+│   ├── dead-routes.html           test 54 — 2 dead internal hrefs + 1 valid link + external skip targets
 │   └── test-upload.txt            test 50 — tiny text file used as the upload payload
 └── static/
     └── button-styles.css       BEM card selectors in a button stylesheet
@@ -246,7 +253,7 @@ The validator will:
   ✓ Flaky count: 2 (expected 2)
 
 ────────────────────────────────────────────────────────
-Results: 210/210 hard assertions passed, 0 failed
+Results: 237/237 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```
