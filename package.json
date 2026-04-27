@@ -6,8 +6,12 @@
   "engines": {
     "node": ">=20.19.0"
   },
+  "bin": {
+    "argus": "src/cli/init.js"
+  },
   "scripts": {
     "setup": "node -e \"import('fs').then(fs => fs.default.mkdirSync('./reports', { recursive: true }))\"",
+    "init": "node src/cli/init.js",
     "crawl": "node src/orchestration/crawl-and-report.js",
     "compare": "node src/orchestration/env-comparison.js",
     "server": "node src/server/index.js",

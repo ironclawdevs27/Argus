@@ -972,14 +972,14 @@ for (const bp of breakpoints) {
 
 | Metric | Value |
 |--------|-------|
-| Test blocks | 61 |
-| Hard assertions | 260 |
+| Test blocks | 64 |
+| Hard assertions | 276 |
 | Detection categories | 39 |
 | Fixture pages | 46 |
 | Flow step actions | 14 |
-| Phases complete | C1, C2, C3, D1–D8.5 |
+| Phases complete | C1, C2, C3, C4, D1–D8.5 |
 
-Expected harness output: `260/260 hard assertions passed`
+Expected harness output: `276/276 hard assertions passed`
 
 ---
 
@@ -1081,6 +1081,39 @@ Parenthesized directory names like `(auth)` are stripped from the path:
 - Dynamic segments (`[slug]`, `[id]`, `[...params]`) are **skipped** — they have no concrete crawlable URL and would produce 404s.
 - `discoverRoutes(null)` has an early `if (!autoDiscover) return manualRoutes` guard — passing `null` returns manual routes unchanged without running any discovery.
 - Sitemap-index `<loc>` match is scoped to `<sitemap[^>]*>...` to avoid picking up a `<url><loc>` entry that appears first in the document.
+
+---
+
+## 14c. Phase C4 — `argus init` CLI
+
+### Usage
+
+```bash
+npm run init        # interactive wizard
+npx argus init      # after publishing to npm
+```
+
+### What it writes
+
+| File | Contents |
+|------|---------|
+| `.env` | All collected values; blanks → commented-out placeholders |
+| `src/config/targets.js` | Discovered routes + `autoDiscover` tuned to framework + `codebase` hooks |
+
+### Pure helper exports (`src/cli/init.js`)
+
+| Export | Signature | Returns |
+|--------|-----------|---------|
+| `detectFramework` | `(projectRoot: string)` | `'nextjs' \| 'react-router' \| 'unknown'` |
+| `generateTargetsJs` | `(routes[], { framework, sourceDir, envFile })` | `string` (valid ES module) |
+| `generateEnvFile` | `({ devUrl, stagingUrl, slackToken, ... })` | `string` (.env content) |
+
+### Key rules
+
+- `process.argv[1] === __filename` guard prevents `main()` from running on import — pure helpers are safe to test.
+- Empty `routes[]` passed to `generateTargetsJs` → falls back to a default `'/'` home route (never produces a broken config).
+- Framework detection checks `dependencies` + `devDependencies`; `next` takes precedence over `react-router-dom` if both present.
+- The `bin` field in `package.json` (`"argus": "src/cli/init.js"`) enables `npx argus init` post-publish.
 
 ---
 

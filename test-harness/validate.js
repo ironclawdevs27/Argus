@@ -53,6 +53,7 @@ import { auditEnvVariables, detectFeatureFlagLeakage, enrichErrorsWithSource, de
 import { isSlackConfigured } from '../src/utils/slack-guard.js';
 import { formatPrComment, buildStatusPayload } from '../src/utils/github-reporter.js';
 import { discoverFromSitemap, discoverFromNextJs, discoverFromReactRouter, mergeRoutes, discoverRoutes } from '../src/utils/route-discoverer.js';
+import { detectFramework, generateTargetsJs, generateEnvFile } from '../src/cli/init.js';
 import os from 'os';
 import { generateHtmlReport } from '../src/utils/html-reporter.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
@@ -2711,6 +2712,130 @@ async function runTests(mcp, stagingProc) {
     assert(
       nullResult.length === manual61.length && nullResult[0] === manual61[0],
       `[61d] null autoDiscover returns manual routes unchanged (got ${nullResult.length}, expected ${manual61.length})`
+    );
+  }
+
+  // ── [62] C4.1 detectFramework ─────────────────────────────────────────────
+  console.log('\n[62] C4.1 detectFramework — identify Next.js / React Router / unknown');
+  {
+    // Non-existent dir → unknown
+    assert(
+      detectFramework('/this/path/does/not/exist/argus-fw') === 'unknown',
+      `[62a] non-existent dir returns 'unknown'`
+    );
+
+    // Temp dir with no package.json → unknown
+    const tmpFw = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-fw-'));
+    assert(
+      detectFramework(tmpFw) === 'unknown',
+      `[62b] dir without package.json returns 'unknown'`
+    );
+
+    // Next.js package.json → 'nextjs'
+    fs.writeFileSync(path.join(tmpFw, 'package.json'), JSON.stringify({
+      dependencies: { next: '^14.0.0', react: '^18.0.0' },
+    }));
+    assert(
+      detectFramework(tmpFw) === 'nextjs',
+      `[62c] package.json with "next" dependency returns 'nextjs'`
+    );
+
+    // React Router package.json → 'react-router'
+    fs.writeFileSync(path.join(tmpFw, 'package.json'), JSON.stringify({
+      dependencies: { 'react-router-dom': '^6.0.0', react: '^18.0.0' },
+    }));
+    assert(
+      detectFramework(tmpFw) === 'react-router',
+      `[62d] package.json with "react-router-dom" dependency returns 'react-router'`
+    );
+
+    fs.rmSync(tmpFw, { recursive: true, force: true });
+  }
+
+  // ── [63] C4.2 generateTargetsJs ──────────────────────────────────────────
+  console.log('\n[63] C4.2 generateTargetsJs — render pre-filled targets.js from routes');
+  {
+    const routes63 = [
+      { path: '/',         name: 'Home',      critical: true,  waitFor: 'main' },
+      { path: '/about',    name: 'About',     critical: false, waitFor: null, discovered: true },
+      { path: '/dashboard', name: 'Dashboard', critical: true,  waitFor: '[data-testid="dashboard"]' },
+    ];
+
+    const out63 = generateTargetsJs(routes63, { framework: 'nextjs', sourceDir: '/app/src', envFile: '/app/.env' });
+
+    assert(
+      typeof out63 === 'string' && out63.length > 0,
+      `[63a] generateTargetsJs returns a non-empty string`
+    );
+    assert(
+      out63.includes("export const routes") && out63.includes("export const config"),
+      `[63b] output contains ES module export statements`
+    );
+    assert(
+      out63.includes("path: '/about'") && out63.includes("path: '/'"),
+      `[63c] discovered route paths included in routes array`
+    );
+    assert(
+      out63.includes('nextjs:      true') && out63.includes('reactRouter: false'),
+      `[63d] autoDiscover block reflects detected framework (nextjs → true, react-router → false)`
+    );
+    assert(
+      out63.includes("export const autoDiscover"),
+      `[63e] autoDiscover export present`
+    );
+
+    // Empty routes → falls back to default Home route
+    const emptyOut = generateTargetsJs([], { framework: 'unknown' });
+    assert(
+      emptyOut.includes("path: '/'"),
+      `[63f] empty routes falls back to default '/' home route`
+    );
+  }
+
+  // ── [64] C4.3 generateEnvFile ─────────────────────────────────────────────
+  console.log('\n[64] C4.3 generateEnvFile — render .env with user config substituted');
+  {
+    // With all values populated
+    const full64 = generateEnvFile({
+      devUrl:       'http://localhost:4000',
+      stagingUrl:   'https://staging.example.com',
+      slackToken:   'xoxb-test-token',
+      slackSecret:  'test-secret',
+      slackCritical: 'C111',
+      slackWarnings: 'C222',
+      slackDigest:  'C333',
+      githubToken:  'ghp_testtoken',
+      githubRepo:   'owner/myrepo',
+      sourceDir:    '/app/src',
+      envFile:      '/app/.env',
+    });
+
+    assert(
+      typeof full64 === 'string' && full64.length > 0,
+      `[64a] generateEnvFile returns a non-empty string`
+    );
+    assert(
+      full64.includes('TARGET_DEV_URL=http://localhost:4000'),
+      `[64b] devUrl substituted into TARGET_DEV_URL (got: ${full64.split('\n').find(l => l.startsWith('TARGET_DEV_URL'))})`
+    );
+    assert(
+      full64.includes('SLACK_BOT_TOKEN=xoxb-test-token'),
+      `[64c] slackToken substituted (not commented out) when provided`
+    );
+    assert(
+      full64.includes('GITHUB_TOKEN=ghp_testtoken') && full64.includes('GITHUB_REPOSITORY=owner/myrepo'),
+      `[64d] GitHub values substituted when provided`
+    );
+
+    // Without optional values → those lines should be commented out
+    const minimal64 = generateEnvFile({ devUrl: 'http://localhost:3000' });
+    assert(
+      minimal64.includes('# SLACK_BOT_TOKEN=xoxb-...'),
+      `[64e] SLACK_BOT_TOKEN commented out when no token provided`
+    );
+    assert(
+      minimal64.includes('# GITHUB_TOKEN=ghp_...'),
+      `[64f] GITHUB_TOKEN commented out when no token provided`
     );
   }
 }

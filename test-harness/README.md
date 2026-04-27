@@ -15,7 +15,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-61 test blocks · 260 hard assertions · 39 detection categories · 46 fixture pages
+64 test blocks · 276 hard assertions · 39 detection categories · 46 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -82,6 +82,9 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 59 | _(temp dir)_ | C3.3 React Router discovery — `/dashboard` from `<Route path>` · `:id` excluded · non-existent sourceDir returns `[]` (C3) | Hard |
 | 60 | _(pure function — no fixture page)_ | C3.4 `mergeRoutes` — 2 manual + 2 new = 4 total · manual config preserved · existing route not marked discovered · new route has `discovered: true` (C3) | Hard |
 | 61 | `nextjs-fixture/` | C3.5 `discoverRoutes` orchestrator — returns array · adds Next.js routes · manual config preserved · `null` autoDiscover returns manual routes unchanged (C3) | Hard |
+| 62 | _(temp dir with package.json)_ | C4.1 `detectFramework` — non-existent dir → `'unknown'` · no package.json → `'unknown'` · `next` dep → `'nextjs'` · `react-router-dom` dep → `'react-router'` (C4) | Hard |
+| 63 | _(pure function — no fixture page)_ | C4.2 `generateTargetsJs` — returns non-empty string · contains export statements · route paths included · autoDiscover block reflects framework · empty routes falls back to default home route (C4) | Hard |
+| 64 | _(pure function — no fixture page)_ | C4.3 `generateEnvFile` — returns non-empty string · devUrl substituted · Slack token not commented when provided · GitHub values substituted · blanks render as commented-out placeholders (C4) | Hard |
 
 ---
 
@@ -278,7 +281,7 @@ The validator will:
   ✓ Flaky count: 2 (expected 2)
 
 ────────────────────────────────────────────────────────
-Results: 260/260 hard assertions passed, 0 failed
+Results: 276/276 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```

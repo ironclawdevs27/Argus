@@ -14,7 +14,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 | 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
 |:---:|:---:|:---:|:---:|
-| **105 distinct issue types detected** | **21 analysis engines** | **260 test assertions** | **61 test blocks** |
+| **105 distinct issue types detected** | **21 analysis engines** | **276 test assertions** | **64 test blocks** |
 
 </div>
 
@@ -253,6 +253,7 @@ Argus watches your running application and automatically surfaces issues that te
 | **Codebase Cross-Reference** | Points `ARGUS_SOURCE_DIR` at your app source to detect: missing env vars (`process.env.X` used in code but absent from `.env`), feature flag leakage (conditional env var that is falsy/unset), console error stack traces resolved to `file:line`, and internal links that return 404 — all without opening a browser |
 | **GitHub PR Integration** | Posts a structured Markdown findings table as a PR comment (updates in-place — one comment per PR, no spam); sets an `argus-qa` commit status check (`failure` when new criticals exist, `success` otherwise) — blocks merge via branch protection when regressions are introduced. Requires `GITHUB_TOKEN` + `GITHUB_REPOSITORY` env vars |
 | **Auto Route Discovery** | Augments manual `routes[]` with paths from three sources: fetches `/sitemap.xml` (follows one sitemap-index level, 10s timeout), scans Next.js `pages/` (Next 12) and `app/` (Next 13+) directories stripping route groups `(auth)`, and greps JS/TS source for React Router `<Route path>` declarations. Dynamic `[param]` segments are skipped — no concrete URL to crawl. Manual route config (`critical`, `waitFor`) always takes precedence. |
+| **`argus init` Setup Wizard** | `npm run init` (or `npx argus init`) guides first-time setup: collects target URLs, detects the app framework (Next.js / React Router / unknown) from the source directory's `package.json`, runs C3 route discovery against the dev URL, prompts for optional Slack tokens and GitHub credentials, then writes a populated `.env` and a pre-filled `src/config/targets.js` — zero manual config editing required. |
 | **Full Lighthouse Suite** | All 4 Lighthouse categories (performance, SEO, best-practices, accessibility) with per-audit items |
 | **Performance Budgets** | Enforces LCP < 2500ms, CLS < 0.1, FID < 100ms, TTFB < 800ms per route |
 | **Slack Notifications** | Rich Block Kit reports with inline screenshots routed to `#bugs-critical`, `#bugs-warnings`, `#bugs-digest` |
@@ -612,7 +613,9 @@ argus/
 │       ├── route-discoverer.js       # Auto route discovery — sitemap + Next.js + React Router (C3)
 │       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
-├── test-harness/                     # Fixture server + test runner (61 blocks, 260 hard assertions, 39 categories)
+│   └── cli/
+│       └── init.js                   # argus init setup wizard — detect framework, discover routes, write .env + targets.js (C4)
+├── test-harness/                     # Fixture server + test runner (64 blocks, 276 hard assertions, 39 categories)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
