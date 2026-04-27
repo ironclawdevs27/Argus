@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>http://localhost:3100/</loc></url>
+  <url><loc>http://localhost:3100/about</loc></url>
+  <url><loc>http://localhost:3100/blog</loc></url>
+  <url><loc>http://localhost:3100/contact</loc></url>
+  <url><loc>https://external.example.com/offsite-page</loc></url>
+</urlset>

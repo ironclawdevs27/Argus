@@ -972,14 +972,14 @@ for (const bp of breakpoints) {
 
 | Metric | Value |
 |--------|-------|
-| Test blocks | 56 |
-| Hard assertions | 237 |
+| Test blocks | 60 |
+| Hard assertions | 253 |
 | Detection categories | 39 |
 | Fixture pages | 45 |
 | Flow step actions | 14 |
-| Phases complete | C1, C2, D1–D8.5 |
+| Phases complete | C1, C2, C3, D1–D8.5 |
 
-Expected harness output: `237/237 hard assertions passed`
+Expected harness output: `253/253 hard assertions passed`
 
 ---
 
@@ -1036,6 +1036,48 @@ Expected harness output: `237/237 hard assertions passed`
 - `reportToGitHub` always runs **after** Slack dispatch, never blocks it.
 - The COMMENT_MARKER `<!-- argus-qa-report -->` is used to find the existing comment to update — don't remove it.
 - Tables are capped at 15 rows (`MAX_TABLE_ROWS`) to stay under GitHub's 65536-char comment limit.
+
+---
+
+## 14b. Phase C3 — Auto Route Discovery
+
+### What it does
+
+Discovers routes automatically before the crawl loop begins. Three sources, each independently enabled:
+
+| Source | Config key | What it scans |
+|--------|-----------|---------------|
+| Sitemap | `sitemap: true` | Fetches `{baseUrl}/sitemap.xml`; follows one sitemap index level |
+| Next.js | `nextjs: true` | Scans `pages/` (Next 12) and `app/` (Next 13+) under `codebase.sourceDir` |
+| React Router | `reactRouter: false` | Greps JS/TS source for `<Route path="...">` and `{ path: "..." }` patterns (experimental, off by default) |
+
+### Config (targets.js)
+
+```js
+export const autoDiscover = {
+  sitemap:     true,   // fetch /sitemap.xml from BASE_URL
+  nextjs:      true,   // scan pages/ + app/ under codebase.sourceDir (if set)
+  reactRouter: false,  // grep source for React Router paths (experimental)
+};
+// Set to null to disable entirely
+```
+
+### Merge behavior
+
+- Manual routes in `routes[]` always take precedence — `critical`, `waitFor`, and `name` are preserved as-is.
+- Discovered routes added with `critical: false`, `waitFor: null`, `discovered: true`.
+- Duplicate paths (discovered path already in manual routes) are silently dropped.
+- `routeOverrides` passed directly to `runCrawl` bypasses auto-discovery.
+
+### Next.js app/ route groups
+
+Parenthesized directory names like `(auth)` are stripped from the path:
+- `app/(auth)/login/page.tsx` → `/login`
+- `app/(marketing)/about/page.tsx` → `/about`
+
+### Key implementation rule
+
+`discoverFromSitemap` returns `[]` on any network or parse error — a missing or malformed sitemap never fails a crawl.
 
 ---
 

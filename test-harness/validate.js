@@ -52,6 +52,8 @@ import { applyOverrides } from '../src/utils/severity-overrides.js';
 import { auditEnvVariables, detectFeatureFlagLeakage, enrichErrorsWithSource, detectDeadRoutes, INTERNAL_LINKS_SCRIPT } from '../src/utils/codebase-analyzer.js';
 import { isSlackConfigured } from '../src/utils/slack-guard.js';
 import { formatPrComment, buildStatusPayload } from '../src/utils/github-reporter.js';
+import { discoverFromSitemap, discoverFromNextJs, discoverFromReactRouter, mergeRoutes } from '../src/utils/route-discoverer.js';
+import os from 'os';
 import { generateHtmlReport } from '../src/utils/html-reporter.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
@@ -2537,6 +2539,116 @@ async function runTests(mcp, stagingProc) {
     assert(
       typeof statusFail.description === 'string' && statusFail.description.includes('Argus'),
       `[56d] description is a string containing "Argus" (got: "${statusFail.description}")`
+    );
+  }
+
+  // ── [57] C3.1 Sitemap discovery ───────────────────────────────────────────
+  console.log('\n[57] C3.1 Sitemap discovery — fetch /sitemap.xml and parse <loc> paths');
+  {
+    const paths = await discoverFromSitemap(B);
+
+    assert(
+      Array.isArray(paths),
+      `[57a] discoverFromSitemap returns an array (got: ${typeof paths})`
+    );
+    assert(
+      paths.includes('/about'),
+      `[57b] /about parsed from sitemap <loc> (found: ${paths.join(', ')})`
+    );
+    assert(
+      !paths.some(p => p.includes('external.example')),
+      `[57c] off-origin URL excluded from results (found off-origin: ${paths.filter(p => p.includes('external')).join(', ')})`
+    );
+
+    // Unreachable server → graceful empty array (no throw)
+    const missing = await discoverFromSitemap('http://localhost:3199');
+    assert(
+      Array.isArray(missing) && missing.length === 0,
+      `[57d] returns [] when sitemap is unreachable (got ${missing.length} item(s))`
+    );
+  }
+
+  // ── [58] C3.2 Next.js route discovery ────────────────────────────────────
+  console.log('\n[58] C3.2 Next.js route discovery — scan pages/ and app/ directory structures');
+  {
+    const fixtureDir = path.join(__dirname, 'nextjs-fixture');
+    const routes58   = discoverFromNextJs(fixtureDir);
+
+    assert(
+      Array.isArray(routes58) && routes58.length > 0,
+      `[58a] discoverFromNextJs returns non-empty array (got ${routes58.length} route(s): ${routes58.join(', ')})`
+    );
+    assert(
+      routes58.includes('/'),
+      `[58b] pages/index.jsx maps to '/' (found: ${routes58.join(', ')})`
+    );
+    assert(
+      !routes58.some(p => p.startsWith('/api')),
+      `[58c] pages/api/ routes excluded (wrongly included: ${routes58.filter(p => p.startsWith('/api')).join(', ')})`
+    );
+    assert(
+      !routes58.some(p => p.includes('_app')),
+      `[58d] pages/_app.jsx excluded (wrongly included: ${routes58.filter(p => p.includes('_app')).join(', ')})`
+    );
+    assert(
+      routes58.includes('/login'),
+      `[58e] app/(auth)/login/page.tsx → '/login' with route group stripped (found: ${routes58.join(', ')})`
+    );
+  }
+
+  // ── [59] C3.3 React Router discovery ─────────────────────────────────────
+  console.log('\n[59] C3.3 React Router route discovery — grep source for path declarations');
+  {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-rr-'));
+    fs.writeFileSync(path.join(tmpDir, 'App.jsx'), [
+      '<Route path="/home" element={<Home />} />',
+      '<Route path="/dashboard" element={<Dashboard />} />',
+      '<Route path="/user/:id" element={<User />} />',
+      'const routes = [{ path: "/settings", element: <Settings /> }];',
+    ].join('\n'));
+
+    const paths59 = discoverFromReactRouter(tmpDir);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+
+    assert(
+      Array.isArray(paths59),
+      `[59a] discoverFromReactRouter returns an array (got: ${typeof paths59})`
+    );
+    assert(
+      paths59.includes('/dashboard'),
+      `[59b] /dashboard detected from <Route path> (found: ${paths59.join(', ')})`
+    );
+    assert(
+      !paths59.some(p => p.includes(':id')),
+      `[59c] dynamic :id path excluded (found: ${paths59.filter(p => p.includes(':')).join(', ')})`
+    );
+  }
+
+  // ── [60] C3.4 mergeRoutes ─────────────────────────────────────────────────
+  console.log('\n[60] C3.4 mergeRoutes — merge discovered paths with manual route config');
+  {
+    const manual60 = [
+      { path: '/',      name: 'Home',  critical: true,  waitFor: 'main' },
+      { path: '/login', name: 'Login', critical: true,  waitFor: 'form' },
+    ];
+    const discovered60 = ['/', '/about', '/blog'];
+    const merged60 = mergeRoutes(manual60, discovered60);
+
+    assert(
+      merged60.length === 4,
+      `[60a] 2 manual + 1 new (/about) + 1 new (/blog) = 4 total (got ${merged60.length})`
+    );
+    assert(
+      merged60[0].critical === true && merged60[0].waitFor === 'main',
+      `[60b] manual route config preserved (critical=${merged60[0].critical}, waitFor=${merged60[0].waitFor})`
+    );
+    assert(
+      !merged60.some(r => r.path === '/' && r.discovered),
+      `[60c] existing manual route '/' not marked as discovered`
+    );
+    assert(
+      merged60.some(r => r.path === '/about' && r.discovered === true),
+      `[60d] auto-found route '/about' has discovered: true flag`
     );
   }
 }

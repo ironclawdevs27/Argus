@@ -169,6 +169,24 @@ export const codebase = {
 };
 
 /**
+ * Auto route discovery (Phase C3).
+ *
+ * Augments the manual routes[] above with paths discovered from:
+ *   sitemap     — fetches /sitemap.xml from the base URL; follows one level of sitemap index
+ *   nextjs      — scans pages/ (Next 12) and app/ (Next 13+) under codebase.sourceDir
+ *   reactRouter — greps JS/TS source for <Route path="..."> and { path: "..." } patterns
+ *
+ * Discovered routes get: critical: false, waitFor: null, discovered: true.
+ * Manual route config (critical, waitFor, name) is always preserved.
+ * Set to null to disable auto-discovery entirely.
+ */
+export const autoDiscover = {
+  sitemap:     true,   // fetch /sitemap.xml from BASE_URL
+  nextjs:      true,   // scan pages/ + app/ under codebase.sourceDir (if set)
+  reactRouter: false,  // grep source for React Router path declarations (experimental)
+};
+
+/**
  * GitHub PR integration (Phase C2).
  *
  * All configuration is via environment variables — no settings object needed here.

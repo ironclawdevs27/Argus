@@ -24,7 +24,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 
-import { routes, config, auth, flows, apiContracts, severityOverrides, codebase } from '../config/targets.js';
+import { routes, config, auth, flows, apiContracts, severityOverrides, codebase, autoDiscover } from '../config/targets.js';
+import { discoverRoutes } from '../utils/route-discoverer.js';
 import { analyzeCodebase, detectDeadRoutes } from '../utils/codebase-analyzer.js';
 import { exec } from 'child_process';
 import { postBugReport } from './slack-notifier.js';
@@ -1067,8 +1068,13 @@ async function crawlShardWithClient(shard, targetBaseUrl, mcp, sessionFile) {
 export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = null) {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
-  const targetRoutes = routeOverrides ?? routes;
   const targetBaseUrl = baseUrlOverride ?? BASE_URL;
+
+  // C3: auto route discovery — merge sitemap / Next.js / React Router paths with manual routes
+  const baseRoutes = routeOverrides ?? routes;
+  const targetRoutes = (autoDiscover && !routeOverrides)
+    ? await discoverRoutes(targetBaseUrl, codebase?.sourceDir ?? null, autoDiscover, baseRoutes)
+    : baseRoutes;
 
   const report = {
     generatedAt: new Date().toISOString(),
