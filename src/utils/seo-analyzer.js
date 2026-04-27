@@ -23,6 +23,7 @@ export const SEO_ANALYSIS_SCRIPT = `() => {
     hasOgTitle:       sel('meta[property="og:title"]'),
     hasOgDescription: sel('meta[property="og:description"]'),
     hasOgImage:       sel('meta[property="og:image"]'),
+    ogImageUrl:       (document.querySelector('meta[property="og:image"]') || {}).getAttribute?.('content') || null,
     h1Count:          document.querySelectorAll('h1').length,
     titleText:        document.title || '',
     titleLength:      (document.title || '').trim().length,
@@ -88,6 +89,14 @@ export function parseSeoAnalysisResult(rawResult, url) {
       type:     'seo_missing_og',
       property: 'og:image',
       message:  'Missing <meta property="og:image"> — social sharing image not set',
+      severity: 'warning',
+      url,
+    });
+  } else if (data.ogImageUrl && !data.ogImageUrl.startsWith('http://') && !data.ogImageUrl.startsWith('https://')) {
+    bugs.push({
+      type:     'seo_og_image_relative_url',
+      property: 'og:image',
+      message:  `og:image URL is relative ("${data.ogImageUrl}") — Open Graph requires an absolute URL`,
       severity: 'warning',
       url,
     });

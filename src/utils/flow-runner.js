@@ -217,7 +217,7 @@ async function runAssert(step, mcp, flowName, baseUrl, baselines) {
           type: 'flow_assert_failed',
           flowName,
           assertType: step.type,
-          message: `[${flowName}] assert no_js_errors: ${errors.length} uncaught JS error(s) — ${errors.slice(0, 2).map(e => e.message).join('; ')}`,
+          message: `[${flowName}] assert no_js_errors: ${errors.length} uncaught JS error(s) — ${errors.slice(0, 2).map(e => e.message ?? String(e.reason ?? e)).join('; ')}`,
           severity: step.severity ?? 'critical',
           url: baseUrl,
         });

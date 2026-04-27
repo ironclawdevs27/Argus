@@ -32,6 +32,8 @@ const HOVER_CANDIDATE_SCRIPT = `() => {
     if (!cls) return tag;
     var matches = document.querySelectorAll(tag + '.' + cls.replace('.', '.'));
     if (matches.length === 1) return tag + '.' + cls;
+    // nth-of-type counts within parent, not the full document — may misfire
+    // when same-tag elements exist across multiple parents. Acceptable heuristic.
     var idx = Array.from(document.querySelectorAll(tag)).indexOf(el) + 1;
     return tag + ':nth-of-type(' + idx + ')';
   }

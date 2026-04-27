@@ -63,6 +63,10 @@ export function getCurrentBranch() {
     if (branch && branch !== 'HEAD') return sanitizeBranch(branch);
   } catch { /* not a git repo or git not installed — fall through */ }
 
+  // Strategy 3: CI environment variables (GitHub Actions, GitLab CI, etc.)
+  const ciBranch = process.env.GITHUB_REF_NAME ?? process.env.CI_COMMIT_BRANCH ?? process.env.BRANCH_NAME;
+  if (ciBranch) return sanitizeBranch(ciBranch);
+
   return 'default';
 }
 
@@ -196,10 +200,27 @@ export function applyBaseline(report, baseline) {
 export function appendTrend(trendsFile, entry) {
   const dir = path.dirname(trendsFile);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  let trends = [];
-  if (fs.existsSync(trendsFile)) {
-    try { trends = JSON.parse(fs.readFileSync(trendsFile, 'utf8')); } catch {}
+
+  const lockFile = trendsFile + '.lock';
+  let lockFd = null;
+  try {
+    lockFd = fs.openSync(lockFile, 'wx');
+  } catch (err) {
+    if (err.code === 'EEXIST') {
+      console.warn('[ARGUS] appendTrend: lock held by another shard — skipping to avoid corruption');
+      return;
+    }
+    throw err;
   }
-  trends.push(entry);
-  fs.writeFileSync(trendsFile, JSON.stringify(trends, null, 2));
+  try {
+    let trends = [];
+    if (fs.existsSync(trendsFile)) {
+      try { trends = JSON.parse(fs.readFileSync(trendsFile, 'utf8')); } catch {}
+    }
+    trends.push(entry);
+    fs.writeFileSync(trendsFile, JSON.stringify(trends, null, 2));
+  } finally {
+    try { fs.closeSync(lockFd); } catch {}
+    try { fs.unlinkSync(lockFile); } catch {}
+  }
 }
