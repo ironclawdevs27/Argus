@@ -47,13 +47,19 @@ export async function handleInteraction(req, res) {
   // Acknowledge the interaction immediately (Slack requires < 3s)
   res.status(200).send();
 
-  // Handle each action type asynchronously
-  if (actionId === 'acknowledge') {
-    await acknowledgeMessage(messageTs, channelId, userName);
-  } else if (actionId === 'retest') {
-    await handleRetestAction({ action, messageTs, channelId, userName });
+  // GAP-39: Wrap post-response async work in try/catch. The response is already committed
+  // at this point, so any throws escape Express's error handler and become unhandled
+  // promise rejections — which crash the server in Node 15+.
+  try {
+    if (actionId === 'acknowledge') {
+      await acknowledgeMessage(messageTs, channelId, userName);
+    } else if (actionId === 'retest') {
+      await handleRetestAction({ action, messageTs, channelId, userName });
+    }
+    // 'view_page' is a URL button — Slack handles it client-side, no server action needed
+  } catch (err) {
+    console.error('[ARGUS] Interaction post-response error:', err.message);
   }
-  // 'view_page' is a URL button — Slack handles it client-side, no server action needed
 }
 
 /**
@@ -75,11 +81,9 @@ async function handleRetestAction({ action, messageTs, channelId, userName }) {
   try {
     mcp = await createMcpClient();
 
-    const originalDevUrl = process.env.TARGET_DEV_URL;
-    process.env.TARGET_DEV_URL = targetUrl;
-
+    // GAP-34 + GAP-40: Do NOT mutate process.env.TARGET_DEV_URL — concurrent retests share
+    // the same Node.js process env and would corrupt each other's URLs. Pass targetUrl directly.
     const report = await runCrawl(mcp, [{ path: '', name: 'Retest', critical: true, waitFor: null }], targetUrl);
-    process.env.TARGET_DEV_URL = originalDevUrl;
 
     const passed = report.summary.critical === 0;
     const details =
@@ -89,8 +93,9 @@ async function handleRetestAction({ action, messageTs, channelId, userName }) {
 
     await postRetestResult(messageTs, channelId, passed ? 'pass' : 'fail', details);
   } catch (err) {
-    console.error('[ARGUS] Retest interaction failed:', err.message);
-    await postRetestResult(messageTs, channelId, 'fail', `Error: ${err.message}`);
+    // GAP-37: Log full error server-side; redact from the thread reply.
+    console.error('[ARGUS] Retest interaction failed:', err);
+    await postRetestResult(messageTs, channelId, 'fail', 'Error: check server logs for details');
   } finally {
     mcp?.close?.();
   }

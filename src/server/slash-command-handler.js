@@ -20,7 +20,12 @@ import { createMcpClient } from '../utils/mcp-client.js';
 import { runCrawl } from '../orchestration/crawl-and-report.js';
 import { WebClient } from '@slack/web-api';
 
-const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
+// GAP-31: Lazy-initialize the Slack client so SLACK_BOT_TOKEN is read at call time,
+// not at module import time (before dotenv has run).
+let _slack;
+function getSlack() {
+  return (_slack ??= new WebClient(process.env.SLACK_BOT_TOKEN));
+}
 
 /**
  * Verify that a request genuinely came from Slack using the signing secret.
@@ -96,8 +101,10 @@ export async function handleSlashCommand(req, res) {
     text: `🔄 *ARGUS retest started* for \`${targetUrl}\`\nRequested by @${user_name}. Results will appear here shortly...`,
   });
 
-  // Run the test asynchronously
-  runRetestAsync({ targetUrl, channelId: channel_id, responseUrl: response_url, requestedBy: user_name });
+  // GAP-32: Attach .catch() so an unexpected rejection doesn't become an unhandled rejection
+  // that crashes the server (Node 15+ terminates on unhandled rejections).
+  runRetestAsync({ targetUrl, channelId: channel_id, responseUrl: response_url, requestedBy: user_name })
+    .catch(err => console.error('[ARGUS] runRetestAsync unhandled:', err.message));
 }
 
 /**
@@ -109,42 +116,37 @@ async function runRetestAsync({ targetUrl, channelId, responseUrl, requestedBy }
   try {
     mcp = await createMcpClient();
 
-    // Override the base URL for this run
-    const originalDevUrl = process.env.TARGET_DEV_URL;
-    process.env.TARGET_DEV_URL = targetUrl;
-
-    // Import config and temporarily override routes to just this one URL
-    const { routes } = await import('../config/targets.js');
+    // GAP-33 + GAP-40: Do NOT mutate process.env.TARGET_DEV_URL — concurrent retests share
+    // the same Node.js process env and would corrupt each other's URLs. Pass targetUrl directly.
     const singleRoute = [{ path: '', name: 'Retest', critical: true, waitFor: null }];
-
     const report = await runCrawl(mcp, singleRoute, targetUrl);
-    process.env.TARGET_DEV_URL = originalDevUrl;
 
     const { summary } = report;
     const passed = summary.critical === 0;
     const emoji = passed ? '✅' : '❌';
     const status = passed ? 'PASSED' : 'FAILED';
 
-    // Post follow-up to channel
-    await slack.chat.postMessage({
+    await getSlack().chat.postMessage({
       channel: channelId,
       text: `${emoji} *Retest ${status}* for \`${targetUrl}\`\n` +
         `Requested by @${requestedBy}\n` +
         `Critical: ${summary.critical} | Warnings: ${summary.warning} | Info: ${summary.info}`,
     });
 
-    if (!passed) {
-      // Detailed bug reports already dispatched to #bugs-critical by runCrawl
-      await slack.chat.postMessage({
+    // GAP-38: Guard against SLACK_CHANNEL_CRITICAL being unset — would post "#undefined"
+    if (!passed && process.env.SLACK_CHANNEL_CRITICAL) {
+      await getSlack().chat.postMessage({
         channel: channelId,
         text: `↑ Full bug reports sent to <#${process.env.SLACK_CHANNEL_CRITICAL}>`,
       });
     }
   } catch (err) {
-    console.error('[ARGUS] Retest failed:', err.message);
-    await slack.chat.postMessage({
+    // GAP-37: Log full error server-side; post only a generic message to Slack so internal
+    // paths/stack traces/env var names are not leaked to the channel.
+    console.error('[ARGUS] Retest failed:', err);
+    await getSlack().chat.postMessage({
       channel: channelId,
-      text: `⚠️ *Retest error* for \`${targetUrl}\`: ${err.message}`,
+      text: `⚠️ *Retest error* for \`${targetUrl}\` — check server logs for details`,
     }).catch(() => {});
   } finally {
     mcp?.close?.();
