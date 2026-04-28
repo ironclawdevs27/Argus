@@ -359,19 +359,30 @@ export async function runFlow(flow, baseUrl, mcp) {
 
         case 'upload_file': {
           // upload_file requires a uid from the page accessibility snapshot.
-          // If step.uid is provided directly, use it. Otherwise take a snapshot
-          // and locate the file input via its [Upload] accessibility role (D8.5).
+          // Priority: explicit step.uid > step.selector resolution > first-upload fallback.
           let uploadUid = step.uid;
           if (!uploadUid) {
-            const snap = await mcp.take_snapshot();
-            uploadUid = extractFileInputUid(snap);
-            if (!uploadUid) {
-              throw new Error(
-                `upload_file: no file-input uid found in page snapshot` +
-                (step.selector ? ` for "${step.selector}"` : '') +
-                `. Ensure the page has a visible <input type="file"> element, ` +
-                `or pass uid directly: { action: 'upload_file', uid: 'e4', filePath: '...' }`
-              );
+            if (step.selector) {
+              // GAP-077: When a selector is provided, resolve it to the matching uid so
+              // pages with multiple file inputs upload to the intended field, not just the first.
+              uploadUid = await resolveUidForSelector(mcp, step.selector);
+              if (!uploadUid) {
+                throw new Error(
+                  `upload_file: no uid found for selector "${step.selector}" — ` +
+                  `ensure the element is visible and has id/aria-label/name/placeholder, ` +
+                  `or pass uid directly: { action: 'upload_file', uid: 'e4', filePath: '...' }`
+                );
+              }
+            } else {
+              const snap = await mcp.take_snapshot();
+              uploadUid = extractFileInputUid(snap);
+              if (!uploadUid) {
+                throw new Error(
+                  `upload_file: no file-input uid found in page snapshot. ` +
+                  `Ensure the page has a visible <input type="file"> element, ` +
+                  `or pass uid directly: { action: 'upload_file', uid: 'e4', filePath: '...' }`
+                );
+              }
             }
           }
           await mcp.upload_file({ uid: uploadUid, filePath: step.filePath });

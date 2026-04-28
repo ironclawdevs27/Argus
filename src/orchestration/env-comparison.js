@@ -319,6 +319,10 @@ async function runCssAnalysisMode(mcp) {
     };
 
     try {
+      // GAP-090: Snapshot network count BEFORE navigation so API frequency analysis for
+      // this route does not include requests accumulated from previous CSS-analysis routes.
+      const networkBaseline = normalizeArray(await mcp.list_network_requests().catch(() => [])).length;
+
       // Navigate and settle
       await mcp.navigate_page({ url });
       await new Promise(r => setTimeout(r, 2000));
@@ -335,8 +339,8 @@ async function runCssAnalysisMode(mcp) {
         console.warn(`[ARGUS] CSS analysis: unexpected response type (${typeof cssResult}), skipping ${url}`);
       }
 
-      // API frequency analysis — capture network requests made during page load
-      const networkReqs = normalizeArray(await mcp.list_network_requests().catch(() => []));
+      // API frequency analysis — sliced from per-route baseline (GAP-090)
+      const networkReqs = normalizeArray(await mcp.list_network_requests().catch(() => [])).slice(networkBaseline);
       const apiFindings = analyzeApiFrequency(networkReqs, url);
       routeResult.findings.push(...apiFindings);
 
