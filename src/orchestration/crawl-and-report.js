@@ -43,7 +43,7 @@ import { analyzeSnapshot } from '../utils/snapshot-analyzer.js';
 import { runLoginFlow, saveSession, restoreSession, hasSession, refreshSession } from '../utils/session-manager.js';
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend, getCurrentBranch } from '../utils/baseline-manager.js';
 import { mergeRunResults } from '../utils/flakiness-detector.js';
-import { runAllFlows, normalizeArray } from '../utils/flow-runner.js';
+import { runAllFlows, normalizeArray, waitForSelector } from '../utils/flow-runner.js';
 import { analyzeApiFrequency } from '../utils/api-frequency.js';
 import { slugify } from '../utils/slug.js';
 import { unwrapEval, createMcpClient } from '../utils/mcp-client.js';
@@ -503,7 +503,8 @@ function analyzeNetworkPerformance(perfEntries, pageUrl) {
  *       SEO, security, content, CSS, debugger statements, duplicate ids, screenshot.
  * Does NOT run: Lighthouse, perf budgets, network perf, redirect chain, broken links, cache headers.
  */
-async function crawlRouteCheap(route, baseUrl, mcp) {
+// GAP-091: Exported so the test harness can exercise the production crawl path directly.
+export async function crawlRouteCheap(route, baseUrl, mcp) {
   const url = `${baseUrl}${route.path}`;
   const result = {
     route: route.name,
@@ -522,28 +523,30 @@ async function crawlRouteCheap(route, baseUrl, mcp) {
   // 1. Navigate to the URL first — injections must happen on the live page context
   await mcp.navigate_page({ url });
 
-  // 2. Wait for page settle
+  // 2. Inject listeners IMMEDIATELY after navigation, BEFORE the settle wait.
+  // GAP-073: injecting after the settle window missed load-time violations (sync XHR,
+  // document.write, uncaught errors, long tasks) that fire during page initialization.
+  await mcp.evaluate_script({ function:INJECT_ERROR_LISTENER }).catch(() => {});
+  await mcp.evaluate_script({ function:INJECT_SYNC_XHR_LISTENER }).catch(() => {});
+  await mcp.evaluate_script({ function:INJECT_DOC_WRITE_LISTENER }).catch(() => {});
+  await mcp.evaluate_script({ function:INJECT_LONG_TASK_LISTENER }).catch(() => {});
+  await mcp.evaluate_script({ function:INJECT_SW_LISTENER }).catch(() => {});
+
+  // 3. Wait for page settle — events fired during this window are now captured by listeners.
+  // GAP-074: wait_for({ selector }) is unreliable in headless MCP mode — use polling instead.
   if (route.waitFor) {
-    await mcp.wait_for({ selector: route.waitFor, timeout: 10000 }).catch(() => {
+    const found = await waitForSelector(mcp, route.waitFor, 10000);
+    if (!found) {
       result.errors.push({
         type: 'load_failure',
         message: `Selector "${route.waitFor}" not found after 10s — page may not have loaded`,
         severity: route.critical ? 'critical' : 'warning',
         url,
       });
-    });
+    }
   } else {
     await new Promise(r => setTimeout(r, config.pageSettleMs));
   }
-
-  // 3. Inject listeners on the live page context (D6.1–D6.5)
-  // These must run AFTER navigation — evaluate_script targets the current page context,
-  // which is destroyed and recreated by navigate_page.
-  await mcp.evaluate_script({ function:INJECT_ERROR_LISTENER });
-  await mcp.evaluate_script({ function:INJECT_SYNC_XHR_LISTENER });
-  await mcp.evaluate_script({ function:INJECT_DOC_WRITE_LISTENER });
-  await mcp.evaluate_script({ function:INJECT_LONG_TASK_LISTENER });
-  await mcp.evaluate_script({ function:INJECT_SW_LISTENER });
 
   // 4. Blank/error page check
   const titleResult = await mcp.evaluate_script({ function:'() => document.title' });
@@ -832,8 +835,9 @@ async function crawlRouteExpensive(route, baseUrl, mcp) {
   // Navigate to a fresh page load so perf trace and redirect count are accurate
   try {
     await mcp.navigate_page({ url });
+    // GAP-074: wait_for({ selector }) is unreliable in headless MCP mode — use polling.
     if (route.waitFor) {
-      await mcp.wait_for({ selector: route.waitFor, timeout: 10000 }).catch(() => {});
+      await waitForSelector(mcp, route.waitFor, 10000);
     } else {
       await new Promise(r => setTimeout(r, config.pageSettleMs));
     }

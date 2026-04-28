@@ -329,9 +329,13 @@ export async function runFlow(flow, baseUrl, mcp) {
           await mcp.press_key({ key: step.key });
           break;
 
-        case 'waitFor':
-          await mcp.wait_for({ selector: step.selector, timeout: step.timeout ?? DEFAULT_TIMEOUT });
+        case 'waitFor': {
+          // GAP-074: wait_for({ selector }) is unreliable in headless MCP mode — it can
+          // early-exit without actually polling. Use evaluate_script polling instead.
+          const wfFound = await waitForSelector(mcp, step.selector, step.timeout ?? DEFAULT_TIMEOUT);
+          if (!wfFound) throw new Error(`waitFor: selector "${step.selector}" not found within ${step.timeout ?? DEFAULT_TIMEOUT}ms`);
           break;
+        }
 
         case 'sleep':
           await new Promise(r => setTimeout(r, step.ms ?? 1000));
@@ -415,6 +419,28 @@ export async function runFlow(flow, baseUrl, mcp) {
   }
 
   return result;
+}
+
+/**
+ * Poll for a CSS selector to appear in the DOM using evaluate_script.
+ * More reliable than mcp.wait_for({ selector }) which can early-exit in headless mode.
+ *
+ * @param {object} mcp
+ * @param {string} selector - CSS selector to wait for
+ * @param {number} timeoutMs - Total wait budget in ms (default 10 000)
+ * @returns {Promise<boolean>} true if found within budget, false on timeout
+ */
+export async function waitForSelector(mcp, selector, timeoutMs = 10_000) {
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) {
+    const raw = await mcp.evaluate_script({
+      function: `() => !!document.querySelector(${JSON.stringify(selector)})`,
+    }).catch(() => null);
+    const found = unwrapEval(raw);
+    if (found === true || String(found) === 'true') return true;
+    if (Date.now() < end) await new Promise(r => setTimeout(r, 300));
+  }
+  return false;
 }
 
 /**

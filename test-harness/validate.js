@@ -58,6 +58,10 @@ import os from 'os';
 import { generateHtmlReport } from '../src/utils/html-reporter.js';
 import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
          HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
+// GAP-091: Import the production crawl function so the harness exercises the real pipeline,
+// not a hand-rolled duplicate. The Slack init side-effect concern was resolved by GAP-31
+// (lazy WebClient init), so importing crawl-and-report.js is now safe in test context.
+import { crawlRouteCheap } from '../src/orchestration/crawl-and-report.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -2829,6 +2833,25 @@ async function runTests(mcp, stagingProc) {
       minimal64.includes('# GITHUB_TOKEN=ghp_...'),
       `[64f] GITHUB_TOKEN commented out when no token provided`
     );
+  }
+
+  // ── [65] Production crawl pipeline smoke test — GAP-091 ───────────────────
+  // Exercises crawlRouteCheap() directly so harness regressions surface in
+  // the production code path, not just in the hand-rolled crawlFixture().
+  console.log('\n[65] Production crawl path — crawlRouteCheap on clean fixture');
+  {
+    const route65 = { name: 'clean', path: '/clean.html', critical: false, waitFor: null };
+    const result65 = await crawlRouteCheap(route65, B, mcp);
+
+    assert(Array.isArray(result65.errors), '[65a] crawlRouteCheap returns errors array');
+    assert(typeof result65.url === 'string' && result65.url.endsWith('/clean.html'),
+      `[65b] crawlRouteCheap result.url is correct (got: ${result65.url})`);
+    assert(result65.isBlankPage === false,
+      `[65c] crawlRouteCheap does not flag clean page as blank`);
+
+    const criticals65 = result65.errors.filter(e => e.severity === 'critical');
+    assert(criticals65.length === 0,
+      `[65d] Production crawl: no criticals on clean fixture (got ${criticals65.length}: ${criticals65.map(e => e.type).join(', ') || 'none'})`);
   }
 }
 

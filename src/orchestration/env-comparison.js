@@ -60,6 +60,11 @@ const SCREENSHOT_THRESHOLD = config.screenshotDiffThreshold; // %
 async function capturePage(url, label, routeName, mcp) {
   console.log(`[ARGUS] Capturing ${label}: ${url}`);
 
+  // GAP-089: Snapshot buffer counts BEFORE navigation so staging capture does not
+  // include dev's accumulated console messages and network requests from the prior capture.
+  const consoleBaseline = normalizeArray(await mcp.list_console_messages().catch(() => [])).length;
+  const networkBaseline = normalizeArray(await mcp.list_network_requests().catch(() => [])).length;
+
   await mcp.navigate_page({ url });
   await new Promise(r => setTimeout(r, config.pageSettleMs));
 
@@ -77,11 +82,11 @@ async function capturePage(url, label, routeName, mcp) {
   const domSnapshot = await mcp.take_snapshot();
   const domString = JSON.stringify(domSnapshot?.document ?? domSnapshot ?? '');
 
-  // Console messages
-  const consoleMsgs = normalizeArray(await mcp.list_console_messages().catch(() => []));
+  // Console messages — sliced from per-capture baseline to exclude prior environment's messages
+  const consoleMsgs = normalizeArray(await mcp.list_console_messages().catch(() => [])).slice(consoleBaseline);
 
-  // Network requests
-  const networkReqs = normalizeArray(await mcp.list_network_requests().catch(() => []));
+  // Network requests — sliced from per-capture baseline to exclude prior environment's requests
+  const networkReqs = normalizeArray(await mcp.list_network_requests().catch(() => [])).slice(networkBaseline);
 
   return {
     url,
