@@ -97,6 +97,12 @@ const DUPLICATE_LANDMARK_SCRIPT = `() => {
     var els = Array.from(document.querySelectorAll(
       '[role="' + role + '"]' + (role === 'main' ? ',main' : role === 'banner' ? ',header' : role === 'contentinfo' ? ',footer' : role === 'navigation' ? ',nav' : role === 'complementary' ? ',aside' : role === 'form' ? ',form' : '')
     ));
+    // GAP-088: <header>/<footer> (banner/contentinfo) inside sectioning content
+    // (<article>, <aside>, <main>, <nav>, <section>) don't expose global landmark
+    // roles per the HTML-AAM spec — only count document-scoped instances.
+    els = els.filter(function(el) {
+      return !el.parentElement || !el.parentElement.closest('article,aside,main,nav,section');
+    });
     if (els.length < 2) return;
     var labels = els.map(function(el) {
       return (el.getAttribute('aria-label') || el.getAttribute('aria-labelledby') || '').trim();

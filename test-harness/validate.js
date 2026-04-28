@@ -939,10 +939,16 @@ async function runTests(mcp, stagingProc) {
       `Known audit violations found: ${matched.map(a => a.id).join(', ') || 'none matched'}`);
   }
 
-  // ── [16] Full Lighthouse suite — v3 Phase A1 (all soft) ─────────────────
-  console.log('\n[16] Full Lighthouse suite — performance, SEO, best-practices, a11y (all soft)');
+  // ── [16] Full Lighthouse suite — v3 Phase A1 ────────────────────────────
+  // GAP-092: Shape/parser checks are hard; score thresholds stay soft (Lighthouse
+  // requires non-headless Chrome and may return null scores in headless CI).
+  console.log('\n[16] Full Lighthouse suite — performance, SEO, best-practices, a11y');
   {
     const lh = await measureLighthouse(mcp, `${B}/a11y-critical.html`);
+    // Hard shape check — measureLighthouse catch clause always returns failingAudits: []
+    assert(Array.isArray(lh.failingAudits),
+      `measureLighthouse always returns failingAudits as an array (got ${typeof lh.failingAudits})`);
+    // Soft score checks — null is expected when Lighthouse is unavailable (headless CI)
     soft(lh.accessibility != null,
       `a11y score reported: ${lh.accessibility ?? 'N/A'}/100`);
     soft(lh.performance != null,

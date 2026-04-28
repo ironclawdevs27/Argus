@@ -209,6 +209,10 @@ export async function analyzeResponsive(mcp, url) {
         // storing unbounded data across 4 breakpoints × N routes risks OOM.
         if (shot?.data && shot.data.length < 5_000_000) {
           screenshots[`${bp.width}x${bp.height}`] = shot.data;
+        } else if (shot?.data) {
+          // GAP-086: Record omission metadata so operators know which breakpoints were
+          // skipped and can investigate rather than silently missing screenshot data.
+          screenshots[`${bp.width}x${bp.height}`] = { omitted: true, reason: 'size_cap', bytes: shot.data.length };
         }
       } catch { /* screenshots are optional */ }
 
