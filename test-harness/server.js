@@ -23,7 +23,9 @@ app.use(express.json());
 // Permissive CSP (allows everything) so no existing fixture behaviour breaks.
 // security-issues.html intentionally omits these headers to trigger the detection.
 app.use((_req, res, next) => {
-  if (!_req.path.includes('security-issues')) {
+  // GAP-64: Use exact path match — .includes() would also suppress headers for paths like
+  // /admin/security-issues-report.html, giving those pages weaker security posture in tests.
+  if (_req.path !== '/security-issues.html') {
     res.setHeader('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:");
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   }
@@ -34,22 +36,24 @@ app.use((_req, res, next) => {
 
 // Always returns 500 — used to test HTTP 5xx detection
 app.get('/api/always-500', (_req, res) => {
-  res.status(500).json({ error: 'Internal Server Error', type: 'deliberate_500' });
+  // GAP-68: Explicit type before status — res.json() sets it too, but explicit ordering is
+  // more robust under HTTP/2 proxies where header framing order can differ.
+  res.type('application/json').status(500).json({ error: 'Internal Server Error', type: 'deliberate_500' });
 });
 
 // Always returns 401 — used to test auth-failure detection
 app.get('/api/protected', (_req, res) => {
-  res.status(401).json({ error: 'Unauthorized', type: 'auth_failure' });
+  res.type('application/json').status(401).json({ error: 'Unauthorized', type: 'auth_failure' });
 });
 
 // Always returns 403 — used to test 403 auth-failure detection (gap fix)
 app.get('/api/forbidden', (_req, res) => {
-  res.status(403).json({ error: 'Forbidden', type: 'forbidden' });
+  res.type('application/json').status(403).json({ error: 'Forbidden', type: 'forbidden' });
 });
 
 // Always returns 404 — used to test 4xx detection
 app.get('/api/missing', (_req, res) => {
-  res.status(404).json({ error: 'Not Found', type: 'missing_endpoint' });
+  res.type('application/json').status(404).json({ error: 'Not Found', type: 'missing_endpoint' });
 });
 
 // Normal endpoint — background noise for frequency tests
@@ -68,6 +72,9 @@ app.get('/api/feature-flags', (_req, res) => {
 // the image finally renders, which will be 3 000 ms+ after navigation.
 app.get('/api/slow-image', (_req, res) => {
   setTimeout(() => {
+    // GAP-67: Guard against client disconnect — if the browser navigated away during the
+    // 3 s delay, res.send() on a closed socket throws ECONNRESET and crashes the worker.
+    if (res.headersSent) return;
     // Minimal valid 1×1 transparent PNG
     const png = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
@@ -119,22 +126,25 @@ app.get('/api/tracking', (_req, res) => {
 });
 
 // ── D6.6 — deliberately uncached assets (no Cache-Control, no ETag) ─────────
-// res.writeHead + res.end bypasses Express's automatic ETag generation on res.send().
+// res.writeHead + res.end bypasses Express's automatic ETag/Last-Modified generation.
+// Cache-Control: no-store is explicit so proxy servers don't cache these fixtures between
+// test runs — the Argus detector fires on the absence of max-age/s-maxage, not no-store.
 // HEAD routes required so the in-page HEAD fetch works as well as GET.
+// GAP-71: Added Cache-Control: no-store to all four writeHead calls.
 app.get('/api/nocache.css', (_req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/css' });
+  res.writeHead(200, { 'Content-Type': 'text/css', 'Cache-Control': 'no-store' });
   res.end('/* argus d6.6 nocache fixture */');
 });
 app.head('/api/nocache.css', (_req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/css' });
+  res.writeHead(200, { 'Content-Type': 'text/css', 'Cache-Control': 'no-store' });
   res.end();
 });
 app.get('/api/nocache.js', (_req, res) => {
-  res.writeHead(200, { 'Content-Type': 'application/javascript' });
+  res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-store' });
   res.end('/* argus d6.6 nocache fixture */');
 });
 app.head('/api/nocache.js', (_req, res) => {
-  res.writeHead(200, { 'Content-Type': 'application/javascript' });
+  res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-store' });
   res.end();
 });
 
@@ -156,12 +166,20 @@ app.get('/api/user-data', (_req, res) => {
 
 // Slow response — warning tier (1 500 ms > 1 000 ms threshold)
 app.get('/api/slow-warning', (_req, res) => {
-  setTimeout(() => res.json({ status: 'ok', delay: 1500, tier: 'warning' }), 1500);
+  // GAP-70: Wrap callback in try/catch — JSON serialization errors inside setTimeout are
+  // uncaught exceptions that crash the process rather than returning a 500.
+  setTimeout(() => {
+    try { res.json({ status: 'ok', delay: 1500, tier: 'warning' }); }
+    catch (err) { console.error('[ARGUS Harness] slow-warning error:', err.message); }
+  }, 1500);
 });
 
 // Slow response — critical tier (3 200 ms > 3 000 ms threshold)
 app.get('/api/slow-critical', (_req, res) => {
-  setTimeout(() => res.json({ status: 'ok', delay: 3200, tier: 'critical' }), 3200);
+  setTimeout(() => {
+    try { res.json({ status: 'ok', delay: 3200, tier: 'critical' }); }
+    catch (err) { console.error('[ARGUS Harness] slow-critical error:', err.message); }
+  }, 3200);
 });
 
 // Large payload — warning tier (~600 KB decodedBodySize > 500 KB threshold)
@@ -196,7 +214,11 @@ app.get('/redirect-chain-hop2', (_req, res) => {
 
 app.get('/perf-issues.html', (_req, res) => {
   setTimeout(() => {
-    res.sendFile(path.join(__dirname, 'pages', 'perf-issues.html'));
+    // GAP-69: Error callback — sendFile() silently fails (ENOENT, EACCES) without one;
+    // the response hangs open until the browser times out.
+    res.sendFile(path.join(__dirname, 'pages', 'perf-issues.html'), err => {
+      if (err) console.error('[ARGUS Harness] sendFile error:', err.message);
+    });
   }, 1200);
 });
 
@@ -206,7 +228,9 @@ app.get('/perf-issues.html', (_req, res) => {
 
 app.get('/', (_req, res) => {
   const file = IS_STAGING ? 'staging-home.html' : 'dev-home.html';
-  res.sendFile(path.join(__dirname, 'pages', file));
+  res.sendFile(path.join(__dirname, 'pages', file), err => {
+    if (err) console.error('[ARGUS Harness] sendFile error:', err.message);
+  });
 });
 
 // ── Static assets ──────────────────────────────────────────────────────────────
@@ -214,7 +238,13 @@ app.use('/static', express.static(path.join(__dirname, 'static')));
 app.use('/', express.static(path.join(__dirname, 'pages')));
 
 // ── Start ──────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
+// GAP-65: Capture the server handle so we can attach an error listener — without it,
+// EADDRINUSE (port already in use) crashes the process with no actionable message.
+const server = app.listen(PORT, () => {
   console.log(`[ARGUS Harness] Server running on http://localhost:${PORT} (${IS_STAGING ? 'staging' : 'dev'})`);
   console.log(`[ARGUS Harness] Fixture pages: http://localhost:${PORT}/clean.html`);
+});
+server.on('error', err => {
+  console.error(`[ARGUS Harness] Failed to start on port ${PORT}: ${err.message}`);
+  process.exit(1);
 });

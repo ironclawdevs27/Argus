@@ -43,6 +43,8 @@ export const harnessRoutes = [
     name: 'Network Errors',
     critical: false,
     waitFor: null,
+    // GAP-72: 401 = "critical" per Argus HTTP status severity map in crawl-and-report.js;
+    // if that mapping ever changes, update this expected string to match.
     expected: 'HTTP 500 (critical), 401 (critical), 404 (info)',
   },
   {
@@ -304,6 +306,15 @@ export const harnessRoutes = [
     critical: false,
     waitFor: null,
     expected: 'a11y_missing_name warning (SVG-only button), a11y_missing_form_label warning (bare input), a11y_duplicate_landmark warning (main + role=main)',
+  },
+  // D8.3–D8.5 — flow-runner integration form fixture (GAP-66: was missing from harnessRoutes)
+  // Referenced by validate.js blocks for type_text, drag, and upload_file step actions.
+  {
+    path: '/flow-form.html',
+    name: 'Flow Form',
+    critical: false,
+    waitFor: null,
+    expected: 'flow-runner integration: type_text, drag, upload_file step actions exercise the form (D8.3–D8.5)',
   },
   // D8.3 — type_text step action: fill bypasses input events; type_text fires them
   {
