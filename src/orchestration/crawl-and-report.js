@@ -883,13 +883,16 @@ async function crawlRouteExpensive(route, baseUrl, mcp) {
     const linksRaw  = await mcp.evaluate_script({ function: INTERNAL_LINKS_SCRIPT });
     const rawLinks  = unwrapEval(linksRaw);
     const links     = [...new Set(Array.isArray(rawLinks) ? rawLinks.filter(Boolean) : [])];
+    // GAP-73: Named catch ensures every map callback always resolves — status 0 means
+    // the link was unreachable. The inner catch prevents Promise.all from rejecting on
+    // any individual fetch failure (e.g. ECONNREFUSED, AbortError, TypeError on old runtimes).
     const headResults = await Promise.all(
       links.map(async href => {
         try {
           const res = await fetch(href, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
           return { href, status: res.status };
-        } catch {
-          return { href, status: 0 };
+        } catch (err) {
+          return { href, status: 0, error: err.message };
         }
       })
     );

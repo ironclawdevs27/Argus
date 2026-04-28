@@ -109,6 +109,9 @@ export function analyzeApiFrequency(networkReqs, pageUrl) {
  * @returns {string}
  */
 export function normalizeApiUrl(url) {
+  // GAP-79: Guard non-string input — new URL(null) throws into the catch, then
+  // null.replace() in the catch block throws a second uncaught TypeError.
+  if (typeof url !== 'string') return '';
   try {
     const u = new URL(url);
     const pathname = u.pathname

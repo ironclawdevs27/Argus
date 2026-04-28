@@ -215,7 +215,12 @@ export function appendTrend(trendsFile, entry) {
   try {
     let trends = [];
     if (fs.existsSync(trendsFile)) {
-      try { trends = JSON.parse(fs.readFileSync(trendsFile, 'utf8')); } catch {}
+      // GAP-86: JSON.parse may return a non-array (corrupt file contains `{}`); assigning
+      // that to trends would cause trends.push() to throw "not a function" later.
+      try {
+        const parsed = JSON.parse(fs.readFileSync(trendsFile, 'utf8'));
+        trends = Array.isArray(parsed) ? parsed : [];
+      } catch { trends = []; }
     }
     trends.push(entry);
     fs.writeFileSync(trendsFile, JSON.stringify(trends, null, 2));

@@ -143,7 +143,10 @@ export async function createMcpClient() {
             const text = item.text;
             // chrome-devtools-mcp wraps evaluate_script results in a markdown code block:
             // "Script ran on page and returned:\n```json\n<value>\n```"
-            const mdMatch = text.match(/```(?:json)?\n([\s\S]*?)\n```/);
+            // GAP-78: \n? before closing fence — responses without a trailing newline
+            // before the ``` would not match and fall through to raw JSON.parse, which
+            // then fails because the fence characters are still present in the text.
+            const mdMatch = text.match(/```(?:json)?\n([\s\S]*?)\n?```/);
             if (mdMatch) {
               try { return JSON.parse(mdMatch[1]); } catch { return mdMatch[1]; }
             }

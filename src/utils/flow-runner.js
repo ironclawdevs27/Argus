@@ -49,6 +49,47 @@ const INJECT_ERROR_LISTENER = `() => {
 const DEFAULT_TIMEOUT = 10_000;
 
 /**
+ * Resolve a CSS selector to an MCP accessibility-tree uid.
+ *
+ * type_text and drag require uid (not CSS selectors) per the MCP API contract.
+ * Strategy: evaluate the selector in the page to get a distinguishing attribute
+ * (id, aria-label, name, placeholder), then scan the snapshot text for that
+ * attribute adjacent to a uid token.
+ *
+ * Returns null if the element is not found or has no distinguishing attribute.
+ *
+ * GAP-75 / GAP-77: Added to support type_text and drag which require uids.
+ */
+async function resolveUidForSelector(mcp, selector) {
+  const rawAttr = await mcp.evaluate_script({
+    function: `() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      return el.id || el.getAttribute('aria-label') || el.getAttribute('name') || el.getAttribute('placeholder') || null;
+    }`,
+  });
+  const identifier = unwrapEval(rawAttr);
+  if (!identifier) return null;
+
+  const snap = await mcp.take_snapshot();
+  let text = typeof snap === 'string' ? snap : JSON.stringify(snap ?? '');
+  const fence = text.match(/```(?:json|text)?\s*([\s\S]*?)\s*```/);
+  if (fence) text = fence[1];
+
+  const esc = identifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Text-tree: "- input type-input e5" or similar — uid is a short alphanumeric at end of line
+  const m1 = text.match(new RegExp(`${esc}[^\\n\\r]{0,100}\\s([a-zA-Z][0-9]+)\\s*(?:\\n|$)`, 'm'));
+  if (m1) return m1[1];
+  // JSON tree: "uid":"e5" near identifier string
+  const m2 = text.match(new RegExp(`"${esc}"[^}]{0,300}"uid"\\s*:\\s*"([^"]+)"`));
+  if (m2) return m2[1];
+  const m3 = text.match(new RegExp(`"uid"\\s*:\\s*"([^"]+)"[^}]{0,300}"${esc}"`));
+  if (m3) return m3[1];
+
+  return null;
+}
+
+/**
  * Extract the uid of the first file input from a take_snapshot response.
  *
  * chrome-devtools-mcp snapshot format uses "[Upload]" as the accessibility role
@@ -271,7 +312,10 @@ export async function runFlow(flow, baseUrl, mcp) {
           // mcp.fill (which sets .value directly and does not fire keydown/input events).
           // Use typing: true when the target input has input-event-driven validation (D8.3).
           if (step.typing) {
-            await mcp.type_text({ selector: step.selector, text: step.value ?? '' });
+            // GAP-75: type_text requires uid, not a CSS selector. Resolve via snapshot.
+            const typeUid = await resolveUidForSelector(mcp, step.selector);
+            if (!typeUid) throw new Error(`type_text: no uid found for selector "${step.selector}" — ensure element is visible and has id/aria-label/name`);
+            await mcp.type_text({ uid: typeUid, text: step.value ?? '' });
           } else {
             await mcp.fill({ selector: step.selector, value: step.value ?? '' });
           }
@@ -293,12 +337,21 @@ export async function runFlow(flow, baseUrl, mcp) {
           await new Promise(r => setTimeout(r, step.ms ?? 1000));
           break;
 
-        case 'drag':
-          // Drag from step.selector to step.target. Fires dragstart → dragover → drop
-          // on the target. The drop only lands if the target's dragover handler calls
-          // event.preventDefault() — broken drop zones won't fire drop (D8.4).
-          await mcp.drag({ selector: step.selector, targetSelector: step.target });
+        case 'drag': {
+          // GAP-77: drag MCP API requires { startUid, endUid } — CSS selectors are not
+          // accepted. The DSL exposes sourceSelector/targetSelector (with selector/target
+          // as backwards-compatible aliases) and resolves them to uids via snapshot.
+          // Fires dragstart → dragover → drop on the target; drop only lands if the
+          // target's dragover handler calls event.preventDefault() (D8.4).
+          const srcSelector = step.sourceSelector ?? step.selector;
+          const tgtSelector = step.targetSelector ?? step.target;
+          const startUid = await resolveUidForSelector(mcp, srcSelector);
+          const endUid   = await resolveUidForSelector(mcp, tgtSelector);
+          if (!startUid) throw new Error(`drag: no uid found for source "${srcSelector}"`);
+          if (!endUid)   throw new Error(`drag: no uid found for target "${tgtSelector}"`);
+          await mcp.drag({ startUid, endUid });
           break;
+        }
 
         case 'upload_file': {
           // upload_file requires a uid from the page accessibility snapshot.

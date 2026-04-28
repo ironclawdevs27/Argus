@@ -144,10 +144,12 @@ async function runRetestAsync({ targetUrl, channelId, responseUrl, requestedBy }
     // GAP-37: Log full error server-side; post only a generic message to Slack so internal
     // paths/stack traces/env var names are not leaked to the channel.
     console.error('[ARGUS] Retest failed:', err);
+    // GAP-74: Log delivery failures — silent .catch(() => {}) meant the operator
+    // had no indication when the error notification itself failed to post.
     await getSlack().chat.postMessage({
       channel: channelId,
       text: `⚠️ *Retest error* for \`${targetUrl}\` — check server logs for details`,
-    }).catch(() => {});
+    }).catch(e => console.error('[ARGUS] Failed to post error notification:', e.message));
   } finally {
     mcp?.close?.();
   }
