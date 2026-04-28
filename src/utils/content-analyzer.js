@@ -55,7 +55,9 @@ export const CONTENT_ANALYSIS_SCRIPT = `() => {
   var listClassPat = /results|items|list|feed|grid|entries|collection/i;
   var lists = Array.prototype.slice.call(document.querySelectorAll('ul, ol'));
   lists.forEach(function(list) {
-    if (list.querySelectorAll('li').length === 0 && listClassPat.test(list.className || '')) {
+    // GAP-46: Use :scope > li to count only direct children, not nested <li> elements.
+    // querySelectorAll('li') descends into nested lists and would miss genuinely empty parents.
+    if (!list.querySelector(':scope > li') && listClassPat.test(list.className || '')) {
       emptyLists.push((list.className || 'unnamed').slice(0, 100));
     }
   });
@@ -81,9 +83,20 @@ export function parseContentAnalysisResult(rawResult, url) {
 
   let data;
   try {
-    const str = typeof rawResult === 'string' ? rawResult : JSON.stringify(rawResult);
+    // GAP-43: Unwrap MCP { result: '...' } wrapper before parsing. Without this,
+    // JSON.stringify({ result: '{"nullMatches":[],...}' }) → parse → { result: '...' } and
+    // all field lookups (nullMatches, brokenImages, etc.) return undefined — zero findings.
+    // GAP-47: JSON.stringify on a circular object throws; catch logs and returns [].
+    let raw = rawResult;
+    if (typeof raw === 'object' && !Array.isArray(raw) && raw !== null && raw.result !== undefined) {
+      raw = raw.result;
+    }
+    const str = typeof raw === 'string' ? raw : JSON.stringify(raw);
     data = JSON.parse(str);
-  } catch { return []; }
+  } catch (e) {
+    console.warn('[ARGUS] parseContentAnalysisResult: parse failed —', e.message);
+    return [];
+  }
 
   if (!data || typeof data !== 'object') return [];
 

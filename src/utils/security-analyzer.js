@@ -32,7 +32,7 @@ export const SECURITY_ANALYSIS_SCRIPT = `async () => {
     var keys = Object.keys(localStorage || {});
     for (var i = 0; i < keys.length; i++) {
       var k = keys[i];
-      var v = String(localStorage.getItem(k) || '').slice(0, 500);
+      var v = (localStorage.getItem(k) || '').slice(0, 500);  // GAP-51: String() coercion was redundant
       if (kPat.test(k) || jwtPat.test(v)) storageTokenKeys.push(k);
     }
   } catch (e) {}
@@ -54,19 +54,26 @@ export const SECURITY_ANALYSIS_SCRIPT = `async () => {
   try {
     jsCookies = document.cookie.split(';')
       .map(function(c) { return c.trim(); })
-      .filter(Boolean)
+      .filter(function(c) { return c.length > 0; })  // GAP-50: .filter(Boolean) drops "0"/"false" cookie names
       .map(function(c) { return c.split('=')[0].trim(); });
   } catch (e) {}
 
   // 4. Response headers — CSP + X-Frame-Options via fetch HEAD (same-origin)
+  // GAP-48: Timeout is configurable via ARGUS_SECURITY_TIMEOUT (ms); defaults to 3000.
+  // Hardcoded 3s caused false negatives on staging servers behind VPNs/proxies.
   var hasCSP = null, hasXFrame = null;
   try {
-    var ctrl = new AbortController();
-    var tid  = setTimeout(function() { ctrl.abort(); }, 3000);
-    var r    = await fetch(location.href, { method: 'HEAD', cache: 'no-store', signal: ctrl.signal });
-    clearTimeout(tid);
-    hasCSP    = r.headers.has('Content-Security-Policy');
-    hasXFrame = r.headers.has('X-Frame-Options');
+    var ctrl    = new AbortController();
+    var timeout = (typeof ARGUS_SECURITY_TIMEOUT !== 'undefined' ? ARGUS_SECURITY_TIMEOUT : 3000);
+    var tid     = setTimeout(function() { ctrl.abort(); }, timeout);
+    try {
+      // GAP-44: clearTimeout must run even if fetch rejects — use inner try/finally.
+      var r = await fetch(location.href, { method: 'HEAD', cache: 'no-store', signal: ctrl.signal });
+      hasCSP    = r.headers.has('Content-Security-Policy');
+      hasXFrame = r.headers.has('X-Frame-Options');
+    } finally {
+      clearTimeout(tid);
+    }
   } catch (e) {}
 
   return JSON.stringify({ storageTokenKeys: storageTokenKeys, evalUsage: evalUsage, jsCookies: jsCookies, hasCSP: hasCSP, hasXFrame: hasXFrame });
@@ -85,9 +92,20 @@ export function parseSecurityAnalysisResult(rawResult, url) {
 
   let data;
   try {
-    const str = typeof rawResult === 'string' ? rawResult : JSON.stringify(rawResult);
+    // GAP-43: Unwrap MCP { result: '...' } wrapper before parsing. Without this,
+    // JSON.stringify({ result: '{"key":"val"}' }) → parse → { result: '...' } and
+    // all field lookups (storageTokenKeys, evalUsage, etc.) return undefined — zero findings.
+    // GAP-47: JSON.stringify on a circular object throws; catch logs and returns [].
+    let raw = rawResult;
+    if (typeof raw === 'object' && !Array.isArray(raw) && raw !== null && raw.result !== undefined) {
+      raw = raw.result;
+    }
+    const str = typeof raw === 'string' ? raw : JSON.stringify(raw);
     data = JSON.parse(str);
-  } catch { return []; }
+  } catch (e) {
+    console.warn('[ARGUS] parseSecurityAnalysisResult: parse failed —', e.message);
+    return [];
+  }
 
   if (!data || typeof data !== 'object') return [];
 

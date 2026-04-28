@@ -71,11 +71,18 @@ function parseEvalObject(raw) {
     const inner = raw.result !== undefined ? raw.result : raw;
     if (typeof inner === 'object' && !Array.isArray(inner)) return inner;
     if (typeof inner === 'string') {
-      try { return JSON.parse(inner); } catch { return null; }
+      // GAP-42: Log parse failures so a broken evaluate_script response is diagnosable.
+      try { return JSON.parse(inner); } catch (e) {
+        console.warn('[ARGUS] parseEvalObject: JSON.parse failed —', e.message, '— raw type:', typeof raw);
+        return null;
+      }
     }
   }
   if (typeof raw === 'string') {
-    try { return JSON.parse(raw); } catch { return null; }
+    try { return JSON.parse(raw); } catch (e) {
+      console.warn('[ARGUS] parseEvalObject: JSON.parse failed —', e.message);
+      return null;
+    }
   }
   return null;
 }
@@ -87,17 +94,26 @@ function parseEvalArray(raw) {
   if (raw == null) return [];
   if (Array.isArray(raw)) return raw;
   if (typeof raw === 'object') {
-    const inner = raw.result !== undefined ? raw.result : raw.value;
+    // GAP-45: Use raw as fallback (not raw.value) — MCP responses use .result consistently;
+    // .value is not part of the MCP wrapper schema.
+    const inner = raw.result !== undefined ? raw.result : raw;
     if (Array.isArray(inner)) return inner;
     if (typeof inner === 'string') {
-      try { const p = JSON.parse(inner); return Array.isArray(p) ? p : []; } catch { return []; }
+      // GAP-42: Log parse failures.
+      try { const p = JSON.parse(inner); return Array.isArray(p) ? p : []; } catch (e) {
+        console.warn('[ARGUS] parseEvalArray: JSON.parse failed —', e.message, '— raw type:', typeof raw);
+        return [];
+      }
     }
     const vals = Object.values(raw);
     if (vals.length === 1 && Array.isArray(vals[0])) return vals[0];
     return [];
   }
   if (typeof raw === 'string') {
-    try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; } catch { return []; }
+    try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; } catch (e) {
+      console.warn('[ARGUS] parseEvalArray: JSON.parse failed —', e.message);
+      return [];
+    }
   }
   return [];
 }
@@ -189,7 +205,11 @@ export async function analyzeResponsive(mcp, url) {
       // ── Screenshot ──────────────────────────────────────────────────────
       try {
         const shot = await mcp.take_screenshot({ format: 'png' });
-        if (shot?.data) screenshots[`${bp.width}x${bp.height}`] = shot.data;
+        // GAP-49: Cap at 5 MB base64 — a 1440×900 PNG can exceed this on complex pages;
+        // storing unbounded data across 4 breakpoints × N routes risks OOM.
+        if (shot?.data && shot.data.length < 5_000_000) {
+          screenshots[`${bp.width}x${bp.height}`] = shot.data;
+        }
       } catch { /* screenshots are optional */ }
 
     } catch (err) {
