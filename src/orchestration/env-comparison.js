@@ -30,8 +30,17 @@ import { slugify } from '../utils/slug.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEV_URL = process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
 const RAW_STAGING_URL = process.env.TARGET_STAGING_URL ?? '';
-// Staging URL is considered "not set" if it's empty or still the placeholder
-const STAGING_URL_SET = RAW_STAGING_URL && RAW_STAGING_URL !== 'https://staging.yourapp.com';
+// GAP-91: Validate as a parseable URL with a non-localhost hostname — checking only against
+// one hardcoded placeholder string misses 'TODO', 'your-url-here', http://localhost, etc.
+const STAGING_URL_SET = (() => {
+  if (!RAW_STAGING_URL || RAW_STAGING_URL === 'https://staging.yourapp.com') return false;
+  try {
+    const u = new URL(RAW_STAGING_URL);
+    return u.hostname !== 'localhost' && u.hostname !== '127.0.0.1' && u.hostname !== '';
+  } catch {
+    return false;
+  }
+})();
 const STAGING_URL = RAW_STAGING_URL;
 const OUTPUT_DIR = path.resolve(__dirname, '../../', config.outputDir);
 const SCREENSHOT_THRESHOLD = config.screenshotDiffThreshold; // %
@@ -308,8 +317,14 @@ async function runCssAnalysisMode(mcp) {
       // CSS analysis
       const cssRaw = await mcp.evaluate_script({ function:CSS_ANALYSIS_SCRIPT });
       const cssResult = unwrapEval(cssRaw);
-      const cssBugs = parseCssAnalysisResult(cssResult, url);
-      routeResult.findings.push(...cssBugs);
+      // GAP-92: Type-check before parse — unwrapEval may return null/string on MCP error;
+      // parseCssAnalysisResult iterating a non-object would throw and drop all findings.
+      if (cssResult && typeof cssResult === 'object') {
+        const cssBugs = parseCssAnalysisResult(cssResult, url);
+        routeResult.findings.push(...cssBugs);
+      } else if (cssResult !== null) {
+        console.warn(`[ARGUS] CSS analysis: unexpected response type (${typeof cssResult}), skipping ${url}`);
+      }
 
       // API frequency analysis — capture network requests made during page load
       const networkReqs = normalizeArray(await mcp.list_network_requests().catch(() => []));

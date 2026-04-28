@@ -70,7 +70,12 @@ export async function handleSlashCommand(req, res) {
     return res.status(401).json({ error: 'Invalid signature' });
   }
 
-  const { command, text, channel_id, user_name, response_url } = req.body;
+  const { command, text, response_url } = req.body;
+  // GAP-84: Slack guarantees channel_id and user_name in slash commands, but crafted or
+  // malformed POSTs may omit them. Guard explicitly so downstream interpolations are safe.
+  const channel_id = req.body.channel_id;
+  const user_name = req.body.user_name ?? 'unknown';
+  if (!channel_id) return res.status(400).json({ error: 'Missing channel_id' });
 
   if (command !== '/argus-retest') {
     return res.status(400).json({ error: 'Unknown command' });

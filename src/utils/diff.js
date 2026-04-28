@@ -138,8 +138,19 @@ export function diffNetworkRequests(reqsA, reqsB) {
   // and UUID path segments to /{id}. The previous private normalizeUrl didn't do this,
   // so /api/123 and /api/456 were treated as different endpoints in diffs but the same
   // endpoint in frequency analysis — inconsistent findings across modules.
-  const mapA = Object.fromEntries((reqsA ?? []).map(r => [normalizeApiUrl(r.url ?? ''), r]));
-  const mapB = Object.fromEntries((reqsB ?? []).map(r => [normalizeApiUrl(r.url ?? ''), r]));
+  // GAP-93: Object.fromEntries last-write-wins — if two requests normalize to the same key
+  // (e.g. /api/123 and /api/456 → /api/{id}), the first request object is silently dropped.
+  // Use first-entry-wins so the earlier request (usually the most representative) is kept.
+  function buildRequestMap(reqs) {
+    const map = {};
+    for (const r of (reqs ?? [])) {
+      const key = normalizeApiUrl(r.url ?? '');
+      if (!Object.prototype.hasOwnProperty.call(map, key)) map[key] = r;
+    }
+    return map;
+  }
+  const mapA = buildRequestMap(reqsA);
+  const mapB = buildRequestMap(reqsB);
 
   const urlsA = new Set(Object.keys(mapA));
   const urlsB = new Set(Object.keys(mapB));

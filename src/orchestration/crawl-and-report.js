@@ -376,7 +376,9 @@ async function checkPerformanceBudgets(mcp, url) {
     // Let the page render for 3 seconds to capture paint/layout metrics
     await new Promise(r => setTimeout(r, 3000));
     const trace = await mcp.performance_stop_trace();
-    const insights = await mcp.performance_analyze_insight({ trace });
+    // GAP-89: performance_analyze_insight takes { insightSetId }, not { trace }.
+    // The trace object returned by performance_stop_trace contains the set ID.
+    const insights = await mcp.performance_analyze_insight({ insightSetId: trace?.insightSetId ?? trace?.id ?? trace });
 
     // Extract metrics — structure varies by chrome-devtools-mcp version
     const metrics = insights?.metrics ?? insights?.performanceMetrics ?? {};
@@ -1105,7 +1107,9 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
       }
     } finally {
       for (const client of extraClients) {
-        try { client.close(); } catch {}
+        // GAP-90: await close() — if close() returns a Promise that rejects, the rejection
+        // would be swallowed. Optional chaining guards against close() being undefined.
+        try { await client?.close?.(); } catch {}
       }
     }
   } else {
@@ -1182,21 +1186,25 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
   }
   // Rebuild summary after overrides (suppressed findings change counts)
   report.summary = { total: 0, critical: 0, warning: 0, info: 0 };
-  for (const routeResult of report.routes) {
-    for (const err of routeResult.errors) {
-      report.summary.total++;
-      report.summary[err.severity] = (report.summary[err.severity] ?? 0) + 1;
+  // GAP-80: Only count known severities — an unrecognised value (e.g. from a remapping bug)
+  // would create a spurious key on summary (report.summary[undefined]) without incrementing
+  // the correct bucket, producing misleading counts in Slack notifications.
+  function countFinding(finding) {
+    report.summary.total++;
+    if (finding.severity === 'critical' || finding.severity === 'warning' || finding.severity === 'info') {
+      report.summary[finding.severity]++;
+    } else if (finding.severity) {
+      console.warn(`[ARGUS] Unknown severity "${finding.severity}" on finding type "${finding.type ?? 'unknown'}"`);
     }
+  }
+  for (const routeResult of report.routes) {
+    for (const err of routeResult.errors) countFinding(err);
   }
   for (const flowResult of (report.flows ?? [])) {
-    for (const finding of flowResult.findings) {
-      report.summary.total++;
-      report.summary[finding.severity] = (report.summary[finding.severity] ?? 0) + 1;
-    }
+    for (const finding of flowResult.findings) countFinding(finding);
   }
   for (const finding of (report.codebase ?? [])) {
-    report.summary.total++;
-    report.summary[finding.severity] = (report.summary[finding.severity] ?? 0) + 1;
+    countFinding(finding);
   }
 
   // Historical baselines + trend tracking (v3 Phase B3 / D7.2 per-branch)

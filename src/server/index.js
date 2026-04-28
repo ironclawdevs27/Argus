@@ -28,16 +28,23 @@ const PORT = process.env.PORT ?? 3001;
 // indicate abuse or misconfiguration and should be rejected early.
 const MAX_RAW_BODY = 512_000;
 app.use((req, res, next) => {
-  let raw = '';
+  // GAP-82: Accumulate as Buffer chunks — string concat with += coerces each Buffer to
+  // UTF-8 per-chunk and creates GC pressure; Buffer.concat defers encoding to 'end'.
+  // Avoids silent corruption of multi-byte sequences split across chunk boundaries.
+  const chunks = [];
+  let totalLength = 0;
   req.on('data', chunk => {
-    raw += chunk;
-    if (raw.length > MAX_RAW_BODY) {
+    totalLength += chunk.length;
+    if (totalLength > MAX_RAW_BODY) {
+      // GAP-97: Destroy after 'finish' so the 413 response is fully flushed first.
       res.status(413).send('Payload Too Large');
-      req.destroy();
+      res.on('finish', () => req.destroy());
+      return;
     }
+    chunks.push(chunk);
   });
   req.on('end', () => {
-    req.rawBody = raw;
+    req.rawBody = Buffer.concat(chunks).toString('utf8');
     next();
   });
 });
@@ -71,6 +78,12 @@ const server = app.listen(PORT, () => {
   console.log('[ARGUS] For local testing, expose with: cloudflared tunnel --url http://localhost:' + PORT);
 });
 
+// GAP-83: requestTimeout is assigned synchronously here — before the Node.js event loop
+// processes any incoming connection — so every request inherits the 10 s limit.
+// Must remain after app.listen() (the server object doesn't exist before that call)
+// but must remain synchronous (not inside the listen callback) to close the startup race.
+server.requestTimeout = 10_000;
+
 // GAP-41: Without this, a port conflict emits an unhandled 'error' event and terminates
 // the process with a cryptic EADDRINUSE message and no guidance.
 server.on('error', err => {
@@ -81,9 +94,5 @@ server.on('error', err => {
   }
   process.exit(1);
 });
-
-// GAP-36: Enforce a per-request timeout to guard against slow-loris connections
-// that drip data slowly to hold the raw-body listener open indefinitely.
-server.requestTimeout = 10_000;
 
 export default app;

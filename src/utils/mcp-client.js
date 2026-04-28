@@ -56,6 +56,18 @@ export async function createMcpClient() {
   let buffer = '';
 
   // Parse newline-delimited JSON-RPC responses from stdout
+  // GAP-88: Propagate stdin write errors — if the MCP process closes unexpectedly or the
+  // write buffer fills, stdin emits 'error'. Without this listener the error is an
+  // unhandled EventEmitter exception that crashes the process. Reject all pending calls
+  // so callers get a meaningful error instead of waiting for the 30 s timeout.
+  proc.stdin.on('error', err => {
+    console.error('[ARGUS] MCP stdin error:', err.message);
+    for (const { reject } of pending.values()) {
+      reject(new Error(`MCP stdin error: ${err.message}`));
+    }
+    pending.clear();
+  });
+
   proc.stdout.on('data', (chunk) => {
     buffer += chunk.toString();
     const lines = buffer.split('\n');

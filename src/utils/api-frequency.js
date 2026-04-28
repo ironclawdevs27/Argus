@@ -117,7 +117,9 @@ export function normalizeApiUrl(url) {
     const pathname = u.pathname
       .replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '/{id}')
       .replace(/\/\d+/g, '/{id}');
-    return `${u.hostname}${pathname}`;
+    // GAP-87: Include protocol so http://api.example.com and https://api.example.com
+    // are not collapsed to the same key in frequency analysis and diffs.
+    return `${u.protocol}//${u.hostname}${pathname}`;
   } catch {
     return url.replace(/[?#].*/, '').replace(/\/\d+/g, '/{id}');
   }

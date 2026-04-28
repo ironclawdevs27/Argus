@@ -47,6 +47,13 @@ export async function handleInteraction(req, res) {
   // Acknowledge the interaction immediately (Slack requires < 3s)
   res.status(200).send();
 
+  // GAP-85: channelId is required for all follow-up Slack posts. Missing means the payload
+  // is from an unsupported interaction type — ack it (above) but skip async processing.
+  if (!channelId) {
+    console.warn('[ARGUS] Interaction missing channel.id — cannot dispatch response');
+    return;
+  }
+
   // GAP-39: Wrap post-response async work in try/catch. The response is already committed
   // at this point, so any throws escape Express's error handler and become unhandled
   // promise rejections — which crash the server in Node 15+.
@@ -74,8 +81,11 @@ async function handleRetestAction({ action, messageTs, channelId, userName }) {
     parsedValue = {};
   }
 
+  // GAP-81: Validate targetUrl is a string starting with http — parsedValue.url could be
+  // a number or boolean from a crafted payload, which passes the truthy check but breaks
+  // downstream string operations and URL construction in runCrawl.
   const targetUrl = parsedValue.url;
-  if (!targetUrl) return;
+  if (typeof targetUrl !== 'string' || !targetUrl.startsWith('http')) return;
 
   let mcp;
   try {
