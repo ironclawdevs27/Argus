@@ -268,7 +268,11 @@ export async function runComparison(mcp) {
   fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
   console.log(`[ARGUS] Comparison report: ${reportPath}`);
 
-  await dispatchComparisonToSlack(report);
+  // GAP-98: Slack dispatch is best-effort — a network error or Slack API failure should not
+  // crash the entire comparison run and discard the already-written JSON report.
+  await dispatchComparisonToSlack(report).catch(err =>
+    console.error('[ARGUS] Slack dispatch failed:', err.message)
+  );
   return report;
 }
 

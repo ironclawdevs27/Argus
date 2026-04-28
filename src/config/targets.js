@@ -168,6 +168,12 @@ export const codebase = {
   envFile:   process.env.ARGUS_ENV_FILE   ?? null,
 };
 
+// GAP-99: Warn at startup when codebase analysis is unconfigured so operators know
+// env_var_missing / feature_flag_leakage detections will be silently skipped.
+if (!codebase.sourceDir) {
+  console.warn('[ARGUS] codebase.sourceDir not configured — codebase analysis will be skipped (set ARGUS_SOURCE_DIR to enable)');
+}
+
 /**
  * Auto route discovery (Phase C3).
  *

@@ -77,7 +77,9 @@ async function handleRetestAction({ action, messageTs, channelId, userName }) {
   let parsedValue;
   try {
     parsedValue = JSON.parse(action.value ?? '{}');
-  } catch {
+  } catch (e) {
+    // GAP-96: Log the raw value and error so we can diagnose malformed action payloads.
+    console.warn('[ARGUS] Failed to parse action.value:', action.value, e.message);
     parsedValue = {};
   }
 

@@ -53,6 +53,9 @@ export function verifySlackSignature(req) {
     .update(sigBasestring)
     .digest('hex');
 
+  // GAP-94: timingSafeEqual throws TypeError if buffer lengths differ — pre-check so we
+  // return false (invalid signature) instead of crashing with an unhandled exception.
+  if (mySignature.length !== slackSignature.length) return false;
   return crypto.timingSafeEqual(
     Buffer.from(mySignature),
     Buffer.from(slackSignature)
@@ -100,10 +103,14 @@ export async function handleSlashCommand(req, res) {
     });
   }
 
+  // GAP-95: Strip backticks from the URL before interpolating into Slack mrkdwn — a URL
+  // containing a backtick would break out of the inline code span and could alter formatting.
+  const safeUrl = targetUrl.replace(/`/g, '');
+
   // Respond immediately — Slack requires a response within 3 seconds
   res.json({
     response_type: 'in_channel',
-    text: `🔄 *ARGUS retest started* for \`${targetUrl}\`\nRequested by @${user_name}. Results will appear here shortly...`,
+    text: `🔄 *ARGUS retest started* for \`${safeUrl}\`\nRequested by @${user_name}. Results will appear here shortly...`,
   });
 
   // GAP-32: Attach .catch() so an unexpected rejection doesn't become an unhandled rejection
