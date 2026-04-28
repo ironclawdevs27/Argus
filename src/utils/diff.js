@@ -8,6 +8,10 @@
 import { PNG } from 'pngjs';
 import pixelmatch from 'pixelmatch';
 import fs from 'fs';
+// GAP-60: Import shared URL normalizer so diffNetworkRequests uses the same ID-collapsing
+// strategy as analyzeApiFrequency — previously each module had its own private normalizer,
+// causing the same endpoint to be keyed differently in frequency vs diff analysis.
+import { normalizeApiUrl } from './api-frequency.js';
 
 /**
  * Compare two screenshot files pixel-by-pixel.
@@ -19,8 +23,15 @@ import fs from 'fs';
  * @returns {{ diffPixels: number, diffPercent: number, totalPixels: number }}
  */
 export async function compareScreenshots(pathA, pathB, diffOutputPath, threshold = 0.1) {
-  const imgA = PNG.sync.read(fs.readFileSync(pathA));
-  const imgB = PNG.sync.read(fs.readFileSync(pathB));
+  // GAP-54: Wrap file I/O in try/catch — readFileSync throws on missing/invalid files,
+  // PNG.sync.read throws on corrupt data; both would crash the entire report pipeline.
+  let imgA, imgB;
+  try {
+    imgA = PNG.sync.read(fs.readFileSync(pathA));
+    imgB = PNG.sync.read(fs.readFileSync(pathB));
+  } catch (err) {
+    throw new Error(`compareScreenshots: failed to read screenshot files — ${err.message} (pathA: ${pathA}, pathB: ${pathB})`);
+  }
 
   // Ensure same dimensions — use the smaller of the two
   const width = Math.min(imgA.width, imgB.width);
@@ -41,10 +52,16 @@ export async function compareScreenshots(pathA, pathB, diffOutputPath, threshold
     { threshold }
   );
 
-  fs.writeFileSync(diffOutputPath, PNG.sync.write(diff));
+  // GAP-63: Don't let a bad output path crash the report — diff images are optional visuals.
+  try {
+    fs.writeFileSync(diffOutputPath, PNG.sync.write(diff));
+  } catch (err) {
+    console.warn(`[ARGUS] compareScreenshots: could not write diff image to ${diffOutputPath} — ${err.message}`);
+  }
 
   const totalPixels = width * height;
-  const diffPercent = (diffPixels / totalPixels) * 100;
+  // GAP-55: Guard against division by zero if both images are 0×0 pixels.
+  const diffPercent = totalPixels > 0 ? (diffPixels / totalPixels) * 100 : 0;
 
   return { diffPixels, diffPercent, totalPixels, width, height };
 }
@@ -117,8 +134,12 @@ export function diffDomSnapshots(domA, domB) {
  * @returns {{ added: object[], removed: object[], changed: object[] }}
  */
 export function diffNetworkRequests(reqsA, reqsB) {
-  const mapA = Object.fromEntries((reqsA ?? []).map(r => [normalizeUrl(r.url), r]));
-  const mapB = Object.fromEntries((reqsB ?? []).map(r => [normalizeUrl(r.url), r]));
+  // GAP-60: Use the shared normalizeApiUrl (from api-frequency.js) which collapses numeric
+  // and UUID path segments to /{id}. The previous private normalizeUrl didn't do this,
+  // so /api/123 and /api/456 were treated as different endpoints in diffs but the same
+  // endpoint in frequency analysis — inconsistent findings across modules.
+  const mapA = Object.fromEntries((reqsA ?? []).map(r => [normalizeApiUrl(r.url ?? ''), r]));
+  const mapB = Object.fromEntries((reqsB ?? []).map(r => [normalizeApiUrl(r.url ?? ''), r]));
 
   const urlsA = new Set(Object.keys(mapA));
   const urlsB = new Set(Object.keys(mapB));
@@ -143,16 +164,4 @@ export function diffNetworkRequests(reqsA, reqsB) {
 export function diffConsoleMessages(msgsA, msgsB) {
   const textSetA = new Set((msgsA ?? []).filter(m => m.level === 'error').map(m => m.text ?? m.message));
   return (msgsB ?? []).filter(m => m.level === 'error' && !textSetA.has(m.text ?? m.message));
-}
-
-/**
- * Strip query strings and trailing slashes for URL comparison.
- */
-function normalizeUrl(url) {
-  try {
-    const u = new URL(url);
-    return `${u.hostname}${u.pathname}`.replace(/\/$/, '');
-  } catch {
-    return url.replace(/[?#].*/, '').replace(/\/$/, '');
-  }
 }

@@ -37,7 +37,9 @@ export function analyzeApiFrequency(networkReqs, pageUrl) {
   const groups = {};
   for (const req of apiCalls) {
     const method = (req.method ?? 'GET').toUpperCase();
-    const normalized = normalizeApiUrl(req.url);
+    // GAP-53: Coalesce req.url — the filter uses a coerced copy but the loop uses the
+    // original; req.url could still be undefined, causing new URL(undefined) to throw.
+    const normalized = normalizeApiUrl(req.url ?? '');
     const key = `${method}::${normalized}`;
     if (!groups[key]) {
       groups[key] = { method, normalizedUrl: normalized, calls: [], key };

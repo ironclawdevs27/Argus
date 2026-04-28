@@ -11,7 +11,10 @@
  */
 
 function findingKey(finding) {
-  const msg = (finding.message ?? '').slice(0, 100);
+  // GAP-56: Normalize whitespace before truncating — same finding with minor formatting
+  // differences (extra spaces, newlines) between run1 and run2 would produce different
+  // keys and be incorrectly classified as flaky.
+  const msg = (finding.message ?? '').trim().replace(/\s+/g, ' ').slice(0, 100);
   const status = finding.status != null ? '::' + finding.status : '';
   return `${finding.type}::${msg}${status}`;
 }
@@ -29,6 +32,14 @@ function findingKey(finding) {
  * @returns {object} Merged result with confirmed + flaky findings combined
  */
 export function mergeRunResults(run1, run2) {
+  // GAP-61: Validate inputs — accessing .errors on undefined throws a cryptic TypeError.
+  if (!run1 || !Array.isArray(run1.errors)) {
+    throw new TypeError('mergeRunResults: run1.errors must be an array');
+  }
+  if (!run2 || !Array.isArray(run2.errors)) {
+    throw new TypeError('mergeRunResults: run2.errors must be an array');
+  }
+
   const keys1 = new Map(run1.errors.map(f => [findingKey(f), f]));
   const keys2 = new Set(run2.errors.map(findingKey));
 
@@ -44,7 +55,13 @@ export function mergeRunResults(run1, run2) {
   }
 
   for (const f of run2.errors) {
-    if (!keys1.has(findingKey(f))) {
+    const key = findingKey(f);
+    if (keys1.has(key)) {
+      // GAP-52: Prefer run2's version of confirmed findings — run2 is more recent and
+      // may have updated metadata. Replace run1's copy in the confirmed array.
+      const idx = confirmed.findIndex(c => findingKey(c) === key);
+      if (idx !== -1) confirmed[idx] = { ...f, flaky: false };
+    } else {
       flaky.push({ ...f, severity: 'info', flaky: true });
     }
   }

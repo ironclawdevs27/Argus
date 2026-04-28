@@ -16,7 +16,10 @@
  * @returns {Array[]}
  */
 export function chunkArray(arr, n) {
-  if (n <= 0) throw new RangeError('chunkArray: n must be > 0');
+  // GAP-57: Validate inputs — arr.length throws on undefined; non-integer n produces
+  // fractional chunk sizes that silently skip elements or create unexpected extra chunks.
+  if (!Array.isArray(arr)) throw new TypeError('chunkArray: arr must be an array');
+  if (!Number.isInteger(n) || n <= 0) throw new RangeError('chunkArray: n must be a positive integer');
   if (arr.length === 0) return [];
   const size = Math.ceil(arr.length / Math.min(n, arr.length));
   const chunks = [];
