@@ -12,12 +12,9 @@
 import fs            from 'fs';
 import path          from 'path';
 import { execSync }  from 'child_process';
-
-function findingKey(finding) {
-  const msg = (finding.message ?? '').slice(0, 100);
-  const status = finding.status != null ? '::' + finding.status : '';
-  return `${finding.type}::${msg}${status}`;
-}
+// GAP-082: Import shared findingKey from flakiness-detector so both modules use
+// identical normalization (trim + whitespace collapse). Local copy removed.
+import { findingKey } from './flakiness-detector.js';
 
 /**
  * Sanitize a git branch name into a safe filename segment.
@@ -135,12 +132,14 @@ export function applyBaseline(report, baseline) {
         finding.isNew = true;
       }
     }
-    const newCount     = report.routes.reduce((n, r) => n + r.errors.length, 0);
-    const flowNewCount = (report.flows ?? []).reduce((n, f) => n + f.findings.length, 0);
+    const newCount         = report.routes.reduce((n, r) => n + r.errors.length, 0);
+    const flowNewCount     = (report.flows ?? []).reduce((n, f) => n + f.findings.length, 0);
+    const codebaseNewCount = (report.codebase ?? []).length;
     for (const finding of (report.codebase ?? [])) {
       finding.isNew = true;
     }
-    return { isFirstRun: true, newCount, resolvedCount: 0, flowNewCount, flowResolvedCount: 0 };
+    // GAP-083: Include codebase counts so PR/Slack trend summaries reflect codebase findings.
+    return { isFirstRun: true, newCount, resolvedCount: 0, flowNewCount, flowResolvedCount: 0, codebaseNewCount, codebaseResolvedCount: 0 };
   }
 
   let newCount = 0;
@@ -182,16 +181,24 @@ export function applyBaseline(report, baseline) {
     }
   }
 
-  // C1 codebase findings — annotate isNew against saved codebase keys
+  // C1 codebase findings — annotate isNew + count new/resolved (GAP-083)
   const baselineCodebase = baseline.codebase ?? new Set();
   const currentCodebaseKeys = new Set();
+  let codebaseNewCount = 0;
+  let codebaseResolvedCount = 0;
   for (const finding of (report.codebase ?? [])) {
     const key = findingKey(finding);
     currentCodebaseKeys.add(key);
     finding.isNew = !baselineCodebase.has(key);
+    if (finding.isNew) codebaseNewCount++;
+  }
+  for (const key of baselineCodebase) {
+    if (!currentCodebaseKeys.has(key)) codebaseResolvedCount++;
   }
 
-  return { isFirstRun: false, newCount, resolvedCount, flowNewCount, flowResolvedCount };
+  // GAP-083: Return codebase counts alongside route/flow counts so Slack/GitHub reporters
+  // can include codebase findings in trend summaries and PR comments.
+  return { isFirstRun: false, newCount, resolvedCount, flowNewCount, flowResolvedCount, codebaseNewCount, codebaseResolvedCount };
 }
 
 /**

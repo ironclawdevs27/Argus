@@ -128,7 +128,9 @@ async function getHeapSize(mcp) {
  * @returns {Promise<{ detachedNodeCount: number, totalNodeCount: number|null } | null>}
  */
 async function captureAndParseSnapshot(mcp) {
-  const filePath = path.join(os.tmpdir(), `argus-heap-${Date.now()}.heapsnapshot`);
+  // GAP-085: Include PID + random suffix — Date.now() alone can collide when two parallel
+  // shard workers both enter captureAndParseSnapshot within the same millisecond.
+  const filePath = path.join(os.tmpdir(), `argus-heap-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.heapsnapshot`);
   try {
     await mcp.take_memory_snapshot({ filePath });
 

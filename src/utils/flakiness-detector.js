@@ -10,7 +10,11 @@
  * Finding key: same scheme as baseline-manager — type::message[:100]::status
  */
 
-function findingKey(finding) {
+// GAP-082: Exported so baseline-manager.js uses the same normalization (trim + collapse
+// whitespace). Previously each module had its own private findingKey() with different
+// whitespace handling, so the same finding could be new in baselines but confirmed in
+// flakiness, producing inconsistent cross-module annotation.
+export function findingKey(finding) {
   // GAP-56: Normalize whitespace before truncating — same finding with minor formatting
   // differences (extra spaces, newlines) between run1 and run2 would produce different
   // keys and be incorrectly classified as flaky.

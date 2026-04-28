@@ -169,8 +169,17 @@ export async function createMcpClient() {
       });
   }
 
-  // Graceful shutdown
+  // Graceful shutdown — idempotent and rejects all in-flight calls immediately.
+  // GAP-080: Without this, pending promises wait until TOOL_TIMEOUT_MS (30 s) after
+  // shutdown, making CI teardown slow and leaving dangling rejections.
+  let closed = false;
   function close() {
+    if (closed) return;
+    closed = true;
+    for (const { reject } of pending.values()) {
+      reject(new Error('MCP client closed'));
+    }
+    pending.clear();
     proc.stdin.end();
     proc.kill('SIGTERM');
   }

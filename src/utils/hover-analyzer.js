@@ -24,14 +24,17 @@
 const HOVER_CANDIDATE_SCRIPT = `() => {
   var results = [];
   function buildSelector(el) {
-    if (el.id) return '#' + el.id;
-    var cls = Array.from(el.classList)
+    // GAP-087: Use CSS.escape() — raw id/class names containing :, ., [, / or spaces
+    // produce invalid selectors that querySelector silently fails to match.
+    if (el.id) return '#' + CSS.escape(el.id);
+    var classes = Array.from(el.classList)
       .filter(function(c) { return /^[a-zA-Z_-]/.test(c); })
-      .slice(0, 2).join('.');
+      .slice(0, 2)
+      .map(function(c) { return CSS.escape(c); });
     var tag = el.tagName.toLowerCase();
-    if (!cls) return tag;
-    var matches = document.querySelectorAll(tag + '.' + cls.replace('.', '.'));
-    if (matches.length === 1) return tag + '.' + cls;
+    if (!classes.length) return tag;
+    var selector = tag + '.' + classes.join('.');
+    if (document.querySelectorAll(selector).length === 1) return selector;
     // nth-of-type counts within parent, not the full document — may misfire
     // when same-tag elements exist across multiple parents. Acceptable heuristic.
     var idx = Array.from(document.querySelectorAll(tag)).indexOf(el) + 1;
