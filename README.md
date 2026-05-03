@@ -14,7 +14,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 | 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
 |:---:|:---:|:---:|:---:|
-| **106 distinct issue types detected** | **21 analysis engines** | **276 test assertions** | **64 test blocks** |
+| **119 distinct issue types detected** | **24 analysis engines** | **319 test assertions** | **77 test blocks** |
 
 </div>
 
@@ -22,7 +22,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 ## What Argus Catches
 
-Argus runs **21 analysis engines** per run and detects **105 distinct issue types** across JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, runtime anti-patterns, hover-state interactions, and accessibility tree snapshots — plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity (`critical` / `warning` / `info`) and routed to the right Slack channel — or rendered as a local `report.html` when Slack is not configured.
+Argus runs **24 analysis engines** per run and detects **119 distinct issue types** across JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, runtime anti-patterns, hover-state interactions, accessibility tree snapshots, keyboard focus, and Chrome DevTools issues panel — plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity (`critical` / `warning` / `info`) and routed to the right Slack channel — or rendered as a local `report.html` when Slack is not configured.
 
 ### JavaScript Runtime
 
@@ -107,10 +107,14 @@ Argus runs **21 analysis engines** per run and detects **105 distinct issue type
 | 🔴 Critical | Auth token found in `localStorage` or `sessionStorage` | `evaluate_script` walks storage keys for token patterns |
 | 🔴 Critical | Sensitive token in the page URL (query param or hash) | URL pattern match against current `window.location.href` |
 | 🔴 Critical | `eval()` call detected in page scripts | `evaluate_script` AST-style text scan of inline `<script>` tags |
+| 🔴 Critical | CSP violation — inline script or external resource blocked by Content-Security-Policy | Chrome DevTools Issues panel (`list_console_messages({ types: ['issue'] })`) |
 | 🟡 Warning | Sensitive data (`password`, `token`, `secret`) logged to the console | `list_console_messages` + keyword match |
 | 🟡 Warning | Missing `Content-Security-Policy` response header | `fetch(location.href)` inside the page → response headers check |
 | 🟡 Warning | Missing `X-Frame-Options` response header | Same headers fetch |
+| 🟡 Warning | Cross-origin `<iframe>` without `sandbox` attribute — enables form submission, parent navigation, cookie access | `evaluate_script` checks `iframe[src]` elements for missing sandbox attribute |
+| 🟡 Warning | Page served over plain HTTP with no HTTPS upgrade redirect | URL protocol check (`http://` + non-localhost) |
 | 🔵 Info | Cookie present without `HttpOnly` flag (limited detection — JS-visible cookies only) | `document.cookie` inspection |
+| 🔵 Info | Deprecated browser API usage (e.g. `document.domain`, `DOMSubtreeModified`) | Chrome DevTools Issues panel |
 
 ### Content Quality
 
@@ -137,6 +141,11 @@ Argus runs **21 analysis engines** per run and detects **105 distinct issue type
 | 🟡 Warning | API response time > 1000ms | Same observer, lower threshold |
 | 🔴 Critical | API response payload > 2 MB | `list_network_requests` → response body size |
 | 🟡 Warning | API response payload > 500 KB | Same, lower threshold |
+| 🟡 Warning | Cross-origin (third-party) script TTFB > 2000ms — blocking render or late interactivity | HAR `timing.wait` field from `list_network_requests` HAR data; cross-origin requests only |
+
+### Network Request Origin Tagging
+
+All network findings carry an `origin` field (`'first-party'` / `'third-party'`) so operators can triage critical first-party failures separately from third-party noise.
 
 ### Lighthouse Suite
 
@@ -191,6 +200,14 @@ Argus runs **21 analysis engines** per run and detects **105 distinct issue type
 | 🟡 Warning | Interactive element (`<button>`, `<a>`, `[role="button"]`, `[role="link"]`) with no accessible name — no text content, `aria-label`, `aria-labelledby`, `title`, or `alt` | `take_snapshot` captures DOM/AX state; `evaluate_script` queries each visible interactive element for accessible name sources |
 | 🟡 Warning | Form control (`<input>`, `<select>`, `<textarea>`) with no associated label — no `<label for="...">`, `aria-label`, or `aria-labelledby` (placeholder is intentionally excluded — not a valid accessible name per WCAG 2.1 §3.3.2) | `evaluate_script` checks `label[for]`, ancestor `<label>`, `aria-label`, and `aria-labelledby` for each visible control |
 | 🟡 Warning | Landmark role appearing more than once without distinct `aria-label` / `aria-labelledby` — screen readers cannot differentiate them | `evaluate_script` counts `[role=X]` instances and checks for unique label values across: `main`, `banner`, `contentinfo`, `navigation`, `search`, `complementary`, `form`, `region` |
+| 🟡 Warning | Heading level skip — h1→h3 or h4→h6 jumps more than one level, breaking WCAG 1.3.1 document outline | DOM walk of `h1`–`h6` elements; detects gaps > 1 between consecutive heading levels |
+| 🟡 Warning | `aria-expanded` button/control has no `aria-controls` attribute or references a non-existent element | `evaluate_script` checks `[aria-expanded]` elements for missing or broken `aria-controls` pointer |
+
+### Keyboard Accessibility
+
+| Severity | Bug / Issue | Detection Method |
+|---|---|---|
+| 🟡 Warning | Button or focusable element has `outline:0` with no `box-shadow` fallback — no visible focus ring | `press_key({ key: 'Tab' })` walk + `evaluate_script` reads `document.activeElement` computed style for outline/box-shadow |
 
 ### Flakiness Detection
 
@@ -243,7 +260,11 @@ Argus watches your running application and automatically surfaces issues that te
 | **Memory Leak Detection** | V8 heap snapshot → detached DOM node count; heap growth across navigate-away + navigate-back |
 | **Runtime Anti-Patterns** | Synchronous XHR, `document.write`, long tasks > 50ms, CORS violations, service worker registration failures, and missing cache headers on static assets — detected via script injection and post-load HEAD checks |
 | **Hover-State Bug Detection** | Fires `hover` on every `[aria-haspopup]` and `[data-tooltip]` element; detects broken dropdowns and invisible tooltips that CSS `:hover` was supposed to reveal |
-| **Accessibility Snapshot Analysis** | Calls `take_snapshot` then `evaluate_script`; flags interactive elements missing accessible names, unlabelled form controls, and duplicate landmark regions |
+| **Accessibility Snapshot Analysis** | Calls `take_snapshot` then `evaluate_script`; flags interactive elements missing accessible names, unlabelled form controls, duplicate landmark regions, heading level skips, and `aria-expanded` buttons with missing/broken `aria-controls` |
+| **Keyboard Focus Analysis** | Tab-walks every focusable element (up to 20 steps); detects `focus_visible_missing` (button/link with `outline:0` and no `box-shadow` fallback — keyboard users cannot see where focus is) |
+| **Chrome DevTools Issues Panel** | Queries `list_console_messages({ types: ['issue'] })` for the Issues panel namespace, which is entirely separate from `console.error`; catches CSP violations, deprecated API usage, and cookie misconfiguration that never appear in the console stream |
+| **Mobile CPU Throttling** | Applies 4× CPU throttle (`emulate_cpu({ throttlingRate: 4 })`) during ≤768px responsive breakpoints — finds layout reflow and animation jank that only manifests under realistic mobile CPU pressure |
+| **Origin-Tagged Network Findings** | All network error and timing findings carry `origin: 'first-party' \| 'third-party'` so operators can triage critical first-party failures without digging through third-party CDN noise |
 | **Historical Baselines** | Saves finding keys after each run; subsequent runs only alert on *new* issues; trend summary in Slack digest |
 | **Flakiness Detection** | Crawls each route twice per run; findings in both runs are confirmed (original severity); findings in only one run are marked flaky (`severity: info`, `:zap: _flaky_` label) |
 | **User Flow Assertions** | Named multi-step flows (`navigate/fill/click/press_key/drag/upload_file/waitFor/sleep/handle_dialog/assert`) with baseline-sliced `no_console_errors`, `no_network_errors`, `element_visible`, `url_contains`, `no_js_errors` asserts — runs end-to-end user journeys without writing Playwright specs · Use `typing: true` on a fill step to dispatch real keyboard events via `mcp.type_text` (triggers input-event validation) · Use `drag` step to fire dragstart→dragover→drop sequences · Use `upload_file` step to deliver a local file to a file input via CDP (`{ action: 'upload_file', selector: 'input[type=file]', filePath: '/path/to/file' }`) |
@@ -608,7 +629,10 @@ argus/
 │       ├── severity-overrides.js     # Severity policy overrides: applyOverrides (D7.5)
 │       ├── slack-guard.js            # Slack-optional guard: isSlackConfigured() (D7.7)
 │       ├── hover-analyzer.js         # Hover-state bug detection — aria-haspopup + data-tooltip (D8.1)
-│       ├── snapshot-analyzer.js      # Accessibility tree snapshot — missing names, labels, landmarks (D8.2)
+│       ├── snapshot-analyzer.js      # Accessibility tree snapshot — missing names, labels, landmarks, heading hierarchy, ARIA state (D8.2 + v6)
+│       ├── issues-analyzer.js        # Chrome DevTools Issues panel — CSP/deprecated/cookie issues (v6 GAP-093)
+│       ├── network-timing-analyzer.js # HAR timing analysis — slow third-party detection (v6 GAP-094)
+│       ├── keyboard-analyzer.js      # Keyboard Tab-walk — focus_visible_missing, focus_lost (v6 GAP-097)
 │       ├── codebase-analyzer.js      # Codebase cross-reference — env vars, feature flags, dead routes (C1)
 │       ├── github-reporter.js        # GitHub PR comment + commit status integration (C2)
 │       ├── route-discoverer.js       # Auto route discovery — sitemap + Next.js + React Router (C3)
@@ -616,12 +640,12 @@ argus/
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
 │   └── cli/
 │       └── init.js                   # argus init setup wizard — detect framework, discover routes, write .env + targets.js (C4)
-├── test-harness/                     # Fixture server + test runner (64 blocks, 276 hard assertions, 39 categories)
+├── test-harness/                     # Fixture server + test runner (77 blocks, 319 hard assertions, 53 categories)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner — 56 numbered blocks
-│   ├── pages/                        # 45 fixture pages (one per detection category)
+│   ├── validate.js                   # Test runner — 77 numbered blocks
+│   ├── pages/                        # 53 fixture pages (one per detection category)
 │   ├── nextjs-fixture/               # Next.js app structure for C3 discovery tests (10 files)
 │   └── static/
 │       └── button-styles.css         # BEM card selectors in button file → component leak

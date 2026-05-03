@@ -17,7 +17,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-64 test blocks · 276 hard assertions · 39 detection categories · 46 fixture pages
+77 test blocks · 319 hard assertions · 53 detection categories · 53 fixture pages
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -87,6 +87,19 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 62 | _(temp dir with package.json)_ | C4.1 `detectFramework` — non-existent dir → `'unknown'` · no package.json → `'unknown'` · `next` dep → `'nextjs'` · `react-router-dom` dep → `'react-router'` (C4) | Hard |
 | 63 | _(pure function — no fixture page)_ | C4.2 `generateTargetsJs` — returns non-empty string · contains export statements · route paths included · autoDiscover block reflects framework · empty routes falls back to default home route (C4) | Hard |
 | 64 | _(pure function — no fixture page)_ | C4.3 `generateEnvFile` — returns non-empty string · devUrl substituted · Slack token not commented when provided · GitHub values substituted · blanks render as commented-out placeholders (C4) | Hard |
+| 65 | `clean.html` | Production crawl pipeline smoke — `crawlRouteCheap()` returns errors array · all issues are info/warning · no criticals on clean fixture (GAP-091) | Hard |
+| 66 | `clean.html` | Chrome DevTools Issues panel baseline — `analyzeIssues()` returns array · no issue findings on clean page · no `csp_violation` (GAP-093) | Hard |
+| 67 | `issues-csp.html` | Chrome DevTools Issues panel — `csp_violation` critical detected · finding has type/message/severity/url fields (GAP-093) | Hard |
+| 68 | `issues-deprecated.html` | Chrome DevTools Issues panel — `deprecated_api_use` info detected · findings are severity `info` (GAP-093) | Hard |
+| 69 | _(pure function — no fixture page)_ | HAR timing `parseNetworkTiming` unit tests — empty array → 0 findings · cross-origin TTFB > 2000ms → `slow_third_party_blocking` warning · static asset skipped · same-origin skipped · below-threshold skipped (GAP-094) | Hard |
+| 70 | `heading-issues.html` | `heading_level_skip` warning ×2 — h1→h3 skips h2, h4→h6 skips h5 · severity warning · skips have `from`/`to` fields (GAP-096) | Hard |
+| 71 | `responsive-issues.html` | CPU throttle (4×) applied during ≤768px breakpoints — `responsive_overflow` critical still fires correctly under throttle (GAP-095) | Hard |
+| 72 | `keyboard-issues.html` | `focus_visible_missing` warning detected · severity warning · `#no-focus-ring` button id present in findings (GAP-097) | Hard |
+| 73 | `aria-state-issues.html` | `aria_expanded_no_controls` warning ×2 (toggle-no-controls + toggle-bad-controls) · severity warning · `#toggle-valid` with valid aria-controls NOT flagged (GAP-098) | Hard |
+| 74 | `select-form.html` | `select_option` flow step — flow passes · no `flow_step_failed` · #form-result text is "US/L" after selecting country=US, size=L (GAP-099) | Hard |
+| 75 | `clean.html` | Origin tagging — `crawlRouteCheap` returns errors array · all network-type findings carry `origin` field (GAP-100) | Hard |
+| 76 | `clean.html` (localhost exclusion) | HTTPS enforcement — `security_no_https` NOT emitted for localhost · URL parsing correctly classifies non-localhost as non-local · `http://example.com` protocol = `http:` (GAP-101) | Hard |
+| 77 | `iframe-sandbox.html` | `security_iframe_no_sandbox` warning ×2 (example.com + w3.org) · severity warning · sandboxed iframe NOT flagged (GAP-102) | Hard |
 
 ---
 
@@ -144,6 +157,13 @@ test-harness/
 │   ├── drag-issues.html           test 49 — working drop zone + broken drop zone (no dragover preventDefault)
 │   ├── upload-issues.html         test 50 — file input with change-event filename display
 │   ├── dead-routes.html           test 54 — 2 dead internal hrefs + 1 valid link + external skip targets
+│   ├── issues-csp.html            test 67 — CSP meta (script-src 'self') + inline script → csp_violation
+│   ├── issues-deprecated.html     test 68 — document.domain + DOMSubtreeModified → deprecated_api_use
+│   ├── heading-issues.html        test 70 — h1→h3 skip + h4→h6 skip → heading_level_skip ×2
+│   ├── keyboard-issues.html       test 72 — #no-focus-ring button with outline:none → focus_visible_missing
+│   ├── aria-state-issues.html     test 73 — aria-expanded toggle with no/broken aria-controls → aria_expanded_no_controls ×2
+│   ├── select-form.html           test 74 — #country + #size selects + submit → select_option flow step
+│   ├── iframe-sandbox.html        test 77 — 2 unsandboxed cross-origin iframes + 1 sandboxed → security_iframe_no_sandbox ×2
 │   ├── test-upload.txt            test 50 — tiny text file used as the upload payload
 │   └── sitemap.xml                test 57 — 4 same-origin <loc> entries + 1 off-origin entry
 ├── nextjs-fixture/                C3 Next.js file-structure fixture (10 files)
@@ -283,7 +303,7 @@ The validator will:
   ✓ Flaky count: 2 (expected 2)
 
 ────────────────────────────────────────────────────────
-Results: 276/276 hard assertions passed, 0 failed
+Results: 319/319 hard assertions passed, 0 failed
 
 ✅ All hard assertions passed.
 ```
