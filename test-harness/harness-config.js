@@ -348,6 +348,22 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'dead_route warning ×2 (/argus-dead-route-alpha, /argus-dead-route-beta); valid /clean.html and skip-targets not flagged',
   },
+  // GAP-093 — Chrome DevTools Issues panel: CSP violation fixture
+  {
+    path: '/issues-csp.html',
+    name: 'Issues CSP',
+    critical: false,
+    waitFor: null,
+    expected: 'csp_violation critical from Chrome DevTools Issues panel (inline script blocked by script-src \'self\' CSP)',
+  },
+  // GAP-093 — Chrome DevTools Issues panel: deprecated API usage fixture
+  {
+    path: '/issues-deprecated.html',
+    name: 'Issues Deprecated',
+    critical: false,
+    waitFor: null,
+    expected: 'deprecated_api_use info from Chrome DevTools Issues panel (document.domain + DOMSubtreeModified mutation event)',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

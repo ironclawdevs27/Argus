@@ -51,6 +51,7 @@ import { chunkArray } from '../utils/parallel-crawler.js';
 import { validateApiContracts } from '../utils/contract-validator.js';
 import { applyOverrides } from '../utils/severity-overrides.js';
 import { checkLighthouse } from '../utils/lighthouse-checker.js';
+import { parseIssues }    from '../utils/issues-analyzer.js';
 
 // ── Performance Budgets ────────────────────────────────────────────────────────
 // Hard thresholds — exceeding any of these is a 'warning' severity bug.
@@ -516,9 +517,11 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
     isBlankPage: false,
   };
 
-  // 0. Snapshot session-wide console/network counts BEFORE this route starts (D5).
+  // 0. Snapshot session-wide console/network/issues counts BEFORE this route starts (D5).
   const consoleBaseline = normalizeArray(await mcp.list_console_messages().catch(() => [])).length;
   const networkBaseline = normalizeArray(await mcp.list_network_requests().catch(() => [])).length;
+  // GAP-093: Baseline the Issues panel count separately — issues accumulate like console messages.
+  const issuesBaseline  = normalizeArray(await mcp.list_console_messages({ types: ['issue'] }).catch(() => [])).length;
 
   // 1. Navigate to the URL first — injections must happen on the live page context
   await mcp.navigate_page({ url });
@@ -797,6 +800,17 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
     result.errors.push(...parseContentAnalysisResult(contentResult, url));
   } catch (err) {
     console.warn(`[ARGUS] Content analysis skipped for ${url}: ${err.message}`);
+  }
+
+  // 9e. Chrome DevTools Issues panel (GAP-093)
+  // Surfaces CORS violations, CSP blocks, mixed content, cookie misconfig,
+  // deprecated API use, and native contrast issues — not visible in console messages.
+  try {
+    const issueRaw = await mcp.list_console_messages({ types: ['issue'] });
+    const issues   = normalizeArray(issueRaw).slice(issuesBaseline);
+    result.errors.push(...parseIssues(issues, url, route.critical));
+  } catch (err) {
+    console.warn(`[ARGUS] Issues analysis skipped for ${url}: ${err.message}`);
   }
 
   // 10. CSS analysis

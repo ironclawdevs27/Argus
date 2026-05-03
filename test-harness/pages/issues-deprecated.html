@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deprecated API Issues Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; }
+  </style>
+</head>
+<body>
+  <h1>Deprecated API Issues Fixture</h1>
+  <p>
+    This page uses deprecated browser APIs that Chrome reports as
+    <strong>DeprecationIssue</strong> entries in the DevTools Issues panel
+    (GAP-093 fixture).
+  </p>
+  <div id="mutation-target">Mutation target element</div>
+
+  <script>
+    // Deprecated: document.domain assignment.
+    // Chrome 106+ emits a DeprecationIssue: "The use of document.domain is deprecated"
+    try { document.domain = document.domain; } catch (e) { /* cross-origin safety */ }
+
+    // Deprecated: Mutation Events (replaced by MutationObserver since Chrome 18).
+    // Chrome emits a DeprecationIssue for DOMSubtreeModified, DOMNodeInserted, etc.
+    document.getElementById('mutation-target')
+      .addEventListener('DOMSubtreeModified', function () {}, false);
+
+    document.body.dataset.deprecatedReady = 'true';
+  </script>
+</body>
+</html>

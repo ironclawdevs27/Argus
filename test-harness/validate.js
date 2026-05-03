@@ -62,6 +62,7 @@ import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
 // not a hand-rolled duplicate. The Slack init side-effect concern was resolved by GAP-31
 // (lazy WebClient init), so importing crawl-and-report.js is now safe in test context.
 import { crawlRouteCheap } from '../src/orchestration/crawl-and-report.js';
+import { analyzeIssues }  from '../src/utils/issues-analyzer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -2858,6 +2859,45 @@ async function runTests(mcp, stagingProc) {
     const criticals65 = result65.errors.filter(e => e.severity === 'critical');
     assert(criticals65.length === 0,
       `[65d] Production crawl: no criticals on clean fixture (got ${criticals65.length}: ${criticals65.map(e => e.type).join(', ') || 'none'})`);
+  }
+
+  // ── [66] Chrome Issues panel — clean page (GAP-093) ──────────────────────────
+  console.log('\n[66] Chrome DevTools Issues panel (GAP-093) — clean fixture produces no issue findings');
+  {
+    const findings66 = await analyzeIssues(mcp, `${B}/clean.html`);
+    assert(Array.isArray(findings66),
+      '[66a] analyzeIssues returns an array');
+    const critical66 = findings66.filter(f => f.severity === 'critical');
+    assert(critical66.length === 0,
+      `[66b] Clean page has no critical issue findings (got: ${critical66.map(f => f.type).join(', ') || 'none'})`);
+    assert(!findings66.some(f => f.type === 'csp_violation'),
+      `[66c] Clean page has no csp_violation findings (got ${findings66.length} total)`);
+  }
+
+  // ── [67] Chrome Issues panel — CSP violation fixture (GAP-093) ───────────────
+  console.log('\n[67] Chrome DevTools Issues panel (GAP-093) — CSP violation fixture');
+  {
+    const findings67 = await analyzeIssues(mcp, `${B}/issues-csp.html`);
+    assert(Array.isArray(findings67),
+      '[67a] analyzeIssues returns an array for CSP fixture');
+    const csp67 = findings67.filter(f => f.type === 'csp_violation');
+    assert(csp67.length >= 1,
+      `[67b] CSP fixture produces at least 1 csp_violation finding (got ${csp67.length})`);
+    assert(csp67.every(f => f.type && f.message && f.severity && f.url),
+      '[67c] csp_violation findings have required fields: type, message, severity, url');
+  }
+
+  // ── [68] Chrome Issues panel — deprecated API fixture (GAP-093) ──────────────
+  console.log('\n[68] Chrome DevTools Issues panel (GAP-093) — deprecated API fixture');
+  {
+    const findings68 = await analyzeIssues(mcp, `${B}/issues-deprecated.html`);
+    assert(Array.isArray(findings68),
+      '[68a] analyzeIssues returns an array for deprecated API fixture');
+    const deprecated68 = findings68.filter(f => f.type === 'deprecated_api_use');
+    assert(deprecated68.length >= 1,
+      `[68b] Deprecated API fixture produces at least 1 deprecated_api_use finding (got ${deprecated68.length})`);
+    assert(deprecated68.every(f => f.severity === 'info'),
+      '[68c] deprecated_api_use findings are severity: info');
   }
 }
 

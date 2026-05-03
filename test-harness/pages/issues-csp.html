@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!--
+    CSP that disallows inline scripts — triggers ContentSecurityPolicyIssue
+    in the Chrome DevTools Issues panel (GAP-093 fixture).
+    External scripts from 'self' are allowed so the page itself loads normally.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'">
+  <title>CSP Issues Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; }
+    .marker { color: #333; }
+  </style>
+</head>
+<body>
+  <h1>CSP Issues Fixture</h1>
+  <p class="marker">
+    This page declares a <code>script-src 'self'</code> Content Security Policy
+    via a meta tag. The inline script below is blocked by that policy, causing
+    Chrome to emit a <strong>ContentSecurityPolicyIssue</strong> in the DevTools
+    Issues panel.
+  </p>
+
+  <!--
+    This inline script is intentionally blocked by the CSP above.
+    Chrome will refuse execution and file a DevTools Issue.
+    The text "Refused to execute inline script because it violates the following
+    Content Security Policy directive" appears in the Issues panel.
+  -->
+  <script>
+    /* argus-csp-violation-marker — this inline script is blocked by CSP */
+    document.body.dataset.cspViolationAttempted = 'true';
+  </script>
+
+  <p id="csp-note">CSP fixture loaded — inline script above was blocked.</p>
+</body>
+</html>
