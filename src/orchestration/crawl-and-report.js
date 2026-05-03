@@ -155,6 +155,19 @@ function classifyNetworkRequest(req, routeIsCritical) {
   return null; // not a failure
 }
 
+// ── Origin classification (GAP-100) ───────────────────────────────────────────
+/**
+ * Returns 'first-party' if reqUrl shares origin with pageUrl, else 'third-party'.
+ * Falls back to 'first-party' on parse error (conservative).
+ */
+function classifyOrigin(reqUrl, pageUrl) {
+  try {
+    return new URL(reqUrl).origin === new URL(pageUrl).origin ? 'first-party' : 'third-party';
+  } catch {
+    return 'first-party';
+  }
+}
+
 // ── Error Deduplication ────────────────────────────────────────────────────────
 
 /**
@@ -607,12 +620,13 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
     const severity = classifyNetworkRequest(req, route.critical);
     if (severity !== null) {
       result.errors.push({
-        type: 'network',
-        method: req.method ?? 'GET',
+        type:       'network',
+        method:     req.method ?? 'GET',
         requestUrl: req.url,
-        status: req.status,
+        status:     req.status,
         statusText: req.statusText ?? null,
-        message: `HTTP ${req.status}${req.statusText ? ` ${req.statusText}` : ''} — ${req.method ?? 'GET'} ${req.url}`,
+        origin:     classifyOrigin(req.url, url),    // GAP-100
+        message:    `HTTP ${req.status}${req.statusText ? ` ${req.statusText}` : ''} — ${req.method ?? 'GET'} ${req.url}`,
         severity,
         url,
       });
@@ -823,6 +837,21 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
   } catch (err) {
     console.warn(`[ARGUS] Issues analysis skipped for ${url}: ${err.message}`);
   }
+
+  // 9f. HTTPS enforcement check (GAP-101)
+  // Flag non-localhost HTTP pages — HTTPS should be enforced at the server level.
+  try {
+    const parsed = new URL(url);
+    const isLocalhost = /^(localhost|127\.|::1)/.test(parsed.hostname);
+    if (parsed.protocol === 'http:' && !isLocalhost) {
+      result.errors.push({
+        type:     'security_no_https',
+        message:  `Page served over HTTP — enforce HTTPS via server redirect or HSTS`,
+        severity: 'warning',
+        url,
+      });
+    }
+  } catch { /* URL parse failure — skip */ }
 
   // 10. CSS analysis
   try {

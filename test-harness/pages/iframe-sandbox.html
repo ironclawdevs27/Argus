@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Iframe Sandbox Issues Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; }
+    iframe { border: 1px solid #ccc; display: block; margin: 0.5rem 0; }
+  </style>
+</head>
+<body>
+  <h1>Iframe Sandbox Issues Fixture</h1>
+  <p>
+    This page exercises GAP-102 iframe sandbox detection.
+    Two iframes lack the <code>sandbox</code> attribute — Argus should flag them.
+  </p>
+
+  <!--
+    GAP-102 fixture A: cross-origin iframe with no sandbox attribute.
+    Argus should detect security_iframe_no_sandbox.
+  -->
+  <iframe src="https://example.com" width="200" height="100" title="Unsandboxed external A"></iframe>
+
+  <!--
+    GAP-102 fixture B: another unsandboxed cross-origin iframe.
+  -->
+  <iframe src="https://www.w3.org" width="200" height="100" title="Unsandboxed external B"></iframe>
+
+  <!--
+    This iframe HAS a sandbox attribute — should NOT be flagged.
+  -->
+  <iframe src="https://example.com" sandbox="allow-scripts" width="200" height="100" title="Sandboxed (valid)"></iframe>
+
+  <div id="iframe-checks-done" data-ready></div>
+</body>
+</html>

@@ -76,7 +76,22 @@ export const SECURITY_ANALYSIS_SCRIPT = `async () => {
     }
   } catch (e) {}
 
-  return JSON.stringify({ storageTokenKeys: storageTokenKeys, evalUsage: evalUsage, jsCookies: jsCookies, hasCSP: hasCSP, hasXFrame: hasXFrame });
+  // 5. iframe sandbox check (GAP-102)
+  // Cross-origin iframes without the sandbox attribute can execute scripts,
+  // access top-level navigation, and exfiltrate cookies — significant security risk.
+  var unsandboxedIframes = [];
+  try {
+    var iframes = Array.prototype.slice.call(document.querySelectorAll('iframe[src]'));
+    for (var fi = 0; fi < iframes.length && fi < 20; fi++) {
+      var iframe = iframes[fi];
+      var iframeSrc = iframe.getAttribute('src') || '';
+      if (!iframe.hasAttribute('sandbox') && iframeSrc && !iframeSrc.startsWith('javascript:')) {
+        unsandboxedIframes.push({ src: iframeSrc.slice(0, 100) });
+      }
+    }
+  } catch (e) {}
+
+  return JSON.stringify({ storageTokenKeys: storageTokenKeys, evalUsage: evalUsage, jsCookies: jsCookies, hasCSP: hasCSP, hasXFrame: hasXFrame, unsandboxedIframes: unsandboxedIframes });
 }`;
 
 /**
@@ -156,6 +171,19 @@ export function parseSecurityAnalysisResult(rawResult, url) {
       severity: 'warning',
       url,
     });
+  }
+
+  // GAP-102: unsandboxed cross-origin iframes
+  if (Array.isArray(data.unsandboxedIframes) && data.unsandboxedIframes.length > 0) {
+    for (const frame of data.unsandboxedIframes) {
+      bugs.push({
+        type:    'security_iframe_no_sandbox',
+        src:     frame.src,
+        message: `<iframe src="${frame.src}"> has no sandbox attribute — add sandbox="allow-scripts allow-same-origin" to restrict capabilities`,
+        severity: 'warning',
+        url,
+      });
+    }
   }
 
   return bugs;

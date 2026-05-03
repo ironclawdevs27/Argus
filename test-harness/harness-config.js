@@ -388,6 +388,22 @@ export const harnessRoutes = [
     waitFor: '#aria-checks-done[data-ready]',
     expected: 'aria_expanded_no_controls warning ×2 (toggle-no-controls + toggle-bad-controls); valid aria-controls not flagged',
   },
+  // GAP-099 — select_option flow step: select country + size, verify result
+  {
+    path: '/select-form.html',
+    name: 'Select Form',
+    critical: false,
+    waitFor: null,
+    expected: 'select_option flow step selects country=US and size=L, submit shows "US/L" in #form-result',
+  },
+  // GAP-102 — iframe sandbox: two unsandboxed iframes + one sandboxed (should not flag)
+  {
+    path: '/iframe-sandbox.html',
+    name: 'Iframe Sandbox',
+    critical: false,
+    waitFor: '#iframe-checks-done[data-ready]',
+    expected: 'security_iframe_no_sandbox warning ×2 (example.com + w3.org); sandboxed iframe not flagged',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

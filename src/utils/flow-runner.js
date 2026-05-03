@@ -393,6 +393,27 @@ export async function runFlow(flow, baseUrl, mcp) {
           await mcp.handle_dialog({ accept: step.accept ?? true, promptText: step.text ?? '' });
           break;
 
+        case 'select_option': {
+          // GAP-099: select_option requires a uid from the page snapshot.
+          // Accepts explicit step.uid or resolves from step.selector.
+          let selectUid = step.uid;
+          if (!selectUid) {
+            if (!step.selector) {
+              throw new Error('select_option: requires either uid or selector');
+            }
+            selectUid = await resolveUidForSelector(mcp, step.selector);
+            if (!selectUid) {
+              throw new Error(
+                `select_option: no uid found for selector "${step.selector}" — ` +
+                `ensure the <select> is visible and has id/aria-label/name, ` +
+                `or pass uid directly: { action: 'select_option', uid: 'e5', value: '...' }`
+              );
+            }
+          }
+          await mcp.select_option({ uid: selectUid, value: step.value ?? '' });
+          break;
+        }
+
         case 'assert': {
           const assertFindings = await runAssert(step, mcp, flow.name, baseUrl, baselines);
           result.findings.push(...assertFindings);

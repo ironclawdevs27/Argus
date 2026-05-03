@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Select Form Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; }
+    label { display: block; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Select Form Fixture</h1>
+  <p>This page exercises GAP-099 select_option flow step.</p>
+
+  <form id="select-form">
+    <label for="country">Country</label>
+    <select id="country" name="country">
+      <option value="">-- choose --</option>
+      <option value="US">United States</option>
+      <option value="CA">Canada</option>
+      <option value="GB">United Kingdom</option>
+    </select>
+
+    <label for="size">Size</label>
+    <select id="size" name="size">
+      <option value="S">Small</option>
+      <option value="M">Medium</option>
+      <option value="L">Large</option>
+    </select>
+
+    <button type="button" id="submit-btn"
+      onclick="document.getElementById('form-result').textContent =
+        document.getElementById('country').value + '/' +
+        document.getElementById('size').value;
+        document.getElementById('form-result').dataset.ready='true';">
+      Submit
+    </button>
+  </form>
+
+  <div id="form-result"></div>
+</body>
+</html>
