@@ -14,7 +14,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 | 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
 |:---:|:---:|:---:|:---:|
-| **119 distinct issue types detected** | **24 analysis engines** | **319 test assertions** | **77 test blocks** |
+| **114 distinct issue types detected** | **24 analysis engines** | **319 test assertions** | **77 test blocks** |
 
 </div>
 
@@ -22,7 +22,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 ## What Argus Catches
 
-Argus runs **24 analysis engines** per run and detects **119 distinct issue types** across JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, runtime anti-patterns, hover-state interactions, accessibility tree snapshots, keyboard focus, and Chrome DevTools issues panel — plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity (`critical` / `warning` / `info`) and routed to the right Slack channel — or rendered as a local `report.html` when Slack is not configured.
+Argus runs **24 analysis engines** per run and detects **114 distinct issue types** across JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, runtime anti-patterns, hover-state interactions, accessibility tree snapshots, keyboard focus, and Chrome DevTools issues panel — plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity (`critical` / `warning` / `info`) and routed to the right Slack channel — or rendered as a local `report.html` when Slack is not configured.
 
 ### JavaScript Runtime
 
@@ -262,7 +262,7 @@ Argus watches your running application and automatically surfaces issues that te
 | **Hover-State Bug Detection** | Fires `hover` on every `[aria-haspopup]` and `[data-tooltip]` element; detects broken dropdowns and invisible tooltips that CSS `:hover` was supposed to reveal |
 | **Accessibility Snapshot Analysis** | Calls `take_snapshot` then `evaluate_script`; flags interactive elements missing accessible names, unlabelled form controls, duplicate landmark regions, heading level skips, and `aria-expanded` buttons with missing/broken `aria-controls` |
 | **Keyboard Focus Analysis** | Tab-walks every focusable element (up to 20 steps); detects `focus_visible_missing` (button/link with `outline:0` and no `box-shadow` fallback — keyboard users cannot see where focus is) |
-| **Chrome DevTools Issues Panel** | Queries `list_console_messages({ types: ['issue'] })` for the Issues panel namespace, which is entirely separate from `console.error`; catches CSP violations, deprecated API usage, and cookie misconfiguration that never appear in the console stream |
+| **Chrome DevTools Issues Panel** | Queries `list_console_messages({ types: ['issue'] })` for the Issues panel namespace, which is entirely separate from `console.error`; catches CSP violations and deprecated API usage (verified) — additional Chrome-surfaced types (CORS blocks, mixed content, cookie misconfiguration, low-contrast) are classified when present |
 | **Mobile CPU Throttling** | Applies 4× CPU throttle (`emulate_cpu({ throttlingRate: 4 })`) during ≤768px responsive breakpoints — finds layout reflow and animation jank that only manifests under realistic mobile CPU pressure |
 | **Origin-Tagged Network Findings** | All network error and timing findings carry `origin: 'first-party' \| 'third-party'` so operators can triage critical first-party failures without digging through third-party CDN noise |
 | **Historical Baselines** | Saves finding keys after each run; subsequent runs only alert on *new* issues; trend summary in Slack digest |
