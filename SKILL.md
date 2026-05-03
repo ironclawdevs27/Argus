@@ -7,12 +7,12 @@ description: Argus AI-powered QA harness — Chrome DevTools MCP reference for b
 
 ## 1. What Argus Is
 
-Argus is an AI-driven automated QA harness that audits web pages against 35+ detection categories using Chrome DevTools Protocol (CDP) via the `chrome-devtools` MCP server. It drives a real Chromium browser, executes multi-step user flows, and emits structured JSON findings.
+Argus is an AI-driven automated QA harness that audits web pages against 53 detection categories (46 positively verified by the correctness harness) using Chrome DevTools Protocol (CDP) via the `chrome-devtools` MCP server. It drives a real Chromium browser, executes multi-step user flows, and emits structured JSON findings.
 
 **Entry points**
 - `src/argus.js` — single-page audit (CLI)
 - `src/batch-runner.js` — multi-page batch audit
-- `test-harness/validate.js` — 56-block correctness harness (237 hard assertions)
+- `test-harness/validate.js` — 77-block correctness harness (319 hard assertions)
 - `test-harness/harness-config.js` — fixture page routing table
 
 ---
@@ -211,6 +211,13 @@ await mcp.list_console_messages({ pageSize: 100, pageIdx: 0 });
 await mcp.list_console_messages({ types: ['issue'], includePreservedMessages: true });
 ```
 
+**Issues panel is a separate namespace** — `types: ['issue']` surfaces the Chrome DevTools Issues panel, not the console. It catches CSP violations, CORS blocks, mixed content, cookie misconfigs, deprecated API use, and native low-contrast. **None of these appear in `types: ['error']`.**
+```javascript
+// Always capture Issues separately from console errors
+const consoleErrors = normalizeArray(await mcp.list_console_messages({ types: ['error'] }));
+const issuesPanel   = normalizeArray(await mcp.list_console_messages({ types: ['issue'], includePreservedMessages: true }));
+```
+
 ### Performance
 | Tool | Use |
 |------|-----|
@@ -325,38 +332,50 @@ Defined in `src/utils/flow-runner.js`. Steps are objects with an `action` field.
 ### All Supported Actions
 ```javascript
 // Navigation
-{ action: 'navigate', url: 'https://example.com' }
-{ action: 'wait', selector: '#loaded' }
-{ action: 'wait', state: 'networkidle' }
-{ action: 'wait', ms: 500 }
+{ action: 'navigate', url: 'https://example.com' }        // absolute URL
+{ action: 'navigate', path: '/dashboard' }                // relative to baseUrl
 
-// Interaction (uid resolved automatically via snapshot)
+// Waiting
+{ action: 'waitFor', selector: '#loaded' }                // polls until selector appears (polling loop)
+{ action: 'sleep', ms: 500 }                              // fixed delay (use sparingly)
+
+// Interaction (uid resolved automatically from snapshot via resolveUidForSelector)
 { action: 'click', selector: 'button.submit' }
 { action: 'fill', selector: 'input[name=email]', value: 'user@test.com' }
-{ action: 'type_text', selector: 'textarea', text: 'Hello world' }
-{ action: 'hover', selector: '.menu-item' }
+{ action: 'fill', selector: 'textarea', value: 'Hello', typing: true }  // typing:true → real keyboard events via type_text
 { action: 'drag', sourceSelector: '.draggable', targetSelector: '.dropzone' }
 { action: 'upload_file', selector: 'input[type=file]', filePath: '/abs/path/to/file.txt' }
-{ action: 'upload_file', uid: 'e4', filePath: '/abs/path/to/file.txt' }
+{ action: 'upload_file', uid: 'e4', filePath: '/abs/path/to/file.txt' }  // uid bypasses snapshot lookup
 
 // Form
 { action: 'select_option', selector: 'select#country', value: 'US' }
+{ action: 'select_option', uid: 'e5', value: 'US' }                      // uid bypasses snapshot lookup
 
 // Keyboard
 { action: 'press_key', key: 'Enter' }
 { action: 'press_key', key: 'Tab' }
 
-// Script
-{ action: 'evaluate', function: `() => document.title` }
-
 // Browser
-{ action: 'handle_dialog', dialogAction: 'accept' }
-{ action: 'handle_dialog', dialogAction: 'dismiss' }
-{ action: 'screenshot', label: 'after-submit' }
+{ action: 'handle_dialog', accept: true }                 // accept = true|false; text for prompt dialogs
+{ action: 'handle_dialog', accept: false, text: 'No' }
+
+// Inline assertions (stops flow on critical failure unless failFast: false)
+{ action: 'assert', type: 'no_console_errors' }
+{ action: 'assert', type: 'no_network_errors' }
+{ action: 'assert', type: 'element_visible',     selector: '#confirm-banner' }
+{ action: 'assert', type: 'element_not_visible', selector: '.spinner' }
+{ action: 'assert', type: 'url_contains',        value: '/checkout/success' }
+{ action: 'assert', type: 'no_js_errors' }
 ```
 
+> **Not in flow DSL**: `hover`, `evaluate`, `screenshot`, and `type_text` are not direct flow actions.  
+> — For keyboard input with events, use `fill` with `typing: true`.  
+> — For script execution or screenshots, call `mcp.evaluate_script` / `mcp.take_screenshot` directly in test code.
+
 ### Selector Resolution
-`flow-runner.js` always resolves CSS selectors to uid internally before calling interaction tools. Never call interaction tools with a raw CSS selector directly.
+`flow-runner.js` resolves CSS selectors to uid via `resolveUidForSelector` before calling interaction tools that require a uid (`type_text`, `drag`, `upload_file`, `select_option`). `click` and `fill` accept `selector` directly via the MCP API. Never pass a raw CSS selector to tools that only accept `uid`.
+
+> **waitFor vs wait_for**: The DSL action is `waitFor` (camelCase) — it uses a polling loop via `evaluate_script`, not the MCP `wait_for` tool (which is unreliable in headless mode for missing elements). For network-idle waits, call `mcp.wait_for({ state: 'networkidle' })` directly in test code after navigation.
 
 ### upload_file uid Resolution (extractFileInputUid)
 Three fallback strategies in order:
@@ -373,14 +392,49 @@ Three fallback strategies in order:
 - **Soft assertion** (`findings.filter(...)`): inspects findings array, `assert` at the end
 
 ### Finding Shapes
+
+All findings share: `{ type, severity, url, message? }`
+
 ```javascript
-{ type: 'broken_link',    url, status, sourceUrl }
-{ type: 'missing_alt',   src, context }
-{ type: 'console_error', message, url }
-{ type: 'flow_step_failed', action, error, flowName }
-{ type: 'lcp_slow',      lcp, threshold, url }
-{ type: 'seo_missing_og_image', url }
-{ type: 'accessibility_violation', rule, severity, selector }
+// ── Core (A1–A2) ──────────────────────────────────────────────────────────
+{ type: 'broken_link',              url, status, sourceUrl }
+{ type: 'missing_alt',              src, context }
+{ type: 'console_error',            message, url }
+{ type: 'lcp_slow',                 lcp, threshold, url }
+{ type: 'seo_missing_og_image',     url }
+{ type: 'accessibility_violation',  rule, severity, selector }
+
+// ── Flow execution ─────────────────────────────────────────────────────────
+{ type: 'flow_step_failed',   flowName, action, selector, message, severity: 'critical', url }
+{ type: 'flow_assert_failed', flowName, assertType, message, severity, url }
+
+// ── Chrome DevTools Issues panel (GAP-093) ────────────────────────────────
+{ type: 'csp_violation',               message, url, severity: 'critical' }
+{ type: 'cors_violation',              message, url, severity: 'critical'|'warning' }
+{ type: 'mixed_content',               message, url, severity: 'warning' }
+{ type: 'cookie_attribute_missing',    message, url, severity: 'warning' }
+{ type: 'deprecated_api_use',          message, url, severity: 'info' }
+{ type: 'low_contrast_native',         message, url, severity: 'warning' }
+{ type: 'permission_policy_violation', message, url, severity: 'info' }
+
+// ── Network timing (GAP-094) ───────────────────────────────────────────────
+{ type: 'slow_third_party_blocking', requestUrl, waitMs, message, severity: 'warning', url }
+
+// ── Heading structure (GAP-096) ────────────────────────────────────────────
+{ type: 'heading_level_skip', from, to, text, message, severity: 'warning', url }
+//   from/to are heading level numbers (e.g. from:1, to:3)
+
+// ── Keyboard accessibility (GAP-097) ──────────────────────────────────────
+{ type: 'focus_visible_missing', tag, id, snippet, message, severity: 'warning', url }
+{ type: 'focus_lost',            steps, message, severity: 'warning', url }  // steps = array of tab-step numbers; no fixture yet (GAP-105)
+
+// ── ARIA state (GAP-098) ───────────────────────────────────────────────────
+{ type: 'aria_expanded_no_controls', tag, id, snippet, message, severity: 'warning', url }
+//   when aria-controls references a missing id, detail is folded into message
+
+// ── Security (GAP-101, GAP-102) ────────────────────────────────────────────
+{ type: 'security_no_https',          severity: 'warning', url }
+{ type: 'security_iframe_no_sandbox', src, severity: 'warning', url }
 ```
 
 ### Standard Block Template
@@ -473,6 +527,8 @@ const slowest = parsed
   .slice(0, 10)
   .map(r => ({ url: r.url, waitMs: r.timing.wait, type: r.resourceType }));
 ```
+
+> **Cross-origin TTFB gap**: `window.performance.getEntriesByType('resource')` returns 0ms for cross-origin resources that omit `Timing-Allow-Origin`. Use `list_network_requests` HAR timing for accurate third-party TTFB. `network-timing-analyzer.js` (`parseNetworkTiming`) automates this — see §14d.
 
 ### CPU Throttling Tiers
 | Rate | Represents |
@@ -624,12 +680,19 @@ Automated tools catch ~30% of a11y bugs. Use this matrix for manual SR decisions
 
 ### A11y Findings (Argus)
 ```javascript
+// Lighthouse-sourced (via axe-core)
 { type: 'accessibility_violation', rule: 'color-contrast', severity: 'serious', selector }
-{ type: 'accessibility_violation', rule: 'button-name', severity: 'critical', selector }
-{ type: 'accessibility_violation', rule: 'image-alt', severity: 'critical', selector }
-{ type: 'accessibility_violation', rule: 'label', severity: 'critical', selector }
-{ type: 'accessibility_violation', rule: 'heading-order', severity: 'moderate', selector }
-{ type: 'accessibility_violation', rule: 'target-size', severity: 'serious', selector }
+{ type: 'accessibility_violation', rule: 'button-name',    severity: 'critical', selector }
+{ type: 'accessibility_violation', rule: 'image-alt',      severity: 'critical', selector }
+{ type: 'accessibility_violation', rule: 'label',          severity: 'critical', selector }
+{ type: 'accessibility_violation', rule: 'heading-order',  severity: 'moderate', selector }
+{ type: 'accessibility_violation', rule: 'target-size',    severity: 'serious',  selector }
+
+// Native Argus detectors (production code — see §14d for implementation details)
+{ type: 'heading_level_skip',        from, to, text, message, severity: 'warning', url }  // GAP-096 — 'from'/'to' are int levels
+{ type: 'focus_visible_missing',     tag, id, snippet, message, severity: 'warning', url }  // GAP-097
+{ type: 'aria_expanded_no_controls', tag, id, snippet, message, severity: 'warning', url }  // GAP-098
+{ type: 'low_contrast_native',       message,            severity: 'warning', url }        // GAP-093 (Chrome Issues)
 ```
 
 ---
@@ -645,7 +708,8 @@ Automated tools catch ~30% of a11y bugs. Use this matrix for manual SR decisions
    - `[Na]` positive case (clean page)
    - `[Nb]` detection case (broken fixture)
    - `[Nc]` edge/error case
-4. **Update counts** in `test-harness/README.md`, `README.md`, `solution.md`
+4. **Update counts** in `test-harness/README.md`, `README.md`, `SKILL.md §14`, and `session.md` (gitignored)
+   - `solution.md` is also gitignored — update it too if it exists locally
 
 ### Naming Conventions
 - Fixture pages: `<category>-issues.html`
@@ -974,27 +1038,29 @@ for (const bp of breakpoints) {
 |--------|-------|
 | Test blocks | 77 |
 | Hard assertions | 319 |
-| Detection categories | 53 |
+| Detection categories | 53 in production code; **46 positively verified** by harness fixtures |
 | Fixture pages | 53 |
-| Flow step actions | 15 |
+| Flow step actions | 11 (navigate, waitFor, sleep, fill, click, drag, upload_file, select_option, press_key, handle_dialog, assert) |
 | Phases complete | C1, C2, C3, C4, D1–D8.5, v6 GAP-093–GAP-102 |
 
 Expected harness output: `319/319 hard assertions passed`
+
+> The 7-category gap (53 − 46): `cors_violation`, `mixed_content`, `cookie_attribute_missing`, `low_contrast_native`, `permission_policy_violation`, `focus_lost`, `heading_missing_h1` — no fixture triggers these yet. See GAP-103–GAP-110 in `argus-v6-strategy.md` §10.
 
 ### v6 additions (GAP-093–GAP-102)
 
 | GAP | Detection types added | Blocks |
 |-----|----------------------|--------|
-| GAP-093 | csp_violation, cors_violation, mixed_content, cookie_attribute_missing, deprecated_api_use, low_contrast_native, permission_policy_violation | [66][67][68] |
-| GAP-094 | slow_third_party_blocking | [69] |
-| GAP-095 | (emulate_cpu during mobile analysis) | [71] |
-| GAP-096 | heading_level_skip | [70] |
-| GAP-097 | focus_visible_missing, focus_lost | [72] |
-| GAP-098 | aria_expanded_no_controls | [73] |
-| GAP-099 | (select_option flow step) | [74] |
-| GAP-100 | (origin field on network findings) | [75] |
-| GAP-101 | security_no_https | [76] |
-| GAP-102 | security_iframe_no_sandbox | [77] |
+| GAP-093 | `csp_violation`, `deprecated_api_use` (verified); `cors_violation`, `mixed_content`, `cookie_attribute_missing`, `low_contrast_native`, `permission_policy_violation` (classified when present, no fixture) | [66][67][68] |
+| GAP-094 | `slow_third_party_blocking` | [69] |
+| GAP-095 | CPU throttle (`emulate_cpu`) during mobile responsive analysis | [71] |
+| GAP-096 | `heading_level_skip` | [70] |
+| GAP-097 | `focus_visible_missing` (verified); `focus_lost` (implemented, no fixture — GAP-105) | [72] |
+| GAP-098 | `aria_expanded_no_controls` | [73] |
+| GAP-099 | `select_option` flow step added to flow-runner DSL | [74] |
+| GAP-100 | `origin` field on all network findings (`first-party`/`third-party`) | [75] |
+| GAP-101 | `security_no_https` | [76] |
+| GAP-102 | `security_iframe_no_sandbox` | [77] |
 
 ---
 
@@ -1129,6 +1195,128 @@ npx argus init      # after publishing to npm
 - Empty `routes[]` passed to `generateTargetsJs` → falls back to a default `'/'` home route (never produces a broken config).
 - Framework detection checks `dependencies` + `devDependencies`; `next` takes precedence over `react-router-dom` if both present.
 - The `bin` field in `package.json` (`"argus": "src/cli/init.js"`) enables `npx argus init` post-publish.
+
+---
+
+## 14d. v6 Analyzers — Reference
+
+Three new analyzers were added in v6 (GAP-093–GAP-102). Each is a pure-function module that can be called standalone or via `crawlRouteCheap`.
+
+### issues-analyzer.js (GAP-093) — Chrome DevTools Issues Panel
+
+The Issues panel is a **completely separate namespace** from the console. It surfaces CSP violations, CORS blocks, mixed content, cookie misconfigs, deprecated API use, and native low-contrast. None of these appear in `list_console_messages({ types: ['error'] })`.
+
+```javascript
+import { analyzeIssues, parseIssues } from './src/utils/issues-analyzer.js';
+
+// Standalone: navigates and captures
+const findings = await analyzeIssues(mcp, url, /* isCritical */ true);
+
+// Pure: used inside crawl pipeline after D5 baseline-slice
+const issues = normalizeArray(await mcp.list_console_messages({ types: ['issue'], includePreservedMessages: true }));
+const sliced = issues.slice(baselineCount);      // D5 pattern — see below
+const findings = parseIssues(sliced, url, isCritical);
+```
+
+**D5 baseline pattern** — per-route isolation of issues:
+```javascript
+// Before navigation: capture buffer length
+const baselineIssues = normalizeArray(
+  await mcp.list_console_messages({ types: ['issue'], includePreservedMessages: true })
+).length;
+
+// Navigate and settle
+await mcp.navigate_page({ url });
+await mcp.wait_for({ state: 'networkidle' });
+
+// After navigation: slice to isolate only this page's messages
+const allIssues = normalizeArray(
+  await mcp.list_console_messages({ types: ['issue'], includePreservedMessages: true })
+);
+const routeIssues = allIssues.slice(baselineIssues);
+```
+
+Apply the same pattern to `list_network_requests` and `list_console_messages({ types: ['error'] })` for accurate per-route attribution.
+
+**Classifier summary**:
+| type | issueTypePattern | severity |
+|------|-----------------|---------|
+| `csp_violation` | `/content.security\|csp/i` | critical |
+| `cors_violation` | `/cors/i` | critical or warning |
+| `mixed_content` | `/mixed.content/i` | warning |
+| `cookie_attribute_missing` | `/cookie/i` | warning |
+| `deprecated_api_use` | `/deprecat/i` | info |
+| `low_contrast_native` | `/contrast/i` | warning |
+| `permission_policy_violation` | `/permission.policy\|feature.policy/i` | info |
+
+> Harness-verified: `csp_violation` and `deprecated_api_use`. The other 5 are classified when present but have no dedicated fixture.
+
+---
+
+### network-timing-analyzer.js (GAP-094) — Third-Party TTFB
+
+`PerformanceResourceTiming` returns 0ms for cross-origin resources that omit `Timing-Allow-Origin`. Chrome DevTools HAR timing (`list_network_requests`) is always accurate. This module bridges that gap.
+
+```javascript
+import { parseNetworkTiming } from './src/utils/network-timing-analyzer.js';
+
+const reqs = normalizeArray(await mcp.list_network_requests({ pageSize: 200, pageIdx: 0 }));
+const sliced = reqs.slice(baselineNetworkCount);          // D5 pattern
+const findings = parseNetworkTiming(sliced, pageUrl);
+// Emits: { type: 'slow_third_party_blocking', requestUrl, waitMs, ... }
+```
+
+Thresholds / exclusions:
+- Threshold: `timing.wait > 2000ms` for cross-origin resources
+- Static asset extensions (images, fonts, css) are excluded — focus is on blocking scripts/XHR/fetch
+- Same-origin resources are excluded (covered by `NETWORK_PERF_SCRIPT` in `crawlRouteExpensive`)
+- HAR field fallback chain: `req.timing.wait` → `req.timings.wait` → `req.time` → `req.duration`
+
+---
+
+### keyboard-analyzer.js (GAP-097) — Focus Walk
+
+Tab-walks the page up to 20 steps, evaluating `document.activeElement` computed style after each `press_key({ key: 'Tab' })`.
+
+```javascript
+import { analyzeKeyboard } from './src/utils/keyboard-analyzer.js';
+
+const findings = await analyzeKeyboard(mcp, url);
+// Emits:
+//   { type: 'focus_visible_missing', tag, id, snippet, message, severity: 'warning', url }
+//   { type: 'focus_lost',            steps, message, severity: 'warning', url }
+//     steps = number[] — which Tab-walk positions landed on document.body
+```
+
+Detection logic:
+- `focus_visible_missing`: `outlineWidth === 0 || outlineStyle === 'none'` **AND** `boxShadow === 'none'`
+- `focus_lost`: `document.activeElement === document.body` after Tab (focus escaped the tab order)
+- Walk short-circuits when the same element (by tag+id+outerHTML prefix) is seen twice (cycle complete)
+
+> `focus_lost` is implemented but has no harness fixture (GAP-105). `focus_visible_missing` is positively tested by `keyboard-issues.html`.
+
+---
+
+### snapshot-analyzer.js — Heading & ARIA (GAP-096, GAP-098)
+
+New detections added to the existing snapshot analyzer:
+
+**Heading hierarchy** (GAP-096):
+```javascript
+// HEADING_HIERARCHY_SCRIPT walks h1–h6 in DOM order.
+// Emits heading_level_skip when level jumps by more than 1 (e.g. h1 → h3).
+{ type: 'heading_level_skip', from: 1, to: 3, text: 'Section Title', message: '...', severity: 'warning', url }
+// 'from' and 'to' are integer heading levels, not 'fromLevel'/'toLevel'
+```
+
+**ARIA expanded state** (GAP-098):
+```javascript
+// ARIA_STATE_SCRIPT checks all [aria-expanded] elements.
+// Emits aria_expanded_no_controls when aria-controls is absent or references a missing id.
+{ type: 'aria_expanded_no_controls', tag: 'button', id: 'menu-toggle', snippet: '<button aria-expanded="true">...', message: '...', severity: 'warning', url }
+// Fields: tag, id (element id attr), snippet (outerHTML prefix), message (detail if controls attr present but id missing)
+// There is no 'controlsId' field — missing-id detail is folded into message
+```
 
 ---
 
