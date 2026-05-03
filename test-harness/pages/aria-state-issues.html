@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ARIA State Issues Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; }
+    .dropdown { display: none; }
+    .dropdown.open { display: block; }
+  </style>
+</head>
+<body>
+  <h1>ARIA State Issues Fixture</h1>
+  <p>
+    This page exercises GAP-098 ARIA state detection.
+    Two disclosure buttons have <code>aria-expanded</code> but broken
+    <code>aria-controls</code> references.
+  </p>
+
+  <!--
+    GAP-098 fixture A: aria-expanded with no aria-controls at all.
+    Argus should flag aria_expanded_no_controls.
+  -->
+  <button id="toggle-no-controls" aria-expanded="false">
+    Toggle (no aria-controls)
+  </button>
+  <div id="panel-a" class="dropdown">Panel A content</div>
+
+  <!--
+    GAP-098 fixture B: aria-expanded with aria-controls pointing to a non-existent id.
+    Argus should flag aria_expanded_no_controls with broken-reference detail.
+  -->
+  <button id="toggle-bad-controls" aria-expanded="false" aria-controls="panel-does-not-exist">
+    Toggle (broken aria-controls reference)
+  </button>
+  <div id="panel-b" class="dropdown">Panel B content</div>
+
+  <!--
+    This button has both aria-expanded AND a valid aria-controls reference — should NOT be flagged.
+  -->
+  <button id="toggle-valid" aria-expanded="false" aria-controls="panel-c">
+    Toggle (valid aria-controls)
+  </button>
+  <div id="panel-c" class="dropdown">Panel C content</div>
+
+  <div id="aria-checks-done" data-ready></div>
+</body>
+</html>

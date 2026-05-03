@@ -372,6 +372,22 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'heading_level_skip warning ×2 (h1→h3 skips h2, h4→h6 skips h5)',
   },
+  // GAP-097 — keyboard navigation: button with outline:none has no visible focus indicator
+  {
+    path: '/keyboard-issues.html',
+    name: 'Keyboard Issues',
+    critical: false,
+    waitFor: null,
+    expected: 'focus_visible_missing warning (#no-focus-ring button has outline:0 and no box-shadow)',
+  },
+  // GAP-098 — ARIA state: aria-expanded without aria-controls (missing or broken reference)
+  {
+    path: '/aria-state-issues.html',
+    name: 'ARIA State Issues',
+    critical: false,
+    waitFor: '#aria-checks-done[data-ready]',
+    expected: 'aria_expanded_no_controls warning ×2 (toggle-no-controls + toggle-bad-controls); valid aria-controls not flagged',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

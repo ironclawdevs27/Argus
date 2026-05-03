@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keyboard Navigation Issues Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; }
+    /* GAP-097: button with outline removed — no visible focus indicator */
+    #no-focus-ring {
+      outline: none;
+      box-shadow: none;
+      padding: 0.5rem 1rem;
+      background: #e00;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+    }
+    #no-focus-ring:focus,
+    #no-focus-ring:focus-visible {
+      outline: none;
+      box-shadow: none;
+    }
+    #normal-btn { padding: 0.5rem 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Keyboard Navigation Issues Fixture</h1>
+  <p>
+    This page exercises GAP-097 keyboard focus detection.
+    One button intentionally removes its focus ring — Argus should detect it.
+  </p>
+
+  <!-- Normal button — should NOT be flagged (has browser default outline) -->
+  <button id="normal-btn">Normal Button (has focus ring)</button>
+
+  <!--
+    GAP-097 fixture: outline:none + no box-shadow = no visible focus indicator.
+    Argus Tab-walk should detect focus_visible_missing on this element.
+  -->
+  <button id="no-focus-ring">Broken Focus Ring (no outline)</button>
+
+  <input type="text" id="text-input" placeholder="Text field (has focus ring)" />
+</body>
+</html>

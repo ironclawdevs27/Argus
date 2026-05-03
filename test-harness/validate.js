@@ -64,6 +64,7 @@ import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
 import { crawlRouteCheap } from '../src/orchestration/crawl-and-report.js';
 import { analyzeIssues }       from '../src/utils/issues-analyzer.js';
 import { parseNetworkTiming }  from '../src/utils/network-timing-analyzer.js';
+import { analyzeKeyboard }     from '../src/utils/keyboard-analyzer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -2960,6 +2961,52 @@ async function runTests(mcp, stagingProc) {
       '[70c] heading_level_skip findings are severity: warning');
     assert(skips70.some(f => f.from === 1 && f.to === 3),
       `[70d] h1→h3 skip detected (got skips: ${JSON.stringify(skips70.map(s => ({ from: s.from, to: s.to })))})`);
+  }
+
+  // ── [71] CPU throttle applied during responsive analysis (GAP-095) ────────────
+  console.log('\n[71] CPU throttle for mobile breakpoints (GAP-095) — responsive-issues.html');
+  {
+    // analyzeResponsive now calls emulate_cpu({ throttlingRate: 4 }) at ≤768px.
+    // The fixture findings must still be correct — throttle must not suppress detections.
+    const { findings: findings71 } = await analyzeResponsive(mcp, `${B}/responsive-issues.html`);
+    assert(Array.isArray(findings71),
+      '[71a] analyzeResponsive returns findings array with CPU throttle enabled');
+    const overflow71 = findings71.filter(f => f.type === 'responsive_overflow' && f.viewport <= 768);
+    assert(overflow71.length > 0,
+      `[71b] responsive_overflow still detected at ≤768px under CPU throttle (got ${overflow71.length})`);
+    assert(overflow71.every(f => f.severity === 'critical'),
+      '[71c] mobile overflow is severity: critical under CPU throttle');
+  }
+
+  // ── [72] Keyboard navigation — focus_visible_missing (GAP-097) ───────────────
+  console.log('\n[72] Keyboard navigation analysis (GAP-097) — keyboard-issues.html fixture');
+  {
+    const findings72 = await analyzeKeyboard(mcp, `${B}/keyboard-issues.html`);
+    assert(Array.isArray(findings72),
+      '[72a] analyzeKeyboard returns an array');
+    const noFocus72 = findings72.filter(f => f.type === 'focus_visible_missing');
+    assert(noFocus72.length >= 1,
+      `[72b] keyboard-issues fixture produces at least 1 focus_visible_missing finding (got ${noFocus72.length})`);
+    assert(noFocus72.every(f => f.severity === 'warning'),
+      '[72c] focus_visible_missing findings are severity: warning');
+    assert(noFocus72.some(f => f.id === 'no-focus-ring'),
+      `[72d] #no-focus-ring button detected (found ids: ${noFocus72.map(f => f.id).join(', ')})`);
+  }
+
+  // ── [73] ARIA state checks — aria_expanded_no_controls (GAP-098) ─────────────
+  console.log('\n[73] ARIA state checks (GAP-098) — aria-state-issues.html fixture');
+  {
+    const findings73 = await analyzeSnapshot(mcp, `${B}/aria-state-issues.html`);
+    assert(Array.isArray(findings73),
+      '[73a] analyzeSnapshot returns an array for aria-state-issues fixture');
+    const broken73 = findings73.filter(f => f.type === 'aria_expanded_no_controls');
+    assert(broken73.length >= 2,
+      `[73b] aria-state-issues fixture produces at least 2 aria_expanded_no_controls findings (got ${broken73.length})`);
+    assert(broken73.every(f => f.severity === 'warning'),
+      '[73c] aria_expanded_no_controls findings are severity: warning');
+    const validButton73 = findings73.filter(f => f.type === 'aria_expanded_no_controls' && f.id === 'toggle-valid');
+    assert(validButton73.length === 0,
+      `[73d] #toggle-valid (has aria-controls pointing to real element) is NOT flagged`);
   }
 }
 

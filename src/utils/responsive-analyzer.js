@@ -150,6 +150,13 @@ export async function analyzeResponsive(mcp, url) {
   const screenshots = {};
 
   for (const bp of BREAKPOINTS) {
+    // GAP-095: Apply 4× CPU throttle for mobile/tablet breakpoints to expose JS-heavy
+    // layout issues that only manifest under realistic mobile device load.
+    // Reset to 1× for desktop breakpoints to avoid slowing subsequent analyses.
+    try {
+      await mcp.emulate_cpu({ throttlingRate: bp.width <= 768 ? 4 : 1 });
+    } catch { /* emulate_cpu is best-effort — proceed without throttle if unavailable */ }
+
     try {
       await mcp.emulate({ viewport: viewportString(bp.width, bp.height) });
       await mcp.navigate_page({ url });
@@ -221,7 +228,8 @@ export async function analyzeResponsive(mcp, url) {
     }
   }
 
-  // ── Always restore viewport ─────────────────────────────────────────────
+  // ── Always restore viewport and CPU throttle ───────────────────────────
+  try { await mcp.emulate_cpu({ throttlingRate: 1 }); } catch { /* best-effort */ }
   try {
     await mcp.emulate({ viewport: viewportString(RESTORE_VIEWPORT.width, RESTORE_VIEWPORT.height) });
   } catch { /* best-effort restore */ }

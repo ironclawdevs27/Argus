@@ -39,7 +39,8 @@ import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../utils/co
 import { analyzeResponsive } from '../utils/responsive-analyzer.js';
 import { analyzeMemory } from '../utils/memory-analyzer.js';
 import { analyzeHover } from '../utils/hover-analyzer.js';
-import { analyzeSnapshot } from '../utils/snapshot-analyzer.js';
+import { analyzeSnapshot }  from '../utils/snapshot-analyzer.js';
+import { analyzeKeyboard } from '../utils/keyboard-analyzer.js';
 import { runLoginFlow, saveSession, restoreSession, hasSession, refreshSession } from '../utils/session-manager.js';
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend, getCurrentBranch } from '../utils/baseline-manager.js';
 import { mergeRunResults } from '../utils/flakiness-detector.js';
@@ -1030,6 +1031,14 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
     result.errors.push(...snapshotFindings);
   } catch (err) {
     console.warn(`[ARGUS] Snapshot analysis skipped for ${route.name}: ${err.message}`);
+  }
+
+  // Keyboard navigation analysis (v6 GAP-097) — once
+  try {
+    const keyboardFindings = await analyzeKeyboard(mcp, `${targetBaseUrl}${route.path}`);
+    result.errors.push(...keyboardFindings);
+  } catch (err) {
+    console.warn(`[ARGUS] Keyboard analysis skipped for ${route.name}: ${err.message}`);
   }
 
   // C1.4: collect internal navigation links for dead route detection

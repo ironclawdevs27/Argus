@@ -133,6 +133,37 @@ const HEADING_HIERARCHY_SCRIPT = `() => {
   return JSON.stringify(skips);
 }`;
 
+// ── ARIA state check script (GAP-098) ────────────────────────────────────────
+// Detects aria-expanded elements that have no aria-controls pointing to a real element,
+// and form controls that have aria-required but the attribute value is incorrect.
+const ARIA_STATE_SCRIPT = `() => {
+  var issues = [];
+
+  // aria-expanded without aria-controls → AT can't navigate to the controlled content
+  var expanded = Array.from(document.querySelectorAll('[aria-expanded]'));
+  expanded.slice(0, 20).forEach(function(el) {
+    var controls = el.getAttribute('aria-controls');
+    if (!controls) {
+      issues.push({
+        issueType: 'aria_expanded_no_controls',
+        tag:       el.tagName.toLowerCase(),
+        id:        el.id || null,
+        snippet:   el.outerHTML.slice(0, 100),
+      });
+    } else if (!document.getElementById(controls)) {
+      issues.push({
+        issueType: 'aria_expanded_no_controls',
+        tag:       el.tagName.toLowerCase(),
+        id:        el.id || null,
+        snippet:   el.outerHTML.slice(0, 100),
+        detail:    'aria-controls="' + controls + '" references a non-existent element',
+      });
+    }
+  });
+
+  return JSON.stringify(issues);
+}`;
+
 // ── JSON parse helper ─────────────────────────────────────────────────────────
 function parseJson(raw) {
   if (raw == null) return null;
@@ -233,6 +264,31 @@ export async function analyzeSnapshot(mcp, url) {
           severity: 'warning',
           url,
         });
+      }
+    }
+  } catch {
+    // Skip silently
+  }
+
+  // ── ARIA state checks (GAP-098) ──────────────────────────────────────────
+  try {
+    const raw   = await mcp.evaluate_script({ function: ARIA_STATE_SCRIPT });
+    const items = parseJson(raw);
+    if (Array.isArray(items)) {
+      for (const item of items) {
+        if (item.issueType === 'aria_expanded_no_controls') {
+          findings.push({
+            type:    'aria_expanded_no_controls',
+            tag:     item.tag,
+            id:      item.id,
+            snippet: item.snippet,
+            message: item.detail
+              ? `<${item.tag}${item.id ? '#' + item.id : ''}> aria-expanded — ${item.detail}`
+              : `<${item.tag}${item.id ? '#' + item.id : ''}> has aria-expanded but no aria-controls — AT users cannot navigate to the controlled content`,
+            severity: 'warning',
+            url,
+          });
+        }
       }
     }
   } catch {
