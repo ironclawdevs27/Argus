@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Heading Hierarchy Issues Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; }
+  </style>
+</head>
+<body>
+  <h1>Main Page Title</h1>
+  <p>This page intentionally skips heading levels for GAP-096 detection.</p>
+
+  <!--
+    GAP-096 fixture: h1 → h3 skips h2 — heading_level_skip should be detected.
+    WCAG 2.4.6 (informative) and screen-reader best-practice: headings must be
+    sequential; skipping levels breaks document outline for AT users.
+  -->
+  <h3>Section Skipping H2</h3>
+  <p>This heading jumps from h1 to h3, skipping h2. Argus should flag it.</p>
+
+  <!-- Valid sequential heading: h3 → h4 is fine, should NOT be flagged. -->
+  <h4>Valid Subsection</h4>
+  <p>Sequential h3 → h4 is correct structure.</p>
+
+  <!--
+    Second skip: h4 → h6, skips h5. Two total heading_level_skip findings expected.
+  -->
+  <h6>Deep Section Skipping H5</h6>
+  <p>This heading jumps from h4 to h6, skipping h5. Should be flagged too.</p>
+</body>
+</html>

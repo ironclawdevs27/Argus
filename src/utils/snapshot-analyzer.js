@@ -115,6 +115,24 @@ const DUPLICATE_LANDMARK_SCRIPT = `() => {
   return JSON.stringify(results);
 }`;
 
+// ── Heading hierarchy check script (GAP-096) ─────────────────────────────────
+// Detects heading level skips (e.g. h1 → h3) that break screen-reader nav.
+const HEADING_HIERARCHY_SCRIPT = `() => {
+  var headings = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6'));
+  var levels = headings.map(function(h){ return parseInt(h.tagName[1], 10); });
+  var skips = [];
+  for (var i = 1; i < levels.length; i++) {
+    if (levels[i] > levels[i - 1] + 1) {
+      skips.push({
+        from: levels[i - 1],
+        to:   levels[i],
+        text: headings[i].textContent.trim().slice(0, 60),
+      });
+    }
+  }
+  return JSON.stringify(skips);
+}`;
+
 // ── JSON parse helper ─────────────────────────────────────────────────────────
 function parseJson(raw) {
   if (raw == null) return null;
@@ -212,6 +230,27 @@ export async function analyzeSnapshot(mcp, url) {
           role:     item.role,
           count:    item.count,
           message:  `${item.count} elements share the "${item.role}" landmark role without distinct aria-label — screen readers cannot distinguish them`,
+          severity: 'warning',
+          url,
+        });
+      }
+    }
+  } catch {
+    // Skip silently
+  }
+
+  // ── Heading hierarchy (GAP-096) ───────────────────────────────────────────
+  try {
+    const raw   = await mcp.evaluate_script({ function: HEADING_HIERARCHY_SCRIPT });
+    const items = parseJson(raw);
+    if (Array.isArray(items)) {
+      for (const item of items) {
+        findings.push({
+          type:     'heading_level_skip',
+          from:     item.from,
+          to:       item.to,
+          text:     item.text,
+          message:  `Heading level skips from h${item.from} to h${item.to} ("${item.text}") — use sequential heading levels for screen-reader navigation`,
           severity: 'warning',
           url,
         });

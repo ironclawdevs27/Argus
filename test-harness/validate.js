@@ -62,7 +62,8 @@ import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
 // not a hand-rolled duplicate. The Slack init side-effect concern was resolved by GAP-31
 // (lazy WebClient init), so importing crawl-and-report.js is now safe in test context.
 import { crawlRouteCheap } from '../src/orchestration/crawl-and-report.js';
-import { analyzeIssues }  from '../src/utils/issues-analyzer.js';
+import { analyzeIssues }       from '../src/utils/issues-analyzer.js';
+import { parseNetworkTiming }  from '../src/utils/network-timing-analyzer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -2898,6 +2899,67 @@ async function runTests(mcp, stagingProc) {
       `[68b] Deprecated API fixture produces at least 1 deprecated_api_use finding (got ${deprecated68.length})`);
     assert(deprecated68.every(f => f.severity === 'info'),
       '[68c] deprecated_api_use findings are severity: info');
+  }
+
+  // ── [69] Network HAR timing — pure unit tests (GAP-094) ──────────────────────
+  console.log('\n[69] Network HAR timing analysis (GAP-094) — parseNetworkTiming unit tests');
+  {
+    const PAGE = 'http://localhost:3100/';
+
+    // [69a] Empty input → empty output
+    const empty69 = parseNetworkTiming([], PAGE);
+    assert(Array.isArray(empty69), '[69a] parseNetworkTiming([]) returns an array');
+    assert(empty69.length === 0,   '[69b] parseNetworkTiming([]) returns empty array');
+
+    // [69c] Cross-origin slow script → slow_third_party_blocking warning
+    const slow69 = parseNetworkTiming([
+      { url: 'https://cdn.example.com/analytics.js', method: 'GET', status: 200,
+        timing: { wait: 3000 } },
+    ], PAGE);
+    const tp69 = slow69.filter(f => f.type === 'slow_third_party_blocking');
+    assert(tp69.length >= 1,
+      `[69c] Slow cross-origin script emits slow_third_party_blocking (got ${tp69.length})`);
+    assert(tp69.every(f => f.severity === 'warning'),
+      '[69d] slow_third_party_blocking is severity: warning');
+
+    // [69e] Static image skipped even when slow
+    const static69 = parseNetworkTiming([
+      { url: 'https://cdn.example.com/hero.png', method: 'GET', status: 200,
+        timing: { wait: 5000 } },
+    ], PAGE);
+    assert(static69.length === 0,
+      '[69e] Static asset (hero.png) skipped regardless of timing');
+
+    // [69f] Same-origin request not reported (covered by NETWORK_PERF_SCRIPT)
+    const same69 = parseNetworkTiming([
+      { url: 'http://localhost:3100/api/data', method: 'GET', status: 200,
+        timing: { wait: 4000 } },
+    ], PAGE);
+    assert(same69.length === 0,
+      '[69f] Same-origin slow request not reported by parseNetworkTiming');
+
+    // [69g] Below threshold cross-origin → no finding
+    const fast69 = parseNetworkTiming([
+      { url: 'https://fonts.googleapis.com/css?family=Roboto', method: 'GET', status: 200,
+        timing: { wait: 500 } },
+    ], PAGE);
+    assert(fast69.length === 0,
+      '[69g] Cross-origin request below 2000ms threshold not flagged');
+  }
+
+  // ── [70] Heading hierarchy — analyzeSnapshot extension (GAP-096) ──────────────
+  console.log('\n[70] Heading hierarchy validation (GAP-096) — heading-issues.html fixture');
+  {
+    const findings70 = await analyzeSnapshot(mcp, `${B}/heading-issues.html`);
+    assert(Array.isArray(findings70),
+      '[70a] analyzeSnapshot returns an array for heading-issues fixture');
+    const skips70 = findings70.filter(f => f.type === 'heading_level_skip');
+    assert(skips70.length >= 1,
+      `[70b] heading-issues fixture produces at least 1 heading_level_skip finding (got ${skips70.length})`);
+    assert(skips70.every(f => f.severity === 'warning'),
+      '[70c] heading_level_skip findings are severity: warning');
+    assert(skips70.some(f => f.from === 1 && f.to === 3),
+      `[70d] h1→h3 skip detected (got skips: ${JSON.stringify(skips70.map(s => ({ from: s.from, to: s.to })))})`);
   }
 }
 

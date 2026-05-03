@@ -364,6 +364,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'deprecated_api_use info from Chrome DevTools Issues panel (document.domain + DOMSubtreeModified mutation event)',
   },
+  // GAP-096 — heading hierarchy: h1→h3 and h4→h6 skips (two heading_level_skip findings)
+  {
+    path: '/heading-issues.html',
+    name: 'Heading Issues',
+    critical: false,
+    waitFor: null,
+    expected: 'heading_level_skip warning ×2 (h1→h3 skips h2, h4→h6 skips h5)',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

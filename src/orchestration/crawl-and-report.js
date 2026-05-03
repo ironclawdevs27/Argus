@@ -51,7 +51,8 @@ import { chunkArray } from '../utils/parallel-crawler.js';
 import { validateApiContracts } from '../utils/contract-validator.js';
 import { applyOverrides } from '../utils/severity-overrides.js';
 import { checkLighthouse } from '../utils/lighthouse-checker.js';
-import { parseIssues }    from '../utils/issues-analyzer.js';
+import { parseIssues }          from '../utils/issues-analyzer.js';
+import { parseNetworkTiming }   from '../utils/network-timing-analyzer.js';
 
 // ── Performance Budgets ────────────────────────────────────────────────────────
 // Hard thresholds — exceeding any of these is a 'warning' severity bug.
@@ -620,6 +621,15 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
   // 6b. API frequency analysis
   const apiFrequencyBugs = analyzeApiFrequency(networkReqs, url);
   result.errors.push(...apiFrequencyBugs);
+
+  // 6d. Third-party blocking resource detection via HAR timing (GAP-094)
+  // Detects cross-origin resources with slow TTFB that PerformanceResourceTiming
+  // misses when the server omits Timing-Allow-Origin headers.
+  try {
+    result.errors.push(...parseNetworkTiming(networkReqs, url));
+  } catch (err) {
+    console.warn(`[ARGUS] Network timing analysis skipped for ${url}: ${err.message}`);
+  }
 
   // 6c. API contract validation (D7.4) — skip when no contracts defined
   if (apiContracts?.length > 0) {
