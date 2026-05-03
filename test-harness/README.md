@@ -17,7 +17,9 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-77 test blocks · 319 hard assertions · 53 detection categories · 53 fixture pages
+77 test blocks · 319 hard assertions · 46 verified detection categories · 53 fixture pages
+
+> **Coverage note**: 53 detection categories exist in production code. 46 are positively exercised by the harness. The remaining 7 have no fixture trigger yet — see [argus-v6-strategy.md §10](../argus-v6-strategy.md) (GAP-103–GAP-110) for details and planned fixtures.
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
