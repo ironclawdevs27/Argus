@@ -972,14 +972,29 @@ for (const bp of breakpoints) {
 
 | Metric | Value |
 |--------|-------|
-| Test blocks | 64 |
-| Hard assertions | 276 |
-| Detection categories | 39 |
-| Fixture pages | 46 |
-| Flow step actions | 14 |
-| Phases complete | C1, C2, C3, C4, D1–D8.5 |
+| Test blocks | 77 |
+| Hard assertions | 319 |
+| Detection categories | 53 |
+| Fixture pages | 53 |
+| Flow step actions | 15 |
+| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 GAP-093–GAP-102 |
 
-Expected harness output: `276/276 hard assertions passed`
+Expected harness output: `319/319 hard assertions passed`
+
+### v6 additions (GAP-093–GAP-102)
+
+| GAP | Detection types added | Blocks |
+|-----|----------------------|--------|
+| GAP-093 | csp_violation, cors_violation, mixed_content, cookie_attribute_missing, deprecated_api_use, low_contrast_native, permission_policy_violation | [66][67][68] |
+| GAP-094 | slow_third_party_blocking | [69] |
+| GAP-095 | (emulate_cpu during mobile analysis) | [71] |
+| GAP-096 | heading_level_skip | [70] |
+| GAP-097 | focus_visible_missing, focus_lost | [72] |
+| GAP-098 | aria_expanded_no_controls | [73] |
+| GAP-099 | (select_option flow step) | [74] |
+| GAP-100 | (origin field on network findings) | [75] |
+| GAP-101 | security_no_https | [76] |
+| GAP-102 | security_iframe_no_sandbox | [77] |
 
 ---
 
