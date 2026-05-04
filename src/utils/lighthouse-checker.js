@@ -35,11 +35,19 @@ const LIGHTHOUSE_LABELS = {
 export async function checkLighthouse(mcp, url) {
   const violations = [];
 
+  // Lighthouse can hang indefinitely on heavy SPAs or when Chrome is under load.
+  // 120 s is generous — a real Lighthouse run completes in 15–30 s on most pages.
+  const LIGHTHOUSE_TIMEOUT_MS = parseInt(process.env.ARGUS_LIGHTHOUSE_TIMEOUT ?? '120000', 10);
+
   try {
-    const result = await mcp.lighthouse_audit({
+    const auditPromise = mcp.lighthouse_audit({
       categories: ['accessibility', 'performance', 'seo', 'best-practices'],
       url,
     });
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Lighthouse timed out after ${LIGHTHOUSE_TIMEOUT_MS / 1000}s`)), LIGHTHOUSE_TIMEOUT_MS)
+    );
+    const result = await Promise.race([auditPromise, timeoutPromise]);
 
     const categories = result?.categories ?? {};
     const audits     = result?.audits     ?? {};

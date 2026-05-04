@@ -170,7 +170,7 @@ export function buildStatusPayload(report, diff) {
 
 // ── GitHub API helper ─────────────────────────────────────────────────────────
 
-async function ghFetch(urlPath, method, body) {
+async function ghFetch(urlPath, method, body, attempt = 1) {
   if (!process.env.GITHUB_TOKEN) {
     throw new Error('GITHUB_TOKEN environment variable is not set — GitHub reporting is disabled');
   }
@@ -181,12 +181,29 @@ async function ghFetch(urlPath, method, body) {
   };
   if (body) headers['Content-Type'] = 'application/json';
 
-  const res = await fetch(`${GITHUB_API}${urlPath}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(15000),
-  });
+  let res;
+  try {
+    res = await fetch(`${GITHUB_API}${urlPath}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (err) {
+    // Network error or timeout — retry up to 3 times with exponential backoff
+    if (attempt < 3) {
+      await new Promise(r => setTimeout(r, attempt * 1000));
+      return ghFetch(urlPath, method, body, attempt + 1);
+    }
+    throw err;
+  }
+
+  // Retry on transient server errors (5xx) with exponential backoff
+  if (res.status >= 500 && attempt < 3) {
+    await new Promise(r => setTimeout(r, attempt * 1000));
+    return ghFetch(urlPath, method, body, attempt + 1);
+  }
+
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`GitHub API ${method} ${urlPath} → ${res.status}: ${text.slice(0, 200)}`);
@@ -205,7 +222,14 @@ export async function postPrComment(report, diff) {
   const prNum = process.env.GITHUB_PR_NUMBER;
   if (!repo || !prNum) throw new Error('[ARGUS] C2: GITHUB_REPOSITORY or GITHUB_PR_NUMBER not set');
 
-  const body = formatPrComment(report, diff);
+  let body = formatPrComment(report, diff);
+
+  // GitHub hard limit is 65536 chars; truncate gracefully if exceeded.
+  const GITHUB_COMMENT_LIMIT = 65000;
+  if (body.length > GITHUB_COMMENT_LIMIT) {
+    const truncMsg = '\n\n_⚠️ Report truncated — full details in the saved JSON report._';
+    body = body.slice(0, GITHUB_COMMENT_LIMIT - truncMsg.length) + truncMsg;
+  }
 
   // Find existing Argus comment to update
   const existing = await ghFetch(`/repos/${repo}/issues/${prNum}/comments?per_page=100`, 'GET');

@@ -130,7 +130,12 @@ export async function runLoginFlow(mcp, baseUrl, steps) {
  * @returns {Promise<object>}  The session state object (also written to disk)
  */
 export async function saveSession(mcp, sessionFile) {
-  const raw = await mcp.evaluate_script({ function: SESSION_CAPTURE_SCRIPT });
+  let raw;
+  try {
+    raw = await mcp.evaluate_script({ function: SESSION_CAPTURE_SCRIPT });
+  } catch (err) {
+    throw new Error(`[ARGUS] saveSession: evaluate_script failed — Chrome may not be running: ${err.message}`);
+  }
   const val = unwrapEval(raw);
 
   let parsed;
@@ -193,6 +198,22 @@ export async function restoreSession(mcp, baseUrl, sessionFile) {
   } catch (err) {
     console.warn(`[ARGUS] Failed to parse session file ${sessionFile}: ${err.message}`);
     return false;
+  }
+
+  // Validate that the saved session origin matches baseUrl — restoring a session from a different
+  // origin will silently fail (cookies won't apply to the wrong domain).
+  if (state.originUrl) {
+    try {
+      const savedOrigin   = new URL(state.originUrl).origin;
+      const currentOrigin = new URL(baseUrl).origin;
+      if (savedOrigin !== currentOrigin) {
+        console.warn(
+          `[ARGUS] Session origin mismatch: saved="${savedOrigin}" current="${currentOrigin}" — ` +
+          `session will not apply; re-run login to capture a fresh session`
+        );
+        return false;
+      }
+    } catch { /* URL parse failure — proceed and let Chrome handle it */ }
   }
 
   // Navigate to the origin so cookies land on the right domain

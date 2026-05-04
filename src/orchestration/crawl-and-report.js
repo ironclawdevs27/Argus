@@ -178,7 +178,8 @@ function classifyOrigin(reqUrl, pageUrl) {
 function deduplicateErrors(errors) {
   const seen = new Set();
   return errors.filter(e => {
-    const key = `${e.type}::${e.message}::${e.url}`;
+    if (!e || typeof e !== 'object') return false;
+    const key = `${e.type ?? 'unknown'}::${(e.message ?? '').slice(0, 200)}::${e.url ?? ''}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -615,7 +616,11 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
   }
 
   // 6. Network requests — sliced from per-route baseline (D5)
-  const networkReqs = normalizeArray(await mcp.list_network_requests()).slice(networkBaseline);
+  // pageSize:200 caps processing on complex SPAs; beyond 200 requests per route the marginal
+  // signal is low and the O(n) analysis loop becomes a bottleneck.
+  const networkReqs = normalizeArray(
+    await mcp.list_network_requests({ pageSize: 200, pageIdx: 0 })
+  ).slice(networkBaseline);
   for (const req of networkReqs) {
     const severity = classifyNetworkRequest(req, route.critical);
     if (severity !== null) {
@@ -1122,6 +1127,14 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
     ? await discoverRoutes(targetBaseUrl, codebase?.sourceDir ?? null, autoDiscover, baseRoutes)
     : baseRoutes;
 
+  // Validate route objects before crawling — bad config produces cryptic navigation errors otherwise.
+  for (const route of targetRoutes) {
+    if (!route || typeof route !== 'object') throw new Error(`[ARGUS] Invalid route entry: ${JSON.stringify(route)}`);
+    if (typeof route.path !== 'string' || !route.path.startsWith('/')) {
+      throw new Error(`[ARGUS] Invalid route.path "${route.path}" — must be a string starting with "/"`);
+    }
+  }
+
   const report = {
     generatedAt: new Date().toISOString(),
     baseUrl: targetBaseUrl,
@@ -1147,7 +1160,8 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
   }
 
   // D7.3: parallel route crawling — set ARGUS_CONCURRENCY=N to spawn N MCP clients
-  const concurrency = Math.max(1, parseInt(process.env.ARGUS_CONCURRENCY ?? '1', 10));
+  // Capped at 10 to prevent resource exhaustion; beyond 10, Chrome becomes the bottleneck anyway.
+  const concurrency = Math.min(10, Math.max(1, parseInt(process.env.ARGUS_CONCURRENCY ?? '1', 10)));
 
   if (concurrency > 1) {
     console.log(`[ARGUS] Parallel mode: concurrency=${concurrency}, sharding ${targetRoutes.length} route(s)`);

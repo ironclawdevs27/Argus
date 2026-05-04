@@ -70,7 +70,7 @@ const MISSING_LABEL_SCRIPT = `() => {
     var r = el.getBoundingClientRect();
     if (r.width === 0 && r.height === 0) { count++; continue; }
     var hasLabel = false;
-    if (el.id) { hasLabel = !!document.querySelector('label[for="' + el.id + '"]'); }
+    if (el.id) { hasLabel = !!document.querySelector('label[for="' + CSS.escape(el.id) + '"]'); }
     if (!hasLabel && el.closest('label')) hasLabel = true;
     if (!hasLabel && el.getAttribute('aria-label')) hasLabel = true;
     if (!hasLabel && el.getAttribute('aria-labelledby')) hasLabel = true;

@@ -33,7 +33,7 @@ export function unwrapEval(raw) {
   if (typeof raw === 'object' && !Array.isArray(raw)) return raw.result ?? raw;
   return raw;
 }
-const TOOL_TIMEOUT_MS = 30_000;
+const TOOL_TIMEOUT_MS = parseInt(process.env.MCP_TOOL_TIMEOUT_MS ?? '30000', 10);
 
 /**
  * Create an MCP client that wraps chrome-devtools-mcp via JSON-RPC over stdio.
@@ -70,7 +70,7 @@ export async function createMcpClient() {
 
   proc.stdout.on('data', (chunk) => {
     buffer += chunk.toString();
-    const lines = buffer.split('\n');
+    const lines = buffer.split(/\r?\n/);
     buffer = lines.pop(); // keep incomplete line in buffer
     for (const line of lines) {
       if (!line.trim()) continue;
@@ -215,6 +215,9 @@ export async function createMcpClient() {
     handle_dialog: (args) => tool('handle_dialog', args),
     drag: (args) => tool('drag', args),
     upload_file: (args) => tool('upload_file', args),
+    select_option: (args) => tool('select_option', args),
+    emulate_cpu: (args) => tool('emulate_cpu', args),
+    emulate_network: (args) => tool('emulate_network', args),
     close,
   };
 }

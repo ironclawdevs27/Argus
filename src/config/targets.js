@@ -118,7 +118,20 @@ export const auth = null;
  * User flow definitions (v3 Phase B5).
  *
  * Each flow is a named sequence of steps executed end-to-end by flow-runner.js.
- * Supported actions: navigate, fill, click, press_key, waitFor, sleep, handle_dialog, assert
+ * Supported actions:
+ *   navigate      — { action: 'navigate', path: '/route' }  or  url: 'https://...' for absolute
+ *   fill          — { action: 'fill', selector: 'input#email', value: 'x@y.com' }
+ *                   Add typing: true to dispatch real keyboard events (needed for input-validation handlers)
+ *   click         — { action: 'click', selector: 'button[type=submit]' }
+ *   press_key     — { action: 'press_key', key: 'Tab' | 'Enter' | 'Escape' | 'ArrowDown' | ... }
+ *   drag          — { action: 'drag', sourceSelector: '.card', targetSelector: '.dropzone' }
+ *   upload_file   — { action: 'upload_file', selector: 'input[type=file]', filePath: '/abs/path' }
+ *   select_option — { action: 'select_option', selector: 'select#country', value: 'US' }
+ *   waitFor       — { action: 'waitFor', selector: '#results', timeout: 10000 }
+ *   sleep         — { action: 'sleep', ms: 500 }   (avoid; use waitFor instead)
+ *   handle_dialog — { action: 'handle_dialog', accept: true }  or  accept: false
+ *   assert        — { action: 'assert', type: '...' } — see types below
+ *
  * Assert types: no_console_errors, no_network_errors, element_visible, element_not_visible,
  *               url_contains, no_js_errors
  *
@@ -148,6 +161,27 @@ export const flows = [];
 //       { action: 'waitFor',   selector: '[data-testid="payment-form"]' },
 //       { action: 'assert',    type: 'no_network_errors' },
 //       { action: 'assert',    type: 'element_visible', selector: '[data-testid="order-summary"]' },
+//     ],
+//   },
+//   {
+//     name: 'Advanced interactions',
+//     steps: [
+//       { action: 'navigate',    path: '/upload' },
+//       // Upload a file — resolves the file input by selector
+//       { action: 'upload_file', selector: 'input[type="file"]', filePath: '/tmp/test-file.pdf' },
+//       // Select a dropdown option
+//       { action: 'navigate',    path: '/settings' },
+//       { action: 'select_option', selector: 'select#country', value: 'US' },
+//       // Drag and drop
+//       { action: 'navigate',    path: '/kanban' },
+//       { action: 'drag',        sourceSelector: '[data-testid="card-1"]', targetSelector: '[data-testid="done-column"]' },
+//       // Keyboard navigation test
+//       { action: 'navigate',    path: '/menu' },
+//       { action: 'press_key',   key: 'Tab' },
+//       { action: 'press_key',   key: 'Enter' },
+//       { action: 'assert',      type: 'element_visible', selector: '[data-testid="submenu"]' },
+//       // Type with real keyboard events (for inputs with keydown validators)
+//       { action: 'fill',        selector: 'input[name="search"]', value: 'hello', typing: true },
 //     ],
 //   },
 // ];

@@ -91,7 +91,21 @@ export const SECURITY_ANALYSIS_SCRIPT = `async () => {
     }
   } catch (e) {}
 
-  return JSON.stringify({ storageTokenKeys: storageTokenKeys, evalUsage: evalUsage, jsCookies: jsCookies, hasCSP: hasCSP, hasXFrame: hasXFrame, unsandboxedIframes: unsandboxedIframes });
+  // 6. Links opening in new tabs without rel="noopener noreferrer" (GAP-132)
+  // window.opener on the opened page allows it to navigate the opener — phishing vector.
+  var unsafeBlankLinks = [];
+  try {
+    var blankLinks = Array.prototype.slice.call(document.querySelectorAll('a[target="_blank"]'));
+    for (var li = 0; li < blankLinks.length && li < 30; li++) {
+      var link = blankLinks[li];
+      var rel = (link.getAttribute('rel') || '').toLowerCase();
+      if (!rel.includes('noopener') && !rel.includes('noreferrer')) {
+        unsafeBlankLinks.push({ href: (link.href || link.getAttribute('href') || '').slice(0, 100) });
+      }
+    }
+  } catch (e) {}
+
+  return JSON.stringify({ storageTokenKeys: storageTokenKeys, evalUsage: evalUsage, jsCookies: jsCookies, hasCSP: hasCSP, hasXFrame: hasXFrame, unsandboxedIframes: unsandboxedIframes, unsafeBlankLinks: unsafeBlankLinks });
 }`;
 
 /**
@@ -184,6 +198,19 @@ export function parseSecurityAnalysisResult(rawResult, url) {
         url,
       });
     }
+  }
+
+  // GAP-132: target="_blank" links without rel="noopener noreferrer"
+  // The opened page can access window.opener and redirect the parent tab — phishing vector.
+  if (Array.isArray(data.unsafeBlankLinks) && data.unsafeBlankLinks.length > 0) {
+    bugs.push({
+      type:    'security_unsafe_blank_link',
+      count:   data.unsafeBlankLinks.length,
+      hrefs:   data.unsafeBlankLinks.map(l => l.href),
+      message: `${data.unsafeBlankLinks.length} link(s) with target="_blank" missing rel="noopener noreferrer" — add rel="noopener noreferrer" to prevent opener hijacking`,
+      severity: 'warning',
+      url,
+    });
   }
 
   return bugs;

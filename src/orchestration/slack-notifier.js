@@ -91,6 +91,7 @@ async function uploadFileToSlack(filePath, channelId, filename) {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: fileBuffer,
+      signal: AbortSignal.timeout(30000),
     });
     if (!response.ok) {
       console.error('[ARGUS] Slack upload POST failed:', response.status, response.statusText);

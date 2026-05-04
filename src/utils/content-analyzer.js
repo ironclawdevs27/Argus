@@ -28,13 +28,18 @@ export const CONTENT_ANALYSIS_SCRIPT = `() => {
   // 2. Placeholder text patterns
   var placeholders = [];
   var phChecks = [
-    ['lorem ipsum',  /lorem ipsum/i],
-    ['todo',         /\\btodo\\b/i],
-    ['fixme',        /\\bfixme\\b/i],
-    ['hello world',  /\\bhello[\\s-]world\\b/i],
-    ['test user',    /\\btest user\\b/i],
-    ['foo bar',      /\\bfoo bar\\b/i],
-    ['dummy text',   /\\bdummy (text|data|content)\\b/i],
+    ['lorem ipsum',     /lorem ipsum/i],
+    ['todo',            /\\btodo\\b/i],
+    ['fixme',           /\\bfixme\\b/i],
+    ['coming soon',     /\\bcoming soon\\b/i],
+    ['placeholder',     /\\bplaceholder text\\b/i],
+    ['sample text',     /\\bsample text\\b/i],
+    ['insert content',  /\\binsert (content|text|copy) here\\b/i],
+    ['hello world',     /\\bhello[\\s-]world\\b/i],
+    ['test user',       /\\btest user\\b/i],
+    ['foo bar',         /\\bfoo bar\\b/i],
+    ['dummy text',      /\\bdummy (text|data|content)\\b/i],
+    ['ipsa lore',       /\\bipsa lore\\b/i],
   ];
   phChecks.forEach(function(pair) {
     if (pair[1].test(bodyText)) placeholders.push(pair[0]);

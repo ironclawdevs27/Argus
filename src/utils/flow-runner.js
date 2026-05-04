@@ -431,12 +431,21 @@ export async function runFlow(flow, baseUrl, mcp) {
       }
       result.stepsCompleted++;
     } catch (err) {
+      // Capture a screenshot of the failure state for debugging before the page changes.
+      let screenshotPath = null;
+      try {
+        const ts = Date.now();
+        screenshotPath = `/tmp/argus-flow-fail-${flow.name.replace(/[^a-z0-9]/gi, '_')}-${ts}.png`;
+        await mcp.take_screenshot({ filePath: screenshotPath });
+      } catch { screenshotPath = null; }
+
       result.findings.push({
         type: 'flow_step_failed',
         flowName: flow.name,
         action: step.action,
         selector: step.selector ?? null,
         message: `[${flow.name}] step "${step.action}"${step.selector ? ` on "${step.selector}"` : ''} failed: ${err.message}`,
+        screenshotPath,
         severity: 'critical',
         url: baseUrl,
       });

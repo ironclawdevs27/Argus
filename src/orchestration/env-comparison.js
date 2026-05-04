@@ -137,7 +137,7 @@ async function compareRoute(route, mcp) {
         devData.screenshotPath,
         stagingData.screenshotPath,
         diffImagePath,
-        0.1
+        SCREENSHOT_THRESHOLD
       );
 
       if (diffPercent > SCREENSHOT_THRESHOLD) {
@@ -325,7 +325,7 @@ async function runCssAnalysisMode(mcp) {
 
       // Navigate and settle
       await mcp.navigate_page({ url });
-      await new Promise(r => setTimeout(r, 2000));
+      await new Promise(r => setTimeout(r, config.pageSettleMs));
 
       // CSS analysis
       const cssRaw = await mcp.evaluate_script({ function:CSS_ANALYSIS_SCRIPT });
