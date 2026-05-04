@@ -615,12 +615,14 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
     }
   }
 
-  // 6. Network requests — sliced from per-route baseline (D5)
-  // pageSize:200 caps processing on complex SPAs; beyond 200 requests per route the marginal
-  // signal is low and the O(n) analysis loop becomes a bottleneck.
+  // 6. Network requests — sliced from per-route baseline (D5).
+  // IMPORTANT: fetch WITHOUT pagination so the total count matches the unpaginated baseline.
+  // A pageSize cap applied BEFORE slicing would make .slice(networkBaseline) return empty
+  // whenever accumulated requests exceed the cap — all route requests silently dropped.
+  // The 500-item cap is applied AFTER slicing to bound analysis on large SPAs.
   const networkReqs = normalizeArray(
-    await mcp.list_network_requests({ pageSize: 200, pageIdx: 0 })
-  ).slice(networkBaseline);
+    await mcp.list_network_requests()
+  ).slice(networkBaseline).slice(0, 500);
   for (const req of networkReqs) {
     const severity = classifyNetworkRequest(req, route.critical);
     if (severity !== null) {
