@@ -25,23 +25,23 @@
  * Exit code: 0 = all hard assertions pass, 1 = any hard assertion fails
  */
 
-import { spawn }        from 'child_process';
-import fs               from 'fs';
-import path             from 'path';
+import { spawn } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 import { fileURLToPath } from 'url';
-import { PNG }          from 'pngjs';
-import pixelmatch       from 'pixelmatch';
+import { PNG } from 'pngjs';
+import pixelmatch from 'pixelmatch';
 
-import { createMcpClient, unwrapEval }              from '../src/utils/mcp-client.js';
-import { checkLighthouse }                         from '../src/utils/lighthouse-checker.js';
+import { createMcpClient, unwrapEval } from '../src/utils/mcp-client.js';
+import { checkLighthouse } from '../src/utils/lighthouse-checker.js';
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../src/utils/css-analyzer.js';
 import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../src/utils/seo-analyzer.js';
 import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityConsole, analyzeSecurityNetwork } from '../src/utils/security-analyzer.js';
 import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult } from '../src/utils/content-analyzer.js';
 import { analyzeResponsive } from '../src/utils/responsive-analyzer.js';
-import { analyzeMemory }    from '../src/utils/memory-analyzer.js';
-import { analyzeHover }     from '../src/utils/hover-analyzer.js';
-import { analyzeSnapshot }  from '../src/utils/snapshot-analyzer.js';
+import { analyzeMemory } from '../src/utils/memory-analyzer.js';
+import { analyzeHover } from '../src/utils/hover-analyzer.js';
+import { analyzeSnapshot } from '../src/utils/snapshot-analyzer.js';
 import { saveSession, restoreSession, refreshSession } from '../src/utils/session-manager.js';
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend, getCurrentBranch } from '../src/utils/baseline-manager.js';
 import { mergeRunResults } from '../src/utils/flakiness-detector.js';
@@ -56,22 +56,24 @@ import { discoverFromSitemap, discoverFromNextJs, discoverFromReactRouter, merge
 import { detectFramework, generateTargetsJs, generateEnvFile } from '../src/cli/init.js';
 import os from 'os';
 import { generateHtmlReport } from '../src/utils/html-reporter.js';
-import { HARNESS_DEV_URL, HARNESS_DEV_PORT,
-         HARNESS_STAGING_URL, HARNESS_STAGING_PORT } from './harness-config.js';
+import {
+  HARNESS_DEV_URL, HARNESS_DEV_PORT,
+  HARNESS_STAGING_URL, HARNESS_STAGING_PORT
+} from './harness-config.js';
 // GAP-091: Import the production crawl function so the harness exercises the real pipeline,
 // not a hand-rolled duplicate. The Slack init side-effect concern was resolved by GAP-31
 // (lazy WebClient init), so importing crawl-and-report.js is now safe in test context.
 import { crawlRouteCheap } from '../src/orchestration/crawl-and-report.js';
-import { analyzeIssues }       from '../src/utils/issues-analyzer.js';
-import { parseNetworkTiming }  from '../src/utils/network-timing-analyzer.js';
-import { analyzeKeyboard }     from '../src/utils/keyboard-analyzer.js';
+import { analyzeIssues } from '../src/utils/issues-analyzer.js';
+import { parseNetworkTiming } from '../src/utils/network-timing-analyzer.js';
+import { analyzeKeyboard } from '../src/utils/keyboard-analyzer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── Assertion helpers ─────────────────────────────────────────────────────────
 
-let passed  = 0;
-let failed  = 0;
+let passed = 0;
+let failed = 0;
 const failLog = [];
 
 function assert(condition, message) {
@@ -121,7 +123,7 @@ function toArray(val) {
   if (Array.isArray(val)) return val;
   // Check common single-key wrappers
   for (const key of ['requests', 'networkRequests', 'messages', 'consoleMessages',
-                     'items', 'data', 'results', 'entries']) {
+    'items', 'data', 'results', 'entries']) {
     if (Array.isArray(val[key])) return val[key];
   }
   // Last resort: if it's a single-value object whose value is an array
@@ -136,10 +138,10 @@ function toArray(val) {
  */
 function parseEval(val, fallback = '') {
   if (val == null) return fallback;
-  if (typeof val === 'string')  return val;
+  if (typeof val === 'string') return val;
   if (typeof val === 'boolean' || typeof val === 'number') return val;
   if (typeof val?.result === 'string') return val.result;
-  if (typeof val?.value  === 'string') return val.value;
+  if (typeof val?.value === 'string') return val.value;
   return fallback;
 }
 
@@ -332,10 +334,10 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
   const consoleListBaseline = normalizeArray(await mcp.list_console_messages().catch(() => [])).length;
 
   // Inject listeners before navigation
-  await mcp.evaluate_script({ function: INJECT_SYNC_XHR_LISTENER }).catch(() => {});   // D6.1
-  await mcp.evaluate_script({ function: INJECT_DOC_WRITE_LISTENER }).catch(() => {});  // D6.2
-  await mcp.evaluate_script({ function: INJECT_LONG_TASK_LISTENER }).catch(() => {});  // D6.3
-  await mcp.evaluate_script({ function: INJECT_SW_LISTENER        }).catch(() => {});  // D6.5
+  await mcp.evaluate_script({ function: INJECT_SYNC_XHR_LISTENER }).catch(() => { });   // D6.1
+  await mcp.evaluate_script({ function: INJECT_DOC_WRITE_LISTENER }).catch(() => { });  // D6.2
+  await mcp.evaluate_script({ function: INJECT_LONG_TASK_LISTENER }).catch(() => { });  // D6.3
+  await mcp.evaluate_script({ function: INJECT_SW_LISTENER }).catch(() => { });  // D6.5
 
   await mcp.navigate_page({ url });
 
@@ -345,15 +347,17 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
     let selectorFound = false;
     while (!selectorFound && Date.now() < pollEnd) {
       const existsRaw = await mcp.evaluate_script({
-        function:`() => !!document.querySelector(${JSON.stringify(waitFor)})`,
+        function: `() => !!document.querySelector(${JSON.stringify(waitFor)})`,
       });
       selectorFound = parseEval(existsRaw) === true || parseEval(existsRaw) === 'true';
       if (!selectorFound && Date.now() < pollEnd) await sleep(300);
     }
     if (!selectorFound) {
-      errors.push({ type: 'load_failure',
+      errors.push({
+        type: 'load_failure',
         message: `Selector "${waitFor}" not found within timeout`,
-        severity: critical ? 'critical' : 'warning' });
+        severity: critical ? 'critical' : 'warning'
+      });
     }
     await sleep(300);
   } else {
@@ -361,17 +365,17 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
   }
 
   // Blank page check
-  const bodyRes  = await mcp.evaluate_script({ function:'() => document.body?.innerText?.trim() ?? ""' });
+  const bodyRes = await mcp.evaluate_script({ function: '() => document.body?.innerText?.trim() ?? ""' });
   const bodyText = String(parseEval(bodyRes, ''));
   if (!bodyText || bodyText.length < 50)
     errors.push({ type: 'blank_page', message: 'Page appears blank (body < 50 chars)', severity: 'critical' });
 
   // Console messages — read from in-page interceptor; list_console_messages() misses
   // events that fire during page load before the MCP has subscribed.
-  const consoleMsgs = evalToArray(await mcp.evaluate_script({ function:CONSOLE_READ_SCRIPT }));
+  const consoleMsgs = evalToArray(await mcp.evaluate_script({ function: CONSOLE_READ_SCRIPT }));
   for (const msg of consoleMsgs) {
     const rawLevel = (msg.level ?? '').toLowerCase();
-    const level    = rawLevel === 'warn' ? 'warning' : rawLevel; // normalise console.warn → 'warning'
+    const level = rawLevel === 'warn' ? 'warning' : rawLevel; // normalise console.warn → 'warning'
     if (level !== 'error' && level !== 'warning') continue;
     errors.push({
       type: 'console', level,
@@ -382,19 +386,21 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
 
   // Network failures — use Performance API instead of list_network_requests()
   // to capture requests that completed before the MCP subscribed.
-  const networkReqs = evalToArray(await mcp.evaluate_script({ function:NET_SCRIPT }));
+  const networkReqs = evalToArray(await mcp.evaluate_script({ function: NET_SCRIPT }));
   for (const req of networkReqs) {
     const status = req.status ?? 0;
     if (status < 400) continue;
     const isCrit = status >= 500 || status === 401 || status === 403;
-    errors.push({ type: 'network', status, method: req.method ?? 'GET',
-      requestUrl: req.url, severity: isCrit ? 'critical' : (critical ? 'warning' : 'info') });
+    errors.push({
+      type: 'network', status, method: req.method ?? 'GET',
+      requestUrl: req.url, severity: isCrit ? 'critical' : (critical ? 'warning' : 'info')
+    });
   }
 
   // API frequency analysis (inlined — no Slack dependency)
   const staticExt = /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|map|webp|avif)(\?|$)/i;
-  const apiCalls  = networkReqs.filter(r => {
-    const u  = r.url ?? '';
+  const apiCalls = networkReqs.filter(r => {
+    const u = r.url ?? '';
     const rt = (r.resourceType ?? '').toLowerCase();
     return !staticExt.test(u) && (
       /\/(api|graphql|rest|v\d+)\//i.test(u) ||
@@ -405,25 +411,29 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
   for (const req of apiCalls) {
     const method = (req.method ?? 'GET').toUpperCase();
     let ep;
-    try   { const u = new URL(req.url); ep = u.pathname.replace(/\/\d+/g, '/{id}'); }
+    try { const u = new URL(req.url); ep = u.pathname.replace(/\/\d+/g, '/{id}'); }
     catch { ep = (req.url ?? '').replace(/[?#].*/, '').replace(/\/\d+/g, '/{id}'); }
     const key = `${method}::${ep}`;
     if (!groups[key]) groups[key] = { method, ep, count: 0 };
     groups[key].count++;
   }
   const uniqueCount = Object.keys(groups).length;
-  const totalCount  = apiCalls.length;
+  const totalCount = apiCalls.length;
   for (const { method, ep, count } of Object.values(groups)) {
     if (count <= 1) continue;
     const sev = count >= 5 ? 'critical' : count >= 3 ? 'warning' : 'info';
-    errors.push({ type: 'api_duplicate_call', endpoint: ep, callCount: count,
-      method, severity: sev, message: `API called ${count}× : ${method} ${ep}` });
+    errors.push({
+      type: 'api_duplicate_call', endpoint: ep, callCount: count,
+      method, severity: sev, message: `API called ${count}× : ${method} ${ep}`
+    });
   }
   if (totalCount > 0) {
     const dupCount = Object.values(groups).filter(g => g.count > 1).length;
-    errors.push({ type: 'api_call_summary', uniqueEndpoints: uniqueCount,
+    errors.push({
+      type: 'api_call_summary', uniqueEndpoints: uniqueCount,
       totalCalls: totalCount, duplicateEndpoints: dupCount, severity: 'info',
-      message: `API summary: ${totalCount} calls to ${uniqueCount} unique endpoints` });
+      message: `API summary: ${totalCount} calls to ${uniqueCount} unique endpoints`
+    });
   }
 
   // Network performance analysis — slow/large API detection (v3 Phase A2)
@@ -434,21 +444,29 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
       !/\/(api|graphql|rest|v\d+)\//i.test(reqUrl) &&
       !['xmlhttprequest', 'fetch', 'xhr'].includes((entry.resourceType ?? '').toLowerCase())
     ) continue;
-    const dur   = entry.duration ?? 0;
+    const dur = entry.duration ?? 0;
     const bytes = entry.decodedBodySize || entry.transferSize || 0;
     if (dur > 3000) {
-      errors.push({ type: 'slow_api', requestUrl: reqUrl, duration: Math.round(dur),
-        severity: 'critical', message: `Slow API ${Math.round(dur)} ms — ${reqUrl}` });
+      errors.push({
+        type: 'slow_api', requestUrl: reqUrl, duration: Math.round(dur),
+        severity: 'critical', message: `Slow API ${Math.round(dur)} ms — ${reqUrl}`
+      });
     } else if (dur > 1000) {
-      errors.push({ type: 'slow_api', requestUrl: reqUrl, duration: Math.round(dur),
-        severity: 'warning', message: `Slow API ${Math.round(dur)} ms — ${reqUrl}` });
+      errors.push({
+        type: 'slow_api', requestUrl: reqUrl, duration: Math.round(dur),
+        severity: 'warning', message: `Slow API ${Math.round(dur)} ms — ${reqUrl}`
+      });
     }
     if (bytes > 2 * 1024 * 1024) {
-      errors.push({ type: 'large_payload', requestUrl: reqUrl, bytes,
-        severity: 'critical', message: `Oversized payload ${Math.round(bytes / 1024)} KB — ${reqUrl}` });
+      errors.push({
+        type: 'large_payload', requestUrl: reqUrl, bytes,
+        severity: 'critical', message: `Oversized payload ${Math.round(bytes / 1024)} KB — ${reqUrl}`
+      });
     } else if (bytes > 500 * 1024) {
-      errors.push({ type: 'large_payload', requestUrl: reqUrl, bytes,
-        severity: 'warning', message: `Oversized payload ${Math.round(bytes / 1024)} KB — ${reqUrl}` });
+      errors.push({
+        type: 'large_payload', requestUrl: reqUrl, bytes,
+        severity: 'warning', message: `Oversized payload ${Math.round(bytes / 1024)} KB — ${reqUrl}`
+      });
     }
   }
 
@@ -457,7 +475,7 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
     const seoRaw = await mcp.evaluate_script({ function: SEO_ANALYSIS_SCRIPT });
     const seoInput = seoRaw == null ? null
       : typeof seoRaw === 'object' && !Array.isArray(seoRaw) ? seoRaw
-      : parseEval(seoRaw, null);
+        : parseEval(seoRaw, null);
     if (seoInput) {
       const seoBugs = parseSeoAnalysisResult(seoInput, url);
       errors.push(...seoBugs);
@@ -469,7 +487,7 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
     const secRaw = await mcp.evaluate_script({ function: SECURITY_ANALYSIS_SCRIPT });
     const secInput = secRaw == null ? null
       : typeof secRaw === 'object' && !Array.isArray(secRaw) ? secRaw
-      : parseEval(secRaw, null);
+        : parseEval(secRaw, null);
     if (secInput) {
       const secBugs = parseSecurityAnalysisResult(secInput, url);
       errors.push(...secBugs);
@@ -483,7 +501,7 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
     const contentRaw = await mcp.evaluate_script({ function: CONTENT_ANALYSIS_SCRIPT });
     const contentInput = contentRaw == null ? null
       : typeof contentRaw === 'object' && !Array.isArray(contentRaw) ? contentRaw
-      : parseEval(contentRaw, null);
+        : parseEval(contentRaw, null);
     if (contentInput) {
       const contentBugs = parseContentAnalysisResult(contentInput, url);
       errors.push(...contentBugs);
@@ -493,11 +511,11 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
   // CSS analysis (CSS_ANALYSIS_SCRIPT returns JSON.stringify(report);
   // mcp-client.js parses that to an object; parseCssAnalysisResult handles both)
   try {
-    const cssRaw  = await mcp.evaluate_script({ function:CSS_ANALYSIS_SCRIPT });
+    const cssRaw = await mcp.evaluate_script({ function: CSS_ANALYSIS_SCRIPT });
     // cssRaw may be a pre-parsed object (common), raw JSON string, or null on error
     const cssInput = cssRaw == null ? null
       : typeof cssRaw === 'object' && !Array.isArray(cssRaw) ? cssRaw
-      : parseEval(cssRaw, null);
+        : parseEval(cssRaw, null);
     if (cssInput) {
       const cssBugs = parseCssAnalysisResult(cssInput, url);
       errors.push(...cssBugs);
@@ -506,19 +524,21 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
 
   // Redirect chain detection (D2.1) — Navigation Timing redirectCount
   try {
-    const rdRaw   = await mcp.evaluate_script({ function: `() => window.performance.getEntriesByType('navigation')[0]?.redirectCount ?? 0` });
+    const rdRaw = await mcp.evaluate_script({ function: `() => window.performance.getEntriesByType('navigation')[0]?.redirectCount ?? 0` });
     const rdCount = Number(unwrapEval(rdRaw) ?? 0);
     if (rdCount > 2) {
-      errors.push({ type: 'redirect_chain', count: rdCount, severity: 'warning',
-        message: `Redirect chain length ${rdCount} (threshold: > 2)` });
+      errors.push({
+        type: 'redirect_chain', count: rdCount, severity: 'warning',
+        message: `Redirect chain length ${rdCount} (threshold: > 2)`
+      });
     }
   } catch { /* skip */ }
 
   // Broken internal link detection (D2.3) — HEAD each same-origin <a href>
   try {
     const INTERNAL_LINKS_SCRIPT = `() => { try { var orig = window.location.origin; return Array.from(document.querySelectorAll('a[href]')).map(function(a){ return a.href; }).filter(function(h){ if (!h || h.indexOf('#') === 0 || h.indexOf('mailto:') === 0 || h.indexOf('tel:') === 0) return false; try { return new URL(h).origin === orig; } catch { return false; } }); } catch(e) { return []; } }`;
-    const linksRaw  = await mcp.evaluate_script({ function: INTERNAL_LINKS_SCRIPT });
-    const links     = [...new Set(evalToArray(linksRaw).filter(Boolean))];
+    const linksRaw = await mcp.evaluate_script({ function: INTERNAL_LINKS_SCRIPT });
+    const links = [...new Set(evalToArray(linksRaw).filter(Boolean))];
     const headResults = await Promise.all(
       links.map(async href => {
         try {
@@ -531,8 +551,10 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
     );
     for (const { href, status } of headResults) {
       if (status === 404) {
-        errors.push({ type: 'broken_link', requestUrl: href, status: 404,
-          severity: 'warning', message: `Broken internal link: ${href} (HTTP 404)` });
+        errors.push({
+          type: 'broken_link', requestUrl: href, status: 404,
+          severity: 'warning', message: `Broken internal link: ${href} (HTTP 404)`
+        });
       }
     }
   } catch { /* skip */ }
@@ -540,14 +562,14 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
   // Sync XHR detection (D6.1)
   try {
     const syncXhrRaw = await mcp.evaluate_script({ function: EXTRACT_SYNC_XHR_LISTENER });
-    const syncXhrs   = evalToArray(syncXhrRaw);
+    const syncXhrs = evalToArray(syncXhrRaw);
     for (const entry of syncXhrs) {
       errors.push({
-        type:       'sync_xhr',
-        method:     entry.method ?? 'GET',
+        type: 'sync_xhr',
+        method: entry.method ?? 'GET',
         requestUrl: entry.url,
-        message:    `Synchronous XHR: ${entry.method ?? 'GET'} ${entry.url} — blocks the main thread`,
-        severity:   'warning',
+        message: `Synchronous XHR: ${entry.method ?? 'GET'} ${entry.url} — blocks the main thread`,
+        severity: 'warning',
       });
     }
   } catch { /* skip */ }
@@ -555,13 +577,13 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
   // document.write detection (D6.2)
   try {
     const docWriteRaw = await mcp.evaluate_script({ function: EXTRACT_DOC_WRITE_LISTENER });
-    const docWrites   = evalToArray(docWriteRaw);
+    const docWrites = evalToArray(docWriteRaw);
     for (const entry of docWrites) {
       errors.push({
-        type:     'document_write',
-        method:   entry.method,
-        content:  entry.content,
-        message:  `document.${entry.method}() is parser-blocking and degrades page performance`,
+        type: 'document_write',
+        method: entry.method,
+        content: entry.content,
+        message: `document.${entry.method}() is parser-blocking and degrades page performance`,
         severity: 'warning',
       });
     }
@@ -570,15 +592,15 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
   // Long task detection (D6.3)
   try {
     const longTaskRaw = await mcp.evaluate_script({ function: EXTRACT_LONG_TASK_LISTENER });
-    const longTasks   = evalToArray(longTaskRaw);
+    const longTasks = evalToArray(longTaskRaw);
     for (const entry of longTasks) {
       errors.push({
-        type:      'long_task',
-        duration:  entry.duration,
+        type: 'long_task',
+        duration: entry.duration,
         startTime: entry.startTime,
         attribution: entry.attribution,
-        message:   `Long task: ${entry.duration}ms — blocks the main thread (threshold: 50ms)`,
-        severity:  'warning',
+        message: `Long task: ${entry.duration}ms — blocks the main thread (threshold: 50ms)`,
+        severity: 'warning',
       });
     }
   } catch { /* skip */ }
@@ -590,8 +612,8 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
       const text = (msg.text ?? msg.message ?? '');
       if (text.toLowerCase().includes('has been blocked by cors policy')) {
         errors.push({
-          type:     'cors_error',
-          message:  text || 'CORS policy violation',
+          type: 'cors_error',
+          message: text || 'CORS policy violation',
           severity: 'critical',
         });
       }
@@ -600,59 +622,59 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
 
   // Service worker registration failure detection (D6.5)
   try {
-    const swRaw  = await mcp.evaluate_script({ function: EXTRACT_SW_LISTENER });
+    const swRaw = await mcp.evaluate_script({ function: EXTRACT_SW_LISTENER });
     const swErrs = evalToArray(swRaw);
     for (const entry of swErrs) {
       errors.push({
-        type:      'sw_registration_error',
+        type: 'sw_registration_error',
         scriptURL: entry.scriptURL,
-        message:   `Service worker registration failed for "${entry.scriptURL}": ${entry.message}`,
-        severity:  'warning',
+        message: `Service worker registration failed for "${entry.scriptURL}": ${entry.message}`,
+        severity: 'warning',
       });
     }
   } catch { /* skip */ }
 
   // Cache header detection — same-origin static assets missing Cache-Control + ETag (D6.6)
   try {
-    const cacheRaw   = await mcp.evaluate_script({ function: CACHE_HEADER_SCRIPT });
+    const cacheRaw = await mcp.evaluate_script({ function: CACHE_HEADER_SCRIPT });
     const cacheItems = evalToArray(cacheRaw);
     for (const entry of cacheItems) {
       const filename = (entry.url ?? '').replace(/^.*\//, '').split('?')[0] || entry.url;
       errors.push({
-        type:       'cache_headers_missing',
+        type: 'cache_headers_missing',
         requestUrl: entry.url,
-        message:    `No cache headers on "${filename}" — missing both Cache-Control and ETag`,
-        severity:   'info',
+        message: `No cache headers on "${filename}" — missing both Cache-Control and ETag`,
+        severity: 'info',
       });
     }
   } catch { /* skip */ }
 
   // debugger; statement detection — inline + same-origin external scripts (D6.7)
   try {
-    const dbgRaw  = await mcp.evaluate_script({ function: DEBUGGER_SCRIPT });
+    const dbgRaw = await mcp.evaluate_script({ function: DEBUGGER_SCRIPT });
     const dbgHits = evalToArray(dbgRaw);
     for (const entry of dbgHits) {
       errors.push({
-        type:      'debugger_statement',
+        type: 'debugger_statement',
         scriptUrl: entry.scriptUrl,
-        line:      entry.line,
-        snippet:   entry.snippet,
-        message:   `debugger; statement found in "${entry.scriptUrl}" (line ${entry.line}) — remove before shipping`,
-        severity:  'critical',
+        line: entry.line,
+        snippet: entry.snippet,
+        message: `debugger; statement found in "${entry.scriptUrl}" (line ${entry.line}) — remove before shipping`,
+        severity: 'critical',
       });
     }
   } catch { /* skip */ }
 
   // Duplicate id="" detection (D6.8)
   try {
-    const dupIdRaw  = await mcp.evaluate_script({ function: DUPLICATE_ID_SCRIPT });
-    const dupIds    = evalToArray(dupIdRaw);
+    const dupIdRaw = await mcp.evaluate_script({ function: DUPLICATE_ID_SCRIPT });
+    const dupIds = evalToArray(dupIdRaw);
     for (const entry of dupIds) {
       errors.push({
-        type:     'duplicate_id',
-        id:       entry.id,
-        count:    entry.count,
-        message:  `Duplicate id="${entry.id}" found on ${entry.count} elements — id must be unique per document`,
+        type: 'duplicate_id',
+        id: entry.id,
+        count: entry.count,
+        message: `Duplicate id="${entry.id}" found on ${entry.count} elements — id must be unique per document`,
         severity: 'warning',
       });
     }
@@ -668,14 +690,14 @@ async function measurePerf(mcp, url) {
     await mcp.navigate_page({ url });
     await mcp.performance_start_trace();
     await sleep(4000);
-    const trace    = await mcp.performance_stop_trace();
+    const trace = await mcp.performance_stop_trace();
     const insights = await mcp.performance_analyze_insight({ trace });
-    const m        = insights?.metrics ?? insights?.performanceMetrics ?? {};
+    const m = insights?.metrics ?? insights?.performanceMetrics ?? {};
     return {
-      ttfb: m.timeToFirstByte           ?? m.TTFB   ?? null,
-      lcp:  m.largestContentfulPaint    ?? m.LCP    ?? null,
-      cls:  m.cumulativeLayoutShift     ?? m.CLS    ?? null,
-      fid:  m.totalBlockingTime ?? m.TBT ?? m.FID   ?? null,
+      ttfb: m.timeToFirstByte ?? m.TTFB ?? null,
+      lcp: m.largestContentfulPaint ?? m.LCP ?? null,
+      cls: m.cumulativeLayoutShift ?? m.CLS ?? null,
+      fid: m.totalBlockingTime ?? m.TBT ?? m.FID ?? null,
     };
   } catch { return {}; }
 }
@@ -688,8 +710,8 @@ async function measureLighthouse(mcp, url) {
       categories: ['accessibility', 'performance', 'seo', 'best-practices'],
       url,
     });
-    const cats   = result?.categories ?? {};
-    const audits = result?.audits     ?? {};
+    const cats = result?.categories ?? {};
+    const audits = result?.audits ?? {};
 
     const score = (key) => {
       const s = cats[key]?.score ?? result?.[key]?.score ?? null;
@@ -701,10 +723,10 @@ async function measureLighthouse(mcp, url) {
       .map(([id, a]) => ({ id, title: a.title ?? id }));
 
     return {
-      accessibility:  score('accessibility'),
-      performance:    score('performance'),
-      seo:            score('seo'),
-      bestPractices:  score('best-practices'),
+      accessibility: score('accessibility'),
+      performance: score('performance'),
+      seo: score('seo'),
+      bestPractices: score('best-practices'),
       failingAudits,
     };
   } catch {
@@ -725,8 +747,8 @@ function extractRegion(png, w, h) {
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       const s = (y * png.width + x) * 4, d = (y * w + x) * 4;
-      buf[d] = png.data[s]; buf[d+1] = png.data[s+1];
-      buf[d+2] = png.data[s+2]; buf[d+3] = png.data[s+3];
+      buf[d] = png.data[s]; buf[d + 1] = png.data[s + 1];
+      buf[d + 2] = png.data[s + 2]; buf[d + 3] = png.data[s + 3];
     }
   return buf;
 }
@@ -738,7 +760,7 @@ function visualDiff(devShot, stagingShot) {
     const i2 = PNG.sync.read(Buffer.from(stagingShot.data, 'base64'));
     const w = Math.min(i1.width, i2.width), h = Math.min(i1.height, i2.height);
     const n = pixelmatch(extractRegion(i1, w, h), extractRegion(i2, w, h),
-                          Buffer.alloc(w * h * 4), w, h, { threshold: 0.1 });
+      Buffer.alloc(w * h * 4), w, h, { threshold: 0.1 });
     return { diffPct: parseFloat(((n / (w * h)) * 100).toFixed(2)) };
   } catch (e) { return { diffPct: null, error: e.message }; }
 }
@@ -746,7 +768,7 @@ function visualDiff(devShot, stagingShot) {
 // ── Test suite ────────────────────────────────────────────────────────────────
 
 async function runTests(mcp, stagingProc) {
-  const B  = HARNESS_DEV_URL;
+  const B = HARNESS_DEV_URL;
   const BS = HARNESS_STAGING_URL;
 
   // Clear any Chrome state left by a previous harness run (auth cookies, localStorage)
@@ -779,8 +801,8 @@ async function runTests(mcp, stagingProc) {
     const { errors } = await crawlFixture(mcp, `${B}/js-errors.html`, { critical: false });
     const ce = errors.filter(e => e.type === 'console' && e.level === 'error');
     const cw = errors.filter(e => e.type === 'console' && e.level === 'warning');
-    assert(ce.length > 0,  `console.error detected (found ${ce.length})`);
-    assert(cw.length > 0,  `console.warn detected (found ${cw.length})`);
+    assert(ce.length > 0, `console.error detected (found ${ce.length})`);
+    assert(cw.length > 0, `console.warn detected (found ${cw.length})`);
     assert(ce.every(e => e.severity === 'warning'), `console errors → severity "warning" on non-critical route`);
   }
 
@@ -789,7 +811,7 @@ async function runTests(mcp, stagingProc) {
   {
     const { errors } = await crawlFixture(mcp, `${B}/js-errors-noncritical.html`, { critical: false });
     const ce = errors.filter(e => e.type === 'console' && e.level === 'error');
-    assert(ce.length >= 2,                          `At least 2 console errors (found ${ce.length})`);
+    assert(ce.length >= 2, `At least 2 console errors (found ${ce.length})`);
     assert(ce.every(e => e.severity === 'warning'), `All at severity "warning"`);
   }
 
@@ -798,8 +820,8 @@ async function runTests(mcp, stagingProc) {
   {
     const { errors } = await crawlFixture(mcp, `${B}/js-errors-critical.html`, { critical: true });
     const ce = errors.filter(e => e.type === 'console' && e.level === 'error');
-    assert(ce.length >= 2,                            `At least 2 console errors on critical route (found ${ce.length})`);
-    assert(ce.every(e => e.severity === 'critical'),  `All console errors → severity "critical" on critical route`);
+    assert(ce.length >= 2, `At least 2 console errors on critical route (found ${ce.length})`);
+    assert(ce.every(e => e.severity === 'critical'), `All console errors → severity "critical" on critical route`);
   }
 
   // ── [5] Network errors — GAP 1 FIX: added HTTP 403 ───────────────────────
@@ -810,31 +832,31 @@ async function runTests(mcp, stagingProc) {
     const n401 = errors.filter(e => e.type === 'network' && e.status === 401);
     const n403 = errors.filter(e => e.type === 'network' && e.status === 403);
     const n404 = errors.filter(e => e.type === 'network' && e.status === 404);
-    assert(n500.length > 0,                    `HTTP 500 detected`);
-    assert(n401.length > 0,                    `HTTP 401 detected`);
-    assert(n403.length > 0,                    `HTTP 403 detected`);              // GAP 1
-    assert(n404.length > 0,                    `HTTP 404 detected`);
-    assert(n500[0]?.severity === 'critical',   `HTTP 500 → "critical"`);
-    assert(n401[0]?.severity === 'critical',   `HTTP 401 → "critical" (auth)`);
-    assert(n403[0]?.severity === 'critical',   `HTTP 403 → "critical" (forbidden)`); // GAP 1
-    assert(n404[0]?.severity === 'info',       `HTTP 404 → "info" on non-critical route`);
+    assert(n500.length > 0, `HTTP 500 detected`);
+    assert(n401.length > 0, `HTTP 401 detected`);
+    assert(n403.length > 0, `HTTP 403 detected`);              // GAP 1
+    assert(n404.length > 0, `HTTP 404 detected`);
+    assert(n500[0]?.severity === 'critical', `HTTP 500 → "critical"`);
+    assert(n401[0]?.severity === 'critical', `HTTP 401 → "critical" (auth)`);
+    assert(n403[0]?.severity === 'critical', `HTTP 403 → "critical" (forbidden)`); // GAP 1
+    assert(n404[0]?.severity === 'info', `HTTP 404 → "info" on non-critical route`);
   }
 
   // ── [6] API frequency — GAP 4 FIX: added api_call_summary assertion ───────
   console.log('\n[6] API Frequency — ×6 critical, ×3 warning, ×2 info, plus summary entry');
   {
     const { errors } = await crawlFixture(mcp, `${B}/api-frequency.html`);
-    const loop    = errors.filter(e => e.type === 'api_duplicate_call' && (e.endpoint ?? '').includes('data-loop'));
-    const batch   = errors.filter(e => e.type === 'api_duplicate_call' && (e.endpoint ?? '').includes('data-batch'));
-    const pair    = errors.filter(e => e.type === 'api_duplicate_call' && (e.endpoint ?? '').includes('data-pair'));
+    const loop = errors.filter(e => e.type === 'api_duplicate_call' && (e.endpoint ?? '').includes('data-loop'));
+    const batch = errors.filter(e => e.type === 'api_duplicate_call' && (e.endpoint ?? '').includes('data-batch'));
+    const pair = errors.filter(e => e.type === 'api_duplicate_call' && (e.endpoint ?? '').includes('data-pair'));
     const summary = errors.filter(e => e.type === 'api_call_summary');
-    assert(loop.length  > 0 && loop[0].callCount  >= 6, `data-loop ×6+ (got ${loop[0]?.callCount ?? 0})`);
+    assert(loop.length > 0 && loop[0].callCount >= 6, `data-loop ×6+ (got ${loop[0]?.callCount ?? 0})`);
     assert(batch.length > 0 && batch[0].callCount >= 3, `data-batch ×3+ (got ${batch[0]?.callCount ?? 0})`);
-    assert(pair.length  > 0 && pair[0].callCount  >= 2, `data-pair ×2+ (got ${pair[0]?.callCount ?? 0})`);
-    assert(loop[0]?.severity  === 'critical', `data-loop → "critical"`);
-    assert(batch[0]?.severity === 'warning',  `data-batch → "warning"`);
-    assert(pair[0]?.severity  === 'info',     `data-pair → "info"`);
-    assert(summary.length > 0,                `API call summary entry generated (gap 4)`); // GAP 4
+    assert(pair.length > 0 && pair[0].callCount >= 2, `data-pair ×2+ (got ${pair[0]?.callCount ?? 0})`);
+    assert(loop[0]?.severity === 'critical', `data-loop → "critical"`);
+    assert(batch[0]?.severity === 'warning', `data-batch → "warning"`);
+    assert(pair[0]?.severity === 'info', `data-pair → "info"`);
+    assert(summary.length > 0, `API call summary entry generated (gap 4)`); // GAP 4
   }
 
   // ── [7] Blank page ────────────────────────────────────────────────────────
@@ -842,8 +864,8 @@ async function runTests(mcp, stagingProc) {
   {
     const { errors } = await crawlFixture(mcp, `${B}/blank-page.html`, { critical: true });
     const blank = errors.filter(e => e.type === 'blank_page');
-    assert(blank.length > 0,                   `blank_page detected`);
-    assert(blank[0]?.severity === 'critical',  `blank_page → "critical"`);
+    assert(blank.length > 0, `blank_page detected`);
+    assert(blank[0]?.severity === 'critical', `blank_page → "critical"`);
   }
 
   // ── [8] WaitFor success ───────────────────────────────────────────────────
@@ -860,21 +882,21 @@ async function runTests(mcp, stagingProc) {
     const { errors } = await crawlFixture(mcp, `${B}/waitfor-timeout.html`,
       { waitFor: '#never-appears', critical: false });
     const lf = errors.filter(e => e.type === 'load_failure');
-    assert(lf.length > 0,                    `load_failure detected when selector never appears`); // GAP 3
-    assert(lf[0]?.severity === 'warning',    `load_failure → "warning" on non-critical route`);
+    assert(lf.length > 0, `load_failure detected when selector never appears`); // GAP 3
+    assert(lf[0]?.severity === 'warning', `load_failure → "warning" on non-critical route`);
   }
 
   // ── [10] CSS issues — GAPS 5 & 6 FIX: non-important cascade + SCSS map ───
   console.log('\n[10] CSS Issues — !important override, cascade override, unused rules, component leak, CSS Modules, inline conflict, SCSS map');
   {
     const { errors } = await crawlFixture(mcp, `${B}/css-issues.html`);
-    const impOverrides    = errors.filter(e => e.type === 'css_override' &&  e.hasImportant);
+    const impOverrides = errors.filter(e => e.type === 'css_override' && e.hasImportant);
     const nonImpOverrides = errors.filter(e => e.type === 'css_override' && !e.hasImportant);  // GAP 5
-    const unusedRules     = errors.filter(e => e.type === 'css_unused_rules');
-    const leaks           = errors.filter(e => e.type === 'css_component_leak');
-    const modules         = errors.filter(e => e.type === 'css_modules_detected');
+    const unusedRules = errors.filter(e => e.type === 'css_unused_rules');
+    const leaks = errors.filter(e => e.type === 'css_component_leak');
+    const modules = errors.filter(e => e.type === 'css_modules_detected');
     const inlineConflicts = errors.filter(e => e.type === 'react_inline_style_conflict');
-    const cssSummary      = errors.find(e  => e.type === 'css_summary');
+    const cssSummary = errors.find(e => e.type === 'css_summary');
 
     assert(impOverrides.length > 0,
       `!important CSS override detected — header background (found ${impOverrides.length})`);
@@ -976,8 +998,7 @@ async function runTests(mcp, stagingProc) {
     assert(
       perfErrors.some(e => e.type === 'slow_api' &&
         (e.requestUrl ?? '').includes('/api/slow-warning') && e.severity === 'warning'),
-      `slow_api warning detected for /api/slow-warning (found: ${
-        perfErrors.filter(e => e.type === 'slow_api').map(e => `${e.requestUrl} ${e.severity} ${e.duration}ms`).join(', ') || 'none'
+      `slow_api warning detected for /api/slow-warning (found: ${perfErrors.filter(e => e.type === 'slow_api').map(e => `${e.requestUrl} ${e.severity} ${e.duration}ms`).join(', ') || 'none'
       })`,
     );
 
@@ -985,8 +1006,7 @@ async function runTests(mcp, stagingProc) {
     assert(
       perfErrors.some(e => e.type === 'slow_api' &&
         (e.requestUrl ?? '').includes('/api/slow-critical') && e.severity === 'critical'),
-      `slow_api critical detected for /api/slow-critical (found: ${
-        perfErrors.filter(e => e.type === 'slow_api').map(e => `${e.requestUrl} ${e.severity} ${e.duration}ms`).join(', ') || 'none'
+      `slow_api critical detected for /api/slow-critical (found: ${perfErrors.filter(e => e.type === 'slow_api').map(e => `${e.requestUrl} ${e.severity} ${e.duration}ms`).join(', ') || 'none'
       })`,
     );
 
@@ -994,8 +1014,7 @@ async function runTests(mcp, stagingProc) {
     assert(
       perfErrors.some(e => e.type === 'large_payload' &&
         (e.requestUrl ?? '').includes('/api/large-warning') && e.severity === 'warning'),
-      `large_payload warning detected for /api/large-warning (found: ${
-        perfErrors.filter(e => e.type === 'large_payload').map(e => `${e.requestUrl} ${e.severity} ${Math.round((e.bytes??0)/1024)}KB`).join(', ') || 'none'
+      `large_payload warning detected for /api/large-warning (found: ${perfErrors.filter(e => e.type === 'large_payload').map(e => `${e.requestUrl} ${e.severity} ${Math.round((e.bytes ?? 0) / 1024)}KB`).join(', ') || 'none'
       })`,
     );
 
@@ -1003,8 +1022,7 @@ async function runTests(mcp, stagingProc) {
     assert(
       perfErrors.some(e => e.type === 'large_payload' &&
         (e.requestUrl ?? '').includes('/api/large-critical') && e.severity === 'critical'),
-      `large_payload critical detected for /api/large-critical (found: ${
-        perfErrors.filter(e => e.type === 'large_payload').map(e => `${e.requestUrl} ${e.severity} ${Math.round((e.bytes??0)/1024)}KB`).join(', ') || 'none'
+      `large_payload critical detected for /api/large-critical (found: ${perfErrors.filter(e => e.type === 'large_payload').map(e => `${e.requestUrl} ${e.severity} ${Math.round((e.bytes ?? 0) / 1024)}KB`).join(', ') || 'none'
       })`,
     );
   }
@@ -1150,9 +1168,8 @@ async function runTests(mcp, stagingProc) {
       f.type === 'responsive_overflow' && f.viewport <= 768 && f.severity === 'critical');
     assert(
       mobileOverflow.length > 0,
-      `responsive_overflow critical at mobile/tablet viewport (found: ${
-        findings.filter(f => f.type === 'responsive_overflow')
-          .map(f => `${f.viewport}px ${f.severity}`).join(', ') || 'none'
+      `responsive_overflow critical at mobile/tablet viewport (found: ${findings.filter(f => f.type === 'responsive_overflow')
+        .map(f => `${f.viewport}px ${f.severity}`).join(', ') || 'none'
       })`,
     );
 
@@ -1161,9 +1178,8 @@ async function runTests(mcp, stagingProc) {
       f.type === 'responsive_small_touch_target' && f.viewport === 375 && f.severity === 'warning');
     assert(
       smallTargets.length > 0,
-      `responsive_small_touch_target warning at 375px (found: ${
-        findings.filter(f => f.type === 'responsive_small_touch_target')
-          .map(f => `${f.count} target(s) at ${f.viewport}px`).join(', ') || 'none'
+      `responsive_small_touch_target warning at 375px (found: ${findings.filter(f => f.type === 'responsive_small_touch_target')
+        .map(f => `${f.count} target(s) at ${f.viewport}px`).join(', ') || 'none'
       })`,
     );
 
@@ -1172,9 +1188,8 @@ async function runTests(mcp, stagingProc) {
       f.type === 'responsive_small_touch_target' && f.viewport === 768 && f.severity === 'warning');
     assert(
       smallTargets768.length > 0,
-      `responsive_small_touch_target warning at 768px (found: ${
-        findings.filter(f => f.type === 'responsive_small_touch_target')
-          .map(f => `${f.count} target(s) at ${f.viewport}px`).join(', ') || 'none'
+      `responsive_small_touch_target warning at 768px (found: ${findings.filter(f => f.type === 'responsive_small_touch_target')
+        .map(f => `${f.count} target(s) at ${f.viewport}px`).join(', ') || 'none'
       })`,
     );
   }
@@ -1217,7 +1232,7 @@ async function runTests(mcp, stagingProc) {
     // Heap growth is soft — depends on GC timing
     const heapFindings = findings.filter(f => f.type === 'memory_heap_growth');
     if (heapFindings.length > 0) {
-      soft(true,  `Heap growth detected: ${Math.round(heapFindings[0].growthBytes / 1024)} KB after navigate-away + back`);
+      soft(true, `Heap growth detected: ${Math.round(heapFindings[0].growthBytes / 1024)} KB after navigate-away + back`);
     } else {
       soft(false, `Heap growth not detected (GC may have collected objects before measurement)`);
     }
@@ -1351,24 +1366,24 @@ async function runTests(mcp, stagingProc) {
   console.log('  → Navigating to dev home...');
   await mcp.navigate_page({ url: `${B}/` });
   await sleep(2500);
-  const devReqs    = evalToArray(await mcp.evaluate_script({ function:NET_SCRIPT }));
-  const devMsgs    = evalToArray(await mcp.evaluate_script({ function:CONSOLE_READ_SCRIPT }));
-  const devShot    = await mcp.take_screenshot({ format: 'png' }).catch(() => null);
-  const devDOMRaw  = await mcp.evaluate_script({ function:'() => document.body.innerHTML' });
-  const devDOM     = String(parseEval(devDOMRaw, ''));
+  const devReqs = evalToArray(await mcp.evaluate_script({ function: NET_SCRIPT }));
+  const devMsgs = evalToArray(await mcp.evaluate_script({ function: CONSOLE_READ_SCRIPT }));
+  const devShot = await mcp.take_screenshot({ format: 'png' }).catch(() => null);
+  const devDOMRaw = await mcp.evaluate_script({ function: '() => document.body.innerHTML' });
+  const devDOM = String(parseEval(devDOMRaw, ''));
 
   // Navigate to staging home and collect data
   console.log('  → Navigating to staging home...');
   await mcp.navigate_page({ url: `${BS}/` });
   await sleep(2500);
-  const stagingReqs    = evalToArray(await mcp.evaluate_script({ function:NET_SCRIPT }));
-  const stagingMsgs    = evalToArray(await mcp.evaluate_script({ function:CONSOLE_READ_SCRIPT }));
-  const stagingShot    = await mcp.take_screenshot({ format: 'png' }).catch(() => null);
-  const stagingDOMRaw  = await mcp.evaluate_script({ function:'() => document.body.innerHTML' });
-  const stagingDOM     = String(parseEval(stagingDOMRaw, ''));
+  const stagingReqs = evalToArray(await mcp.evaluate_script({ function: NET_SCRIPT }));
+  const stagingMsgs = evalToArray(await mcp.evaluate_script({ function: CONSOLE_READ_SCRIPT }));
+  const stagingShot = await mcp.take_screenshot({ format: 'png' }).catch(() => null);
+  const stagingDOMRaw = await mcp.evaluate_script({ function: '() => document.body.innerHTML' });
+  const stagingDOM = String(parseEval(stagingDOMRaw, ''));
 
   // [15a] API status regression: checkout 200 dev → 500 staging (GAP 11)
-  const devCheckout     = devReqs.find(r => (r.url ?? '').includes('/api/checkout'));
+  const devCheckout = devReqs.find(r => (r.url ?? '').includes('/api/checkout'));
   const stagingCheckout = stagingReqs.find(r => (r.url ?? '').includes('/api/checkout'));
   assert(devCheckout?.status === 200,
     `Checkout returns 200 on dev (got ${devCheckout?.status ?? 'not found'})`);
@@ -1376,25 +1391,25 @@ async function runTests(mcp, stagingProc) {
     `Checkout returns 500 on staging — API regression detected (got ${stagingCheckout?.status ?? 'not found'})`);
 
   // [15b] New network request on staging: /api/tracking (GAP 12)
-  const devTracking     = devReqs.find(r => (r.url ?? '').includes('/api/tracking'));
+  const devTracking = devReqs.find(r => (r.url ?? '').includes('/api/tracking'));
   const stagingTracking = stagingReqs.find(r => (r.url ?? '').includes('/api/tracking'));
   assert(!devTracking && !!stagingTracking,
     `New request on staging only: /api/tracking (dev: ${!!devTracking}, staging: ${!!stagingTracking})`);
 
   // [15c] Request in dev missing on staging: /api/feature-flags (GAP 13)
-  const devFlags     = devReqs.find(r => (r.url ?? '').includes('/api/feature-flags'));
+  const devFlags = devReqs.find(r => (r.url ?? '').includes('/api/feature-flags'));
   const stagingFlags = stagingReqs.find(r => (r.url ?? '').includes('/api/feature-flags'));
   assert(!!devFlags && !stagingFlags,
     `Request present in dev but missing on staging: /api/feature-flags (dev: ${!!devFlags}, staging: ${!!stagingFlags})`);
 
   // [15d] API status changed non-5xx: analytics 200 dev → 404 staging (GAP 14)
-  const devAnalytics     = devReqs.find(r => (r.url ?? '').includes('/api/analytics'));
+  const devAnalytics = devReqs.find(r => (r.url ?? '').includes('/api/analytics'));
   const stagingAnalytics = stagingReqs.find(r => (r.url ?? '').includes('/api/analytics'));
   assert(devAnalytics?.status === 200 && stagingAnalytics?.status === 404,
     `Analytics status changed: ${devAnalytics?.status ?? '?'} dev → ${stagingAnalytics?.status ?? '?'} staging`);
 
   // [15e] New console error in staging (GAP 15)
-  const devErrCount     = devMsgs.filter(m => (m.level ?? '').toLowerCase() === 'error').length;
+  const devErrCount = devMsgs.filter(m => (m.level ?? '').toLowerCase() === 'error').length;
   const stagingErrCount = stagingMsgs.filter(m => (m.level ?? '').toLowerCase() === 'error').length;
   assert(stagingErrCount > devErrCount,
     `More console errors on staging (${stagingErrCount}) than dev (${devErrCount}) — regressions logged`);
@@ -1411,9 +1426,9 @@ async function runTests(mcp, stagingProc) {
   // ── [25] Baseline manager — pure function test (no Chrome) ────────────────
   console.log('\n[25] Baseline Manager — applyBaseline, saveBaseline, loadBaseline, appendTrend, getCurrentBranch');
 
-  const tmpDir      = path.join(__dirname, '.tmp-baseline-test');
-  const bFile       = path.join(tmpDir, 'baseline.json');
-  const tFile       = path.join(tmpDir, 'trends.json');
+  const tmpDir = path.join(__dirname, '.tmp-baseline-test');
+  const bFile = path.join(tmpDir, 'baseline.json');
+  const tFile = path.join(tmpDir, 'trends.json');
   if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
 
   const fakeReport = {
@@ -1474,10 +1489,14 @@ async function runTests(mcp, stagingProc) {
         stepsCompleted: 2,
         totalSteps: 3,
         findings: [
-          { type: 'flow_assert_failed', severity: 'critical',
-            message: '[login-flow] assert url_contains: URL does not contain "/dashboard"' },
-          { type: 'flow_assert_failed', severity: 'warning',
-            message: '[login-flow] assert no_console_errors: 1 error(s)' },
+          {
+            type: 'flow_assert_failed', severity: 'critical',
+            message: '[login-flow] assert url_contains: URL does not contain "/dashboard"'
+          },
+          {
+            type: 'flow_assert_failed', severity: 'warning',
+            message: '[login-flow] assert no_console_errors: 1 error(s)'
+          },
         ],
       },
     ],
@@ -1564,7 +1583,7 @@ async function runTests(mcp, stagingProc) {
   const flakyRun1 = {
     route: '/home', url: 'http://localhost:3100/', screenshot: null,
     errors: [
-      { type: 'console',    severity: 'critical', message: 'TypeError: x is null' }, // in both
+      { type: 'console', severity: 'critical', message: 'TypeError: x is null' }, // in both
       { type: 'blank_page', severity: 'critical', message: 'Page body empty' },       // run1 only
     ],
   };
@@ -1572,7 +1591,7 @@ async function runTests(mcp, stagingProc) {
     route: '/home', url: 'http://localhost:3100/', screenshot: '/tmp/shot2.png',
     errors: [
       { type: 'console', severity: 'critical', message: 'TypeError: x is null' },    // in both
-      { type: 'network',  severity: 'warning',  message: 'HTTP 404 /api/foo' },      // run2 only
+      { type: 'network', severity: 'warning', message: 'HTTP 404 /api/foo' },      // run2 only
     ],
   };
 
@@ -1620,11 +1639,11 @@ async function runTests(mcp, stagingProc) {
       name: 'Submit form',
       steps: [
         { action: 'navigate', path: '/flow-form.html' },
-        { action: 'fill',     selector: '#name',       value: 'Alice' },
-        { action: 'fill',     selector: '#email',      value: 'alice@example.com' },
-        { action: 'click',    selector: '#submit-btn' },
-        { action: 'sleep',    ms: 200 },
-        { action: 'assert',   type: 'element_visible', selector: '#form-success' },
+        { action: 'fill', selector: '#name', value: 'Alice' },
+        { action: 'fill', selector: '#email', value: 'alice@example.com' },
+        { action: 'click', selector: '#submit-btn' },
+        { action: 'sleep', ms: 200 },
+        { action: 'assert', type: 'element_visible', selector: '#form-success' },
       ],
     }, B, mcp);
     assert(successResult.status === 'pass',
@@ -1637,7 +1656,7 @@ async function runTests(mcp, stagingProc) {
       name: 'Missing element',
       steps: [
         { action: 'navigate', path: '/flow-form.html' },
-        { action: 'assert',   type: 'element_visible', selector: '#does-not-exist', severity: 'warning' },
+        { action: 'assert', type: 'element_visible', selector: '#does-not-exist', severity: 'warning' },
       ],
     }, B, mcp);
     assert(failResult.findings.length >= 1,
@@ -1650,7 +1669,7 @@ async function runTests(mcp, stagingProc) {
       name: 'No console errors',
       steps: [
         { action: 'navigate', path: '/flow-form.html' },
-        { action: 'assert',   type: 'no_console_errors' },
+        { action: 'assert', type: 'no_console_errors' },
       ],
     }, B, mcp);
     assert(noErrResult.findings.length === 0,
@@ -1661,7 +1680,7 @@ async function runTests(mcp, stagingProc) {
       name: 'URL match',
       steps: [
         { action: 'navigate', path: '/flow-form.html' },
-        { action: 'assert',   type: 'url_contains', value: 'flow-form' },
+        { action: 'assert', type: 'url_contains', value: 'flow-form' },
       ],
     }, B, mcp);
     assert(urlMatchResult.findings.length === 0,
@@ -1672,7 +1691,7 @@ async function runTests(mcp, stagingProc) {
       name: 'URL no match',
       steps: [
         { action: 'navigate', path: '/flow-form.html' },
-        { action: 'assert',   type: 'url_contains', value: '/dashboard' },
+        { action: 'assert', type: 'url_contains', value: '/dashboard' },
       ],
     }, B, mcp);
     assert(urlFailResult.findings.length >= 1,
@@ -1743,13 +1762,13 @@ async function runTests(mcp, stagingProc) {
     await sleep(1500);
 
     const allMsgsRaw = await mcp.list_console_messages().catch(() => []);
-    const allMsgs    = toArray(allMsgsRaw);
+    const allMsgs = toArray(allMsgsRaw);
 
     // Without slicing: errors from js-errors.html are still visible
     const errorsUnsliced = allMsgs.filter(m => (m.level ?? '').toLowerCase() === 'error');
 
     // With D5 slicing: only messages produced AFTER the baseline (i.e. by clean.html)
-    const cleanMsgs   = allMsgs.slice(consoleBaseline);
+    const cleanMsgs = allMsgs.slice(consoleBaseline);
     const errorsSliced = cleanMsgs.filter(m => (m.level ?? '').toLowerCase() === 'error');
 
     assert(errorsUnsliced.length > 0,
@@ -1894,19 +1913,19 @@ async function runTests(mcp, stagingProc) {
   console.log('\n[41] Parallel Crawler — chunkArray (D7.3)');
 
   // [41a] Even split: 6 items into 3 → 3 chunks of 2
-  const c41a = chunkArray(['a','b','c','d','e','f'], 3);
+  const c41a = chunkArray(['a', 'b', 'c', 'd', 'e', 'f'], 3);
   assert(c41a.length === 3 && c41a.every(c => c.length === 2),
     `[41a] chunkArray 6 items into 3 → 3 chunks of 2 (got: ${JSON.stringify(c41a)})`);
 
   // [41b] Uneven split: 5 items into 3 → 3 non-empty chunks, all items preserved
-  const c41b = chunkArray(['a','b','c','d','e'], 3);
+  const c41b = chunkArray(['a', 'b', 'c', 'd', 'e'], 3);
   assert(c41b.length === 3 && c41b.every(c => c.length > 0),
     `[41b] chunkArray 5 items into 3 → 3 non-empty chunks (got: ${JSON.stringify(c41b)})`);
   assert(c41b.flat().join('') === 'abcde',
     `[41b] chunkArray 5 items into 3 → all items preserved in order (got: ${JSON.stringify(c41b)})`);
 
   // [41c] Fewer items than target chunks: 3 items into 5 → 3 single-item chunks (no empty chunks)
-  const c41c = chunkArray(['a','b','c'], 5);
+  const c41c = chunkArray(['a', 'b', 'c'], 5);
   assert(c41c.length === 3 && c41c.every(c => c.length === 1),
     `[41c] chunkArray 3 items into 5 → 3 single-item chunks, no empty (got: ${JSON.stringify(c41c)})`);
 
@@ -1916,7 +1935,7 @@ async function runTests(mcp, stagingProc) {
     `[41d] chunkArray [] → [] (got: ${JSON.stringify(c41d)})`);
 
   // [41e] n=1 → single chunk containing all items
-  const c41e = chunkArray(['a','b','c'], 1);
+  const c41e = chunkArray(['a', 'b', 'c'], 1);
   assert(c41e.length === 1 && c41e[0].join('') === 'abc',
     `[41e] chunkArray 3 items into 1 → single chunk (got: ${JSON.stringify(c41e)})`);
 
@@ -2318,8 +2337,8 @@ async function runTests(mcp, stagingProc) {
   console.log('\n[51] C1.1 Env variable audit — process.env refs vs declared vars in .env');
   {
     const sourceDir = path.join(__dirname, 'source-fixture');
-    const envFile   = path.join(sourceDir, '.env.fixture');
-    const findings  = auditEnvVariables(sourceDir, envFile);
+    const envFile = path.join(sourceDir, '.env.fixture');
+    const findings = auditEnvVariables(sourceDir, envFile);
 
     assert(
       findings.length > 0,
@@ -2344,8 +2363,8 @@ async function runTests(mcp, stagingProc) {
   console.log('\n[52] C1.2 Feature flag leakage — conditional env var that is falsy/unset');
   {
     const sourceDir = path.join(__dirname, 'source-fixture');
-    const envFile   = path.join(sourceDir, '.env.fixture');
-    const findings  = detectFeatureFlagLeakage(sourceDir, envFile);
+    const envFile = path.join(sourceDir, '.env.fixture');
+    const findings = detectFeatureFlagLeakage(sourceDir, envFile);
 
     assert(
       findings.length > 0,
@@ -2371,14 +2390,14 @@ async function runTests(mcp, stagingProc) {
   {
     const syntheticFindings = [
       {
-        type:    'console',
-        level:   'error',
+        type: 'console',
+        level: 'error',
         message: 'TypeError: Cannot read property \'foo\' of undefined\n    at handleClick (http://localhost:3000/static/js/main.abc123.js:1:4567)\n    at HTMLButtonElement.onclick (http://localhost:3000/static/js/main.abc123.js:1:8910)',
         severity: 'warning',
       },
       {
-        type:    'console',
-        level:   'warning',
+        type: 'console',
+        level: 'warning',
         message: 'Some warning with no stack trace',
         severity: 'info',
       },
@@ -2410,9 +2429,9 @@ async function runTests(mcp, stagingProc) {
     await sleep(500);
 
     // Extract internal links from the page
-    const linksRaw  = await mcp.evaluate_script({ function: INTERNAL_LINKS_SCRIPT });
-    const rawLinks  = unwrapEval(linksRaw);
-    const links     = Array.isArray(rawLinks) ? rawLinks : JSON.parse(String(rawLinks ?? '[]'));
+    const linksRaw = await mcp.evaluate_script({ function: INTERNAL_LINKS_SCRIPT });
+    const rawLinks = unwrapEval(linksRaw);
+    const links = Array.isArray(rawLinks) ? rawLinks : JSON.parse(String(rawLinks ?? '[]'));
 
     // Test untested paths — clean.html is already "known" so it won't be HEAD-requested
     const knownPaths = ['/dead-routes.html', '/clean.html'];
@@ -2578,7 +2597,7 @@ async function runTests(mcp, stagingProc) {
   console.log('\n[58] C3.2 Next.js route discovery — scan pages/ and app/ directory structures');
   {
     const fixtureDir = path.join(__dirname, 'nextjs-fixture');
-    const routes58   = discoverFromNextJs(fixtureDir);
+    const routes58 = discoverFromNextJs(fixtureDir);
 
     assert(
       Array.isArray(routes58) && routes58.length > 0,
@@ -2654,8 +2673,8 @@ async function runTests(mcp, stagingProc) {
   console.log('\n[60] C3.4 mergeRoutes — merge discovered paths with manual route config');
   {
     const manual60 = [
-      { path: '/',      name: 'Home',  critical: true,  waitFor: 'main' },
-      { path: '/login', name: 'Login', critical: true,  waitFor: 'form' },
+      { path: '/', name: 'Home', critical: true, waitFor: 'main' },
+      { path: '/login', name: 'Login', critical: true, waitFor: 'form' },
     ];
     const discovered60 = ['/', '/about', '/blog'];
     const merged60 = mergeRoutes(manual60, discovered60);
@@ -2761,9 +2780,9 @@ async function runTests(mcp, stagingProc) {
   console.log('\n[63] C4.2 generateTargetsJs — render pre-filled targets.js from routes');
   {
     const routes63 = [
-      { path: '/',         name: 'Home',      critical: true,  waitFor: 'main' },
-      { path: '/about',    name: 'About',     critical: false, waitFor: null, discovered: true },
-      { path: '/dashboard', name: 'Dashboard', critical: true,  waitFor: '[data-testid="dashboard"]' },
+      { path: '/', name: 'Home', critical: true, waitFor: 'main' },
+      { path: '/about', name: 'About', critical: false, waitFor: null, discovered: true },
+      { path: '/dashboard', name: 'Dashboard', critical: true, waitFor: '[data-testid="dashboard"]' },
     ];
 
     const out63 = generateTargetsJs(routes63, { framework: 'nextjs', sourceDir: '/app/src', envFile: '/app/.env' });
@@ -2802,17 +2821,17 @@ async function runTests(mcp, stagingProc) {
   {
     // With all values populated
     const full64 = generateEnvFile({
-      devUrl:       'http://localhost:4000',
-      stagingUrl:   'https://staging.example.com',
-      slackToken:   'xoxb-test-token',
-      slackSecret:  'test-secret',
+      devUrl: 'http://localhost:4000',
+      stagingUrl: 'https://staging.example.com',
+      slackToken: 'xoxb-test-token',
+      slackSecret: 'test-secret',
       slackCritical: 'C111',
       slackWarnings: 'C222',
-      slackDigest:  'C333',
-      githubToken:  'ghp_testtoken',
-      githubRepo:   'owner/myrepo',
-      sourceDir:    '/app/src',
-      envFile:      '/app/.env',
+      slackDigest: 'C333',
+      githubToken: 'ghp_testtoken',
+      githubRepo: 'owner/myrepo',
+      sourceDir: '/app/src',
+      envFile: '/app/.env',
     });
 
     assert(
@@ -2910,12 +2929,14 @@ async function runTests(mcp, stagingProc) {
     // [69a] Empty input → empty output
     const empty69 = parseNetworkTiming([], PAGE);
     assert(Array.isArray(empty69), '[69a] parseNetworkTiming([]) returns an array');
-    assert(empty69.length === 0,   '[69b] parseNetworkTiming([]) returns empty array');
+    assert(empty69.length === 0, '[69b] parseNetworkTiming([]) returns empty array');
 
     // [69c] Cross-origin slow script → slow_third_party_blocking warning
     const slow69 = parseNetworkTiming([
-      { url: 'https://cdn.example.com/analytics.js', method: 'GET', status: 200,
-        timing: { wait: 3000 } },
+      {
+        url: 'https://cdn.example.com/analytics.js', method: 'GET', status: 200,
+        timing: { wait: 3000 }
+      },
     ], PAGE);
     const tp69 = slow69.filter(f => f.type === 'slow_third_party_blocking');
     assert(tp69.length >= 1,
@@ -2925,24 +2946,30 @@ async function runTests(mcp, stagingProc) {
 
     // [69e] Static image skipped even when slow
     const static69 = parseNetworkTiming([
-      { url: 'https://cdn.example.com/hero.png', method: 'GET', status: 200,
-        timing: { wait: 5000 } },
+      {
+        url: 'https://cdn.example.com/hero.png', method: 'GET', status: 200,
+        timing: { wait: 5000 }
+      },
     ], PAGE);
     assert(static69.length === 0,
       '[69e] Static asset (hero.png) skipped regardless of timing');
 
     // [69f] Same-origin request not reported (covered by NETWORK_PERF_SCRIPT)
     const same69 = parseNetworkTiming([
-      { url: 'http://localhost:3100/api/data', method: 'GET', status: 200,
-        timing: { wait: 4000 } },
+      {
+        url: 'http://localhost:3100/api/data', method: 'GET', status: 200,
+        timing: { wait: 4000 }
+      },
     ], PAGE);
     assert(same69.length === 0,
       '[69f] Same-origin slow request not reported by parseNetworkTiming');
 
     // [69g] Below threshold cross-origin → no finding
     const fast69 = parseNetworkTiming([
-      { url: 'https://fonts.googleapis.com/css?family=Roboto', method: 'GET', status: 200,
-        timing: { wait: 500 } },
+      {
+        url: 'https://fonts.googleapis.com/css?family=Roboto', method: 'GET', status: 200,
+        timing: { wait: 500 }
+      },
     ], PAGE);
     assert(fast69.length === 0,
       '[69g] Cross-origin request below 2000ms threshold not flagged');
@@ -3017,9 +3044,9 @@ async function runTests(mcp, stagingProc) {
       steps: [
         { action: 'navigate', path: '/select-form.html' },
         { action: 'select_option', selector: '#country', value: 'US' },
-        { action: 'select_option', selector: '#size',    value: 'L'  },
-        { action: 'click',         selector: '#submit-btn' },
-        { action: 'sleep',         ms: 200 },
+        { action: 'select_option', selector: '#size', value: 'L' },
+        { action: 'click', selector: '#submit-btn' },
+        { action: 'sleep', ms: 200 },
         { action: 'assert', type: 'element_visible', selector: '#form-result[data-ready]' },
       ],
     };
@@ -3084,7 +3111,7 @@ async function runTests(mcp, stagingProc) {
   {
     await mcp.navigate_page({ url: `${B}/iframe-sandbox.html` });
     await new Promise(r => setTimeout(r, 800));
-    const secRaw77   = await mcp.evaluate_script({ function: SECURITY_ANALYSIS_SCRIPT });
+    const secRaw77 = await mcp.evaluate_script({ function: SECURITY_ANALYSIS_SCRIPT });
     const findings77 = parseSecurityAnalysisResult(secRaw77, `${B}/iframe-sandbox.html`);
 
     assert(Array.isArray(findings77),
@@ -3106,7 +3133,7 @@ async function runTests(mcp, stagingProc) {
 async function main() {
   console.log('');
   console.log('\u2554' + '\u2550'.repeat(54) + '\u2557');
-  console.log('\u2551     ARGUS Test Harness Validator — full coverage    \u2551');
+  console.log('\u2551     ARGUS Test Harness Validator — full coverage      \u2551');
   console.log('\u255A' + '\u2550'.repeat(54) + '\u255D');
   console.log('');
 
@@ -3139,9 +3166,9 @@ async function main() {
     process.exitCode = 1;
 
   } finally {
-    if (mcp?.close)   try { mcp.close();         } catch {}
-    if (stagingProc)  stagingProc.kill();
-    if (serverProc)   serverProc.kill();
+    if (mcp?.close) try { mcp.close(); } catch { }
+    if (stagingProc) stagingProc.kill();
+    if (serverProc) serverProc.kill();
 
     const total = passed + failed;
     console.log('\n' + '\u2500'.repeat(56));
@@ -3150,8 +3177,8 @@ async function main() {
       console.log('\nFailed assertions:');
       failLog.forEach(f => console.log(`  \u2717 ${f}`));
     }
-    if (failed > 0)      process.exitCode = 1;
-    else if (total > 0)  console.log('\n\u2705 All hard assertions passed.');
+    if (failed > 0) process.exitCode = 1;
+    else if (total > 0) console.log('\n\u2705 All hard assertions passed.');
   }
 }
 
