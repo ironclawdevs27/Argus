@@ -58,8 +58,8 @@ export function generateTargetsJs(routes, options = {}) {
 
   const routeLines = routes.length
     ? routes.map(r => {
-        const wf = r.waitFor ? `'${r.waitFor}'` : 'null';
-        return `  { path: '${r.path}', name: '${r.name}', critical: ${r.critical}, waitFor: ${wf} },`;
+        const wf = r.waitFor ? JSON.stringify(r.waitFor) : 'null';
+        return `  { path: ${JSON.stringify(r.path)}, name: ${JSON.stringify(r.name)}, critical: ${!!r.critical}, waitFor: ${wf} },`;
       }).join('\n')
     : `  { path: '/', name: 'Home', critical: true, waitFor: 'main' },`;
 
@@ -155,7 +155,7 @@ export function generateEnvFile(options = {}) {
 SLACK_SIGNING_SECRET=${slackSecret}
 SLACK_CHANNEL_ID=${slackCritical}
 SLACK_ALERT_CHANNEL_ID=${slackWarnings}
-# SLACK_CHANNEL_DIGEST=${slackDigest}`
+${slackDigest ? `SLACK_CHANNEL_DIGEST=${slackDigest}` : '# SLACK_CHANNEL_DIGEST='}`
     : `# SLACK_BOT_TOKEN=xoxb-...
 # SLACK_SIGNING_SECRET=...
 # SLACK_CHANNEL_ID=
@@ -285,8 +285,8 @@ async function main() {
       console.warn('  ⚠  .env already exists — skipping write to preserve existing credentials. Delete it manually to regenerate.');
     } else {
       fs.writeFileSync('.env', envContent, 'utf8');
+      tick('Wrote .env');
     }
-    tick('Wrote .env');
 
     const targetsPath = path.join('src', 'config', 'targets.js');
     fs.mkdirSync(path.dirname(targetsPath), { recursive: true });

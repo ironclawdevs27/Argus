@@ -134,12 +134,16 @@ async function captureAndParseSnapshot(mcp) {
   try {
     await mcp.take_memory_snapshot({ filePath });
 
-    if (!fs.existsSync(filePath)) {
-      console.warn(`[ARGUS] Snapshot file not written at ${filePath}`);
-      return null;
+    let raw;
+    try {
+      raw = await fs.promises.readFile(filePath, 'utf8');
+    } catch (readErr) {
+      if (readErr.code === 'ENOENT') {
+        console.warn(`[ARGUS] Snapshot file not written at ${filePath}`);
+        return null;
+      }
+      throw readErr;
     }
-
-    const raw      = fs.readFileSync(filePath, 'utf8');
     const snapshot = JSON.parse(raw);
     return parseV8Snapshot(snapshot);
   } catch (err) {

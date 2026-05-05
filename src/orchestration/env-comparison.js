@@ -133,22 +133,24 @@ async function compareRoute(route, mcp) {
     );
 
     try {
+      // Pass a fixed pixelmatch color-sensitivity (0.1 = 10% per-channel tolerance);
+      // SCREENSHOT_THRESHOLD is a separate %‑of‑pixels threshold used only for alerting.
       const { diffPercent } = await compareScreenshots(
         devData.screenshotPath,
         stagingData.screenshotPath,
         diffImagePath,
-        SCREENSHOT_THRESHOLD
+        0.1
       );
 
       if (diffPercent > SCREENSHOT_THRESHOLD) {
         diffs.push({
           type: 'screenshot',
-          diffPercent: diffPercent.toFixed(2),
+          diffPercent: parseFloat(diffPercent.toFixed(2)),
           threshold: SCREENSHOT_THRESHOLD,
           diffImagePath,
           devScreenshot: devData.screenshotPath,
           stagingScreenshot: stagingData.screenshotPath,
-          severity: diffPercent > 5 ? 'warning' : 'info',
+          severity: diffPercent > SCREENSHOT_THRESHOLD * 10 ? 'warning' : 'info',
           description: `Visual diff ${diffPercent.toFixed(2)}% (threshold: ${SCREENSHOT_THRESHOLD}%)`,
         });
       }
@@ -376,7 +378,9 @@ async function runCssAnalysisMode(mcp) {
   console.log(`[ARGUS] CSS analysis report: ${reportPath}`);
 
   // Dispatch to Slack
-  await dispatchCssAnalysisToSlack(report);
+  await dispatchCssAnalysisToSlack(report).catch(err =>
+    console.error('[ARGUS] CSS Slack dispatch failed:', err.message)
+  );
 
   return report;
 }
@@ -401,7 +405,7 @@ async function dispatchCssAnalysisToSlack(report) {
         url: routeResult.url,
         screenshotPath: routeResult.screenshot,
         details: api,
-      });
+      }).catch(err => console.error('[ARGUS] Slack dispatch failed (css critical):', err.message));
     }
 
     // CSS overrides + leaks + duplicate APIs bundled as one warning per route
@@ -415,7 +419,7 @@ async function dispatchCssAnalysisToSlack(report) {
         url: routeResult.url,
         screenshotPath: routeResult.screenshot,
         details: { route: routeResult.route, findings: warningItems },
-      });
+      }).catch(err => console.error('[ARGUS] Slack dispatch failed (css warning):', err.message));
     }
 
     // Summary as info digest
@@ -428,7 +432,7 @@ async function dispatchCssAnalysisToSlack(report) {
         url: routeResult.url,
         screenshotPath: null,
         details: summary,
-      });
+      }).catch(err => console.error('[ARGUS] Slack dispatch failed (css info):', err.message));
     }
   }
 }
@@ -440,6 +444,7 @@ async function dispatchCssAnalysisToSlack(report) {
  */
 async function dispatchComparisonToSlack(report) {
   for (const routeResult of report.routes) {
+    if (!routeResult.diffs?.length) continue;
     const criticals = routeResult.diffs.filter(d => d.severity === 'critical');
     const warnings = routeResult.diffs.filter(d => d.severity === 'warning');
 
@@ -455,7 +460,7 @@ async function dispatchComparisonToSlack(report) {
           devUrl: routeResult.devUrl,
           stagingUrl: routeResult.stagingUrl,
         },
-      });
+      }).catch(err => console.error('[ARGUS] Slack dispatch failed (comparison critical):', err.message));
     }
 
     if (warnings.length > 0) {
@@ -473,7 +478,7 @@ async function dispatchComparisonToSlack(report) {
           stagingUrl: routeResult.stagingUrl,
           diffs: warnings,
         },
-      });
+      }).catch(err => console.error('[ARGUS] Slack dispatch failed (comparison warning):', err.message));
     }
   }
 }

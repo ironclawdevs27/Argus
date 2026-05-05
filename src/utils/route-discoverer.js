@@ -43,6 +43,7 @@ function walkDir(dir) {
   const results = [];
   if (!fs.existsSync(dir)) return results;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) continue; // avoid symlink cycles
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       results.push(...walkDir(full));
@@ -63,21 +64,33 @@ function walkDir(dir) {
  * @param {string} baseUrl
  * @returns {Promise<string[]>}
  */
+const SITEMAP_MAX_BYTES = 5 * 1024 * 1024; // 5 MB cap — prevents OOM on giant sitemaps
+const SITEMAP_MAX_URLS  = 500;              // cap URL list to avoid unbounded crawls
+
 export async function discoverFromSitemap(baseUrl) {
+  const origin = new URL(baseUrl).origin;
   const sitemapUrl = `${baseUrl.replace(/\/$/, '')}/sitemap.xml`;
   try {
     const res = await fetch(sitemapUrl, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) return [];
-    const xml = await res.text();
+
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > SITEMAP_MAX_BYTES) return []; // oversized — skip
+    const xml = new TextDecoder().decode(buf);
 
     // Sitemap index: follow first child sitemap only (avoid unbounded fan-out)
     // Match <loc> inside a <sitemap> element to avoid picking up a <url><loc> entry.
     if (/<sitemapindex/i.test(xml)) {
       const childMatch = xml.match(/<sitemap[^>]*>[\s\S]*?<loc>([\s\S]*?)<\/loc>/i);
       if (!childMatch) return [];
-      const childRes = await fetch(childMatch[1].trim(), { signal: AbortSignal.timeout(10000) });
+      const childUrl = childMatch[1].trim();
+      // SSRF: child sitemap must be same origin as baseUrl
+      try { if (new URL(childUrl).origin !== origin) return []; } catch { return []; }
+      const childRes = await fetch(childUrl, { signal: AbortSignal.timeout(10000) });
       if (!childRes.ok) return [];
-      return parseLocElements(await childRes.text(), baseUrl);
+      const childBuf = await childRes.arrayBuffer();
+      if (childBuf.byteLength > SITEMAP_MAX_BYTES) return [];
+      return parseLocElements(new TextDecoder().decode(childBuf), baseUrl);
     }
 
     return parseLocElements(xml, baseUrl);
@@ -90,6 +103,7 @@ function parseLocElements(xml, baseUrl) {
   const origin = new URL(baseUrl).origin;
   const paths = new Set();
   for (const m of xml.matchAll(/<loc>([\s\S]*?)<\/loc>/gi)) {
+    if (paths.size >= SITEMAP_MAX_URLS) break;
     const raw = m[1].trim();
     try {
       const u = new URL(raw);

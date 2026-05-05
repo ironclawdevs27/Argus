@@ -47,6 +47,11 @@ function esc(str) {
     .replace(/"/g, '&quot;');
 }
 
+function safeHref(url) {
+  const s = String(url ?? '');
+  return /^https?:\/\//i.test(s) ? esc(s) : '#';
+}
+
 // ── Screenshot embedding ──────────────────────────────────────────────────────
 
 function imgTag(filePath, alt = 'Screenshot', style = '') {
@@ -114,7 +119,7 @@ function renderRoute(route) {
       .sort(([a], [b]) => Number(a) - Number(b))
       .map(([vp, fp]) => `
         <div style="text-align:center">
-          <div style="font-size:11px;color:#6b7280;margin-bottom:4px">${vp}px</div>
+          <div style="font-size:11px;color:#6b7280;margin-bottom:4px">${esc(String(vp))}px</div>
           ${imgTag(fp, `${route.route} at ${vp}px`, 'width:100%')}
         </div>`).join('');
     responsiveGrid = `
@@ -135,7 +140,7 @@ function renderRoute(route) {
     <div style="background:${headerBg};border-bottom:1px solid #e5e7eb;padding:14px 20px;display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px">
       <div>
         <h3 style="margin:0;font-size:16px;color:${headerColor}">${esc(route.route)}</h3>
-        <a href="${esc(route.url)}" style="font-size:12px;color:#6b7280;word-break:break-all">${esc(route.url)}</a>
+        <a href="${safeHref(route.url)}" style="font-size:12px;color:#6b7280;word-break:break-all">${esc(route.url)}</a>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${pills}</div>
     </div>
@@ -245,7 +250,12 @@ function buildHtml(report) {
  * @returns {string} Absolute path to the written report.html
  */
 export function generateHtmlReport(reportPath) {
-  const report  = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+  let report;
+  try {
+    report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+  } catch (err) {
+    throw new Error(`[ARGUS] Failed to parse report JSON at ${reportPath}: ${err.message}`);
+  }
   const html    = buildHtml(report);
   const outPath = path.join(path.dirname(path.resolve(reportPath)), 'report.html');
 

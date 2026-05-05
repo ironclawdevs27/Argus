@@ -92,6 +92,16 @@ function classifyIssue(issue, url, isCritical) {
     }
   }
 
+  // Catch-all: emit unclassified issues so novel Chrome issue types are never silently dropped
+  if (text) {
+    return {
+      type:     'unclassified_devtools_issue',
+      message:  `Unclassified DevTools issue: ${text.slice(0, 200)}`,
+      severity: 'info',
+      url,
+    };
+  }
+
   return null;
 }
 
@@ -132,7 +142,7 @@ export async function analyzeIssues(mcp, url, isCritical = false) {
 
   let baseline = 0;
   try {
-    const priorRaw = await mcp.list_console_messages({ types: ['issue'] });
+    const priorRaw = await mcp.list_console_messages({ types: ['issue'], includePreservedMessages: true });
     baseline = normalizeArray(priorRaw).length;
   } catch {
     // Issues API may not be available — baseline stays 0

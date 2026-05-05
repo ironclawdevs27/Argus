@@ -32,10 +32,15 @@ function collectSourceFiles(sourceDir) {
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
       if (e.name.startsWith('.') || e.name === 'node_modules' || e.name === 'dist' || e.name === 'build' || e.name === '.next') continue;
+      if (e.isSymbolicLink()) continue; // avoid symlink cycles
       const full = path.join(dir, e.name);
       if (e.isDirectory()) { walk(full); }
       else if (SOURCE_EXTENSIONS.has(path.extname(e.name))) {
-        try { files.push({ filePath: full, content: fs.readFileSync(full, 'utf8') }); } catch {}
+        try {
+          const stat = fs.statSync(full);
+          if (stat.size > 1_000_000) continue; // skip files > 1MB (minified bundles, etc.)
+          files.push({ filePath: full, content: fs.readFileSync(full, 'utf8') });
+        } catch {}
       }
     }
   }
@@ -110,6 +115,7 @@ export function auditEnvVariables(sourceDir, envFile) {
       referencedIn: files.slice(0, 5),
       message:      `process.env.${name} referenced in source but not declared in any .env file (found in: ${files.slice(0, 3).join(', ')})`,
       severity:     'warning',
+      url:          '',
     }));
 }
 
@@ -152,6 +158,7 @@ export function detectFeatureFlagLeakage(sourceDir, envFile) {
         file:    rel,
         message: `process.env.${name} is used in a conditional in ${rel} but is ${value === undefined ? 'not set in .env' : `"${value}" (falsy)`} — that code branch is permanently disabled`,
         severity: 'warning',
+        url:     '',
       });
     }
   }
@@ -193,6 +200,7 @@ export function enrichErrorsWithSource(consoleFindings) {
       stackFrames:     frames,
       message:         `Console error in ${top.file}:${top.line} (fn: ${top.fn})`,
       severity:        'info',
+      url:             '',
     });
   }
   return enriched;
@@ -250,6 +258,7 @@ export async function detectDeadRoutes(baseUrl, discoveredLinks, alreadyTestedPa
           status:   404,
           message:  `Internal link ${normalized} returns 404`,
           severity: 'warning',
+          url:      baseUrl,
         });
       }
     } catch { /* network error — skip */ }

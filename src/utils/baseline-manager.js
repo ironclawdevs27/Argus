@@ -100,17 +100,19 @@ export function saveBaseline(baselineFile, report) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   const routes = {};
   for (const routeResult of report.routes) {
-    routes[routeResult.url] = routeResult.errors.map(findingKey);
+    routes[routeResult.url] = (routeResult.errors ?? []).map(findingKey);
   }
   const flows = {};
   for (const flowResult of (report.flows ?? [])) {
-    flows[flowResult.flowName] = flowResult.findings.map(findingKey);
+    flows[flowResult.flowName] = (flowResult.findings ?? []).map(findingKey);
   }
   const codebase = (report.codebase ?? []).map(findingKey);
+  const tmpBaseline = baselineFile + '.tmp';
   fs.writeFileSync(
-    baselineFile,
+    tmpBaseline,
     JSON.stringify({ savedAt: new Date().toISOString(), routes, flows, codebase }, null, 2),
   );
+  fs.renameSync(tmpBaseline, baselineFile);
 }
 
 /**
@@ -209,6 +211,15 @@ export function appendTrend(trendsFile, entry) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
   const lockFile = trendsFile + '.lock';
+  // Remove stale lock files left by crashed processes (older than 60s)
+  try {
+    const lockStat = fs.statSync(lockFile);
+    if (Date.now() - lockStat.mtimeMs > 60_000) {
+      fs.unlinkSync(lockFile);
+      console.warn('[ARGUS] Removed stale trend lock file:', lockFile);
+    }
+  } catch { /* lock doesn't exist — good */ }
+
   let lockFd = null;
   try {
     lockFd = fs.openSync(lockFile, 'wx');
@@ -230,7 +241,10 @@ export function appendTrend(trendsFile, entry) {
       } catch { trends = []; }
     }
     trends.push(entry);
-    fs.writeFileSync(trendsFile, JSON.stringify(trends, null, 2));
+    if (trends.length > 500) trends = trends.slice(-500);
+    const tmpTrends = trendsFile + '.tmp';
+    fs.writeFileSync(tmpTrends, JSON.stringify(trends, null, 2));
+    fs.renameSync(tmpTrends, trendsFile);
   } finally {
     try { fs.closeSync(lockFd); } catch {}
     try { fs.unlinkSync(lockFile); } catch {}

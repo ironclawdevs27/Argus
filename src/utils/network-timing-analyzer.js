@@ -26,10 +26,10 @@ const STATIC_ASSET_EXT = /\.(png|jpg|jpeg|gif|webp|avif|svg|ico|woff2?|ttf|otf|e
  * HAR 1.2 uses req.timings.wait; chrome-devtools-mcp uses req.timing.wait.
  */
 function getWaitMs(req) {
-  if (req.timing   && typeof req.timing.wait   === 'number') return req.timing.wait;
-  if (req.timings  && typeof req.timings.wait  === 'number') return req.timings.wait;
-  if (typeof req.time     === 'number' && req.time     > 0)  return req.time;
-  if (typeof req.duration === 'number' && req.duration > 0)  return req.duration;
+  if (req.timing  && typeof req.timing.wait  === 'number') return req.timing.wait;
+  if (req.timings && typeof req.timings.wait === 'number') return req.timings.wait;
+  // req.time/req.duration represent total request duration (not TTFB) — omitted to
+  // avoid flagging large-payload responses as slow when server response was fast.
   return null;
 }
 
@@ -55,9 +55,10 @@ export function parseNetworkTiming(reqs, pageUrl) {
     if (isStaticAsset(req.url)) continue;
     if (isSameOrigin(req.url, pageUrl)) continue;  // covered by NETWORK_PERF_SCRIPT
 
-    // Skip failed requests — status errors are caught by classifyNetworkRequest
+    // Skip failed/aborted requests — status errors are caught by classifyNetworkRequest
     const status = req.status ?? 0;
-    if (status !== 0 && (status < 200 || status >= 400)) continue;
+    if (status === 0) continue; // aborted or in-flight — timing fields are unreliable
+    if (status < 200 || status >= 400) continue;
 
     const waitMs = getWaitMs(req);
     if (waitMs == null || waitMs < THIRD_PARTY_WARNING_MS) continue;

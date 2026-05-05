@@ -58,12 +58,15 @@ export function mergeRunResults(run1, run2) {
     }
   }
 
+  // Build O(1) index map to avoid O(n²) findIndex scan on large confirmed arrays
+  const confirmedIndexByKey = new Map(confirmed.map((c, i) => [findingKey(c), i]));
+
   for (const f of run2.errors) {
     const key = findingKey(f);
     if (keys1.has(key)) {
       // GAP-52: Prefer run2's version of confirmed findings — run2 is more recent and
       // may have updated metadata. Replace run1's copy in the confirmed array.
-      const idx = confirmed.findIndex(c => findingKey(c) === key);
+      const idx = confirmedIndexByKey.get(key) ?? -1;
       if (idx !== -1) confirmed[idx] = { ...f, flaky: false };
     } else {
       flaky.push({ ...f, severity: 'info', flaky: true });

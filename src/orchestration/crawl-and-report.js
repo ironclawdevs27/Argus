@@ -583,7 +583,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
   }
 
   // 5. Console messages — sliced from per-route baseline (D5)
-  const consoleMsgs = normalizeArray(await mcp.list_console_messages()).slice(consoleBaseline);
+  const consoleMsgs = normalizeArray(await mcp.list_console_messages().catch(() => [])).slice(consoleBaseline);
   for (const msg of consoleMsgs) {
     const text = (msg.text ?? msg.message ?? '');
     // CORS messages are handled exclusively in step 5b (D6.4)
@@ -874,10 +874,14 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
 
   // 12. Screenshot
   const screenshotPath = path.join(OUTPUT_DIR, `screenshot-${slugify(route.name)}-${Date.now()}.png`);
-  const screenshotData = await mcp.take_screenshot({ format: 'png' });
-  if (screenshotData?.data) {
-    fs.writeFileSync(screenshotPath, Buffer.from(screenshotData.data, 'base64'));
-    result.screenshot = screenshotPath;
+  try {
+    const screenshotData = await mcp.take_screenshot({ format: 'png' });
+    if (screenshotData?.data) {
+      fs.writeFileSync(screenshotPath, Buffer.from(screenshotData.data, 'base64'));
+      result.screenshot = screenshotPath;
+    }
+  } catch (err) {
+    console.warn(`[ARGUS] Screenshot failed for ${url}: ${err.message}`);
   }
 
   return result;
@@ -1035,8 +1039,12 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
     const responsiveScreenshotPaths = {};
     for (const [viewport, data] of Object.entries(responsiveShots)) {
       const shotPath = path.join(OUTPUT_DIR, `screenshot-${slugify(route.name)}-responsive-${viewport}-${Date.now()}.png`);
-      fs.writeFileSync(shotPath, Buffer.from(data, 'base64'));
-      responsiveScreenshotPaths[viewport] = shotPath;
+      try {
+        fs.writeFileSync(shotPath, Buffer.from(data, 'base64'));
+        responsiveScreenshotPaths[viewport] = shotPath;
+      } catch (err) {
+        console.warn(`[ARGUS] Responsive screenshot write failed (${viewport}): ${err.message}`);
+      }
     }
     if (Object.keys(responsiveScreenshotPaths).length > 0) {
       result.responsiveScreenshots = responsiveScreenshotPaths;
@@ -1283,7 +1291,7 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
     for (const err of routeResult.errors) countFinding(err);
   }
   for (const flowResult of (report.flows ?? [])) {
-    for (const finding of flowResult.findings) countFinding(finding);
+    for (const finding of (flowResult.findings ?? [])) countFinding(finding);
   }
   for (const finding of (report.codebase ?? [])) {
     countFinding(finding);
@@ -1308,7 +1316,12 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
   // Write JSON report
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const reportPath = path.join(OUTPUT_DIR, `error-report-${timestamp}.json`);
-  fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+  try {
+    fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+  } catch (err) {
+    console.error(`[ARGUS] Failed to write report JSON: ${err.message}`);
+    throw err;
+  }
   console.log(`[ARGUS] Report written: ${reportPath}`);
 
   // D7.7: dispatch to Slack when configured; otherwise generate HTML report
@@ -1368,7 +1381,7 @@ async function dispatchToSlack(report, diff) {
   // ── Criticals: one Slack message per affected route ──────────────────────
   // When a baseline exists, only alert on findings that are new this run.
   for (const routeResult of report.routes) {
-    const criticals = routeResult.errors.filter(e => e.severity === 'critical' && e.isNew !== false);
+    const criticals = routeResult.errors.filter(e => e.severity === 'critical' && e.isNew === true);
     if (criticals.length === 0) continue;
 
     const description = criticals
@@ -1387,7 +1400,7 @@ async function dispatchToSlack(report, diff) {
 
   // ── Warnings: one Slack message per affected route ────────────────────────
   for (const routeResult of report.routes) {
-    const warnings = routeResult.errors.filter(e => e.severity === 'warning' && e.isNew !== false);
+    const warnings = routeResult.errors.filter(e => e.severity === 'warning' && e.isNew === true);
     if (warnings.length === 0) continue;
 
     const description = warnings
@@ -1429,7 +1442,7 @@ async function dispatchToSlack(report, diff) {
 
   // ── Flow failures (v3 Phase B5): one message per failed flow ─────────────
   for (const flowResult of (report.flows ?? [])) {
-    const flowCriticals = flowResult.findings.filter(f => f.severity === 'critical' && f.isNew !== false);
+    const flowCriticals = (flowResult.findings ?? []).filter(f => f.severity === 'critical' && f.isNew === true);
     if (flowCriticals.length > 0) {
       await postBugReport({
         severity: 'critical',
@@ -1440,7 +1453,7 @@ async function dispatchToSlack(report, diff) {
         details: { flow: flowResult.flowName, errors: flowCriticals },
       });
     }
-    const flowWarnings = flowResult.findings.filter(f => f.severity === 'warning' && f.isNew !== false);
+    const flowWarnings = (flowResult.findings ?? []).filter(f => f.severity === 'warning' && f.isNew === true);
     if (flowWarnings.length > 0) {
       await postBugReport({
         severity: 'warning',
@@ -1454,7 +1467,7 @@ async function dispatchToSlack(report, diff) {
   }
 
   // ── C1 codebase criticals + warnings: bundle into one message each ───────
-  const cbCriticals = (report.codebase ?? []).filter(f => f.severity === 'critical' && f.isNew !== false);
+  const cbCriticals = (report.codebase ?? []).filter(f => f.severity === 'critical' && f.isNew === true);
   if (cbCriticals.length > 0) {
     await postBugReport({
       severity: 'critical',
@@ -1465,7 +1478,7 @@ async function dispatchToSlack(report, diff) {
       details: { codebase: cbCriticals },
     });
   }
-  const cbWarnings = (report.codebase ?? []).filter(f => f.severity === 'warning' && f.isNew !== false);
+  const cbWarnings = (report.codebase ?? []).filter(f => f.severity === 'warning' && f.isNew === true);
   if (cbWarnings.length > 0) {
     await postBugReport({
       severity: 'warning',
@@ -1504,7 +1517,7 @@ async function dispatchToSlack(report, diff) {
 
   // Flow info findings in digest
   for (const flowResult of (report.flows ?? [])) {
-    const flowInfos = flowResult.findings.filter(e => e.severity === 'info');
+    const flowInfos = (flowResult.findings ?? []).filter(e => e.severity === 'info');
     if (flowInfos.length === 0) continue;
     digestLines.push(`*Flow: ${flowResult.flowName}* (${flowResult.stepsCompleted}/${flowResult.totalSteps} steps — ${flowResult.status})`);
     for (const e of flowInfos) {
@@ -1519,7 +1532,7 @@ async function dispatchToSlack(report, diff) {
     for (const f of cbInfos) digestLines.push(`  • [${f.type}] ${errorText(f)}`);
   }
 
-  const allFlowInfos = (report.flows ?? []).flatMap(f => f.findings.filter(e => e.severity === 'info'));
+  const allFlowInfos = (report.flows ?? []).flatMap(f => (f.findings ?? []).filter(e => e.severity === 'info'));
 
   if (allInfos.length > 0 || allFlowInfos.length > 0 || cbInfos.length > 0) {
     const runDate = new Date(report.generatedAt).toLocaleString();

@@ -102,10 +102,13 @@ export function parseSeoAnalysisResult(rawResult, url) {
       url,
     });
   } else if (data.ogImageUrl && !data.ogImageUrl.startsWith('http://') && !data.ogImageUrl.startsWith('https://')) {
+    const isProtocolRelative = data.ogImageUrl.startsWith('//');
     bugs.push({
       type:     'seo_og_image_relative_url',
       property: 'og:image',
-      message:  `og:image URL is relative ("${data.ogImageUrl}") — Open Graph requires an absolute URL`,
+      message:  isProtocolRelative
+        ? `og:image URL is protocol-relative ("${data.ogImageUrl}") — Open Graph requires an absolute URL with scheme (https://)`
+        : `og:image URL is relative ("${data.ogImageUrl}") — Open Graph requires an absolute URL`,
       severity: 'warning',
       url,
     });

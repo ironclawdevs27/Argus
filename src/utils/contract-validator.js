@@ -7,7 +7,8 @@
  * URL matching: exact pathname or pathname-prefix; full URL for http(s) contracts.
  */
 
-import fs from 'fs';
+import fs   from 'fs';
+import path from 'path';
 
 /**
  * Lightweight JSON Schema validator.
@@ -50,9 +51,15 @@ export function validateSchema(value, schema, path = '') {
     }
   }
 
-  // Array items — validate first element as representative sample
+  // Array items — validate first 5 elements; deduplicate identical violations
   if (schema.items && Array.isArray(value) && value.length > 0) {
-    violations.push(...validateSchema(value[0], schema.items, `${label}[0]`));
+    const seen = new Set();
+    for (let i = 0; i < Math.min(value.length, 5); i++) {
+      for (const v of validateSchema(value[i], schema.items, `${label}[${i}]`)) {
+        const norm = v.replace(/\[\d+\]/, '[*]');
+        if (!seen.has(norm)) { seen.add(norm); violations.push(v); }
+      }
+    }
   }
 
   return violations;
@@ -98,8 +105,15 @@ export function matchesContract(reqUrl, reqMethod, contract) {
 function loadSchema(contract) {
   if (contract.schema) return contract.schema;
   if (contract.schemaFile) {
+    // Prevent path traversal — schemaFile must stay within the project directory
+    const resolved = path.resolve(contract.schemaFile);
+    const cwd = process.cwd();
+    if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
+      console.warn('[ARGUS] contract-validator: schemaFile outside project directory — skipping:', contract.schemaFile);
+      return null;
+    }
     try {
-      return JSON.parse(fs.readFileSync(contract.schemaFile, 'utf8'));
+      return JSON.parse(fs.readFileSync(resolved, 'utf8'));
     } catch {
       return null;
     }

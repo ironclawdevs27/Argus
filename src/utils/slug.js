@@ -3,5 +3,6 @@
  * Used for screenshot filenames and report paths.
  */
 export function slugify(str) {
-  return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if (str == null) return 'unnamed';
+  return (String(str).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')) || 'unnamed';
 }

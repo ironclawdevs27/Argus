@@ -32,6 +32,8 @@
  *   no_js_errors        — window.__argusErrors must be empty
  */
 
+import os   from 'os';
+import path from 'path';
 import { unwrapEval } from './mcp-client.js';
 
 const INJECT_ERROR_LISTENER = `() => {
@@ -60,7 +62,7 @@ const DEFAULT_TIMEOUT = 10_000;
  *
  * GAP-75 / GAP-77: Added to support type_text and drag which require uids.
  */
-async function resolveUidForSelector(mcp, selector) {
+export async function resolveUidForSelector(mcp, selector) {
   const rawAttr = await mcp.evaluate_script({
     function: `() => {
       const el = document.querySelector(${JSON.stringify(selector)});
@@ -304,7 +306,7 @@ export async function runFlow(flow, baseUrl, mcp) {
           // step.url = absolute URL override; step.path = relative to baseUrl
           await mcp.navigate_page({ url: step.url ?? (baseUrl + (step.path ?? '')) });
           // Re-inject error listener — navigation destroys the previous page context
-          await mcp.evaluate_script({ function: INJECT_ERROR_LISTENER }).catch(() => {});
+          await mcp.evaluate_script({ function: INJECT_ERROR_LISTENER }).catch(err => console.warn('[ARGUS] flow-runner: INJECT_ERROR_LISTENER failed:', err.message));
           break;
 
         case 'fill':
@@ -326,6 +328,7 @@ export async function runFlow(flow, baseUrl, mcp) {
           break;
 
         case 'press_key':
+          if (!step.key) throw new Error('press_key: step.key is required');
           await mcp.press_key({ key: step.key });
           break;
 
@@ -435,7 +438,7 @@ export async function runFlow(flow, baseUrl, mcp) {
       let screenshotPath = null;
       try {
         const ts = Date.now();
-        screenshotPath = `/tmp/argus-flow-fail-${flow.name.replace(/[^a-z0-9]/gi, '_')}-${ts}.png`;
+        screenshotPath = path.join(os.tmpdir(), `argus-flow-fail-${flow.name.replace(/[^a-z0-9]/gi, '_')}-${ts}.png`);
         await mcp.take_screenshot({ filePath: screenshotPath });
       } catch { screenshotPath = null; }
 

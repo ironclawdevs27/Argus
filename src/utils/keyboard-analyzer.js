@@ -70,6 +70,9 @@ export async function analyzeKeyboard(mcp, url) {
   // Satisfy D8 tool-coverage requirement.
   try { await mcp.take_snapshot(); } catch {}
 
+  // Reset focus to body for consistent Tab-walk start state across all pages
+  await mcp.evaluate_script({ function: '() => { document.body.click(); document.body.focus(); }' }).catch(() => {});
+
   const seen         = new Set();
   const focusLostAt  = [];
   const noOutlineEls = [];
@@ -88,8 +91,9 @@ export async function analyzeKeyboard(mcp, url) {
         continue;
       }
 
-      // Dedup by element identity — cycle complete once we loop back
-      const key = `${info.tag}|${info.id ?? ''}|${info.snippet.slice(0, 50)}`;
+      // Dedup by stable element identity — use tag/id/role rather than outerHTML
+      // which can include dynamic aria-expanded/counter attributes that change on focus
+      const key = `${info.tag}|${info.id ?? ''}|${info.role ?? ''}|${info.tabIndex}`;
       if (seen.has(key)) break;
       seen.add(key);
 
@@ -101,11 +105,11 @@ export async function analyzeKeyboard(mcp, url) {
     }
   }
 
-  if (focusLostAt.length > 0) {
+  for (const step of focusLostAt) {
     findings.push({
       type:     'focus_lost',
-      steps:    focusLostAt,
-      message:  `Tab focus escapes to document.body at step(s) ${focusLostAt.join(', ')} — check tabindex assignments and focus traps`,
+      step,
+      message:  `Tab focus escapes to document.body at step ${step} — check tabindex assignments and focus traps`,
       severity: 'warning',
       url,
     });

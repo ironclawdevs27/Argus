@@ -45,7 +45,8 @@ export function verifySlackSignature(req) {
 
   // Reject requests older than 5 minutes (replay attack protection)
   const nowSeconds = Math.floor(Date.now() / 1000);
-  if (Math.abs(nowSeconds - parseInt(timestamp, 10)) > 300) return false;
+  const ts = parseInt(timestamp, 10);
+  if (!Number.isFinite(ts) || Math.abs(nowSeconds - ts) > 300) return false;
 
   const sigBasestring = `v0:${timestamp}:${req.rawBody}`;
   const mySignature = 'v0=' + crypto
@@ -93,24 +94,32 @@ export async function handleSlashCommand(req, res) {
     });
   }
 
-  // Validate URL
+  // Validate URL — reject invalid, non-http(s), and private/loopback addresses (SSRF prevention)
+  let parsedTarget;
   try {
-    new URL(targetUrl);
+    parsedTarget = new URL(targetUrl);
   } catch {
     return res.json({
       response_type: 'ephemeral',
       text: `⚠️ Invalid URL: \`${targetUrl}\`. Please provide a full URL including protocol.`,
     });
   }
+  if (!['http:', 'https:'].includes(parsedTarget.protocol)) {
+    return res.json({ response_type: 'ephemeral', text: '⚠️ Only http and https URLs are allowed.' });
+  }
+  if (/^(localhost|127\.|0\.0\.0\.0|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|169\.254\.|::1)/i.test(parsedTarget.hostname)) {
+    return res.json({ response_type: 'ephemeral', text: '⚠️ Private and loopback URLs are not allowed.' });
+  }
 
   // GAP-95: Strip backticks from the URL before interpolating into Slack mrkdwn — a URL
   // containing a backtick would break out of the inline code span and could alter formatting.
-  const safeUrl = targetUrl.replace(/`/g, '');
+  const safeUrl      = targetUrl.replace(/`/g, '');
+  const safeName     = user_name.replace(/[*_`~<>&]/g, '');
 
   // Respond immediately — Slack requires a response within 3 seconds
   res.json({
     response_type: 'in_channel',
-    text: `🔄 *ARGUS retest started* for \`${safeUrl}\`\nRequested by @${user_name}. Results will appear here shortly...`,
+    text: `🔄 *ARGUS retest started* for \`${safeUrl}\`\nRequested by @${safeName}. Results will appear here shortly...`,
   });
 
   // GAP-32: Attach .catch() so an unexpected rejection doesn't become an unhandled rejection
@@ -131,17 +140,22 @@ async function runRetestAsync({ targetUrl, channelId, responseUrl, requestedBy }
     // GAP-33 + GAP-40: Do NOT mutate process.env.TARGET_DEV_URL — concurrent retests share
     // the same Node.js process env and would corrupt each other's URLs. Pass targetUrl directly.
     const singleRoute = [{ path: '', name: 'Retest', critical: true, waitFor: null }];
-    const report = await runCrawl(mcp, singleRoute, targetUrl);
+    const CRAWL_TIMEOUT_MS = parseInt(process.env.ARGUS_CRAWL_TIMEOUT_MS ?? '120000', 10);
+    const report = await Promise.race([
+      runCrawl(mcp, singleRoute, targetUrl),
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`Crawl timed out after ${Math.round(CRAWL_TIMEOUT_MS / 1000)}s`)), CRAWL_TIMEOUT_MS)),
+    ]);
 
     const { summary } = report;
     const passed = summary.critical === 0;
     const emoji = passed ? '✅' : '❌';
     const status = passed ? 'PASSED' : 'FAILED';
 
+    const safeRequestedBy = (requestedBy ?? 'unknown').replace(/[*_`~<>&]/g, '');
     await getSlack().chat.postMessage({
       channel: channelId,
       text: `${emoji} *Retest ${status}* for \`${targetUrl}\`\n` +
-        `Requested by @${requestedBy}\n` +
+        `Requested by @${safeRequestedBy}\n` +
         `Critical: ${summary.critical} | Warnings: ${summary.warning} | Info: ${summary.info}`,
     });
 

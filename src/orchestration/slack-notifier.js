@@ -43,8 +43,7 @@ async function slackPostWithBackoff(args) {
       return await slack.chat.postMessage(args);
     } catch (err) {
       const isRateLimit = err.code === 'slack_webapi_rate_limited'
-        || err.message?.toLowerCase().includes('ratelimited')
-        || err.message?.includes('429');
+        || err.message?.toLowerCase().includes('ratelimited');
       if (!isRateLimit || attempt === SLACK_RATE_LIMIT_RETRIES - 1) throw err;
       const retryAfterMs = (err.retryAfter ?? 1) * 1000;
       console.warn(`[ARGUS] Slack rate limited — retrying in ${retryAfterMs}ms (attempt ${attempt + 1})`);
@@ -94,7 +93,7 @@ async function uploadFileToSlack(filePath, channelId, filename) {
       signal: AbortSignal.timeout(30000),
     });
     if (!response.ok) {
-      console.error('[ARGUS] Slack upload POST failed:', response.status, response.statusText);
+      console.error('[ARGUS] Slack upload PUT failed:', response.status, response.statusText);
       return null;
     }
   } catch (err) {
@@ -191,13 +190,13 @@ function buildBugReportBlocks({ severity, title, description, url, fileId, detai
         type: 'button',
         text: { type: 'plain_text', text: 'Acknowledge', emoji: true },
         action_id: 'acknowledge',
-        value: JSON.stringify({ title, url, severity }),
+        value: JSON.stringify({ title: title.slice(0, 100), url: url.slice(0, 200), severity }),
       },
       {
         type: 'button',
         text: { type: 'plain_text', text: 'Retest', emoji: true },
         action_id: 'retest',
-        value: JSON.stringify({ url, severity }),
+        value: JSON.stringify({ url: url.slice(0, 200), severity }),
       },
     ],
   });
@@ -305,7 +304,10 @@ export async function acknowledgeMessage(ts, channelId, acknowledgingUser) {
     });
 
     const msg = existing.messages?.[0];
-    if (!msg) return;
+    if (!msg) {
+      console.warn('[ARGUS] acknowledgeMessage: original message not found for ts:', ts);
+      return;
+    }
 
     const updatedBlocks = [
       ...(msg.blocks ?? []),

@@ -23,36 +23,29 @@ const app = express();
 const PORT = process.env.PORT ?? 3001;
 
 // ── Raw body capture (needed for Slack signature verification) ─────────────────
-// Must come before any body parser so req.rawBody is available in handlers.
-// GAP-35: Enforce a 512 KB size limit — Slack payloads are small; oversized bodies
-// indicate abuse or misconfiguration and should be rejected early.
-const MAX_RAW_BODY = 512_000;
-app.use((req, res, next) => {
-  // GAP-82: Accumulate as Buffer chunks — string concat with += coerces each Buffer to
-  // UTF-8 per-chunk and creates GC pressure; Buffer.concat defers encoding to 'end'.
-  // Avoids silent corruption of multi-byte sequences split across chunk boundaries.
-  const chunks = [];
-  let totalLength = 0;
-  req.on('data', chunk => {
-    totalLength += chunk.length;
-    if (totalLength > MAX_RAW_BODY) {
-      // GAP-97: Destroy after 'finish' so the 413 response is fully flushed first.
-      res.status(413).send('Payload Too Large');
-      res.on('finish', () => req.destroy());
-      return;
-    }
-    chunks.push(chunk);
-  });
-  req.on('end', () => {
-    req.rawBody = Buffer.concat(chunks).toString('utf8');
-    next();
-  });
-});
+// Uses Express body-parser verify callbacks so req.rawBody is populated without
+// consuming the stream separately (separate stream consumer would leave body parsers
+// with an already-exhausted stream and produce empty req.body on every request).
+// GAP-35: 512 KB limit matches Slack's max payload size.
+const BODY_LIMIT = '512kb';
+
+function captureRawBody(req, _res, buf) {
+  req.rawBody = buf.toString('utf8');
+}
 
 // Parse URL-encoded bodies (Slack slash commands + interactions)
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: BODY_LIMIT, verify: captureRawBody }));
 // Parse JSON bodies
-app.use(express.json());
+app.use(express.json({ limit: BODY_LIMIT, verify: captureRawBody }));
+
+// ── Request error handler ──────────────────────────────────────────────────────
+app.use((req, res, next) => {
+  req.on('error', err => {
+    console.error('[ARGUS] Request stream error:', err.message);
+    if (!res.headersSent) res.status(400).send('Bad request');
+  });
+  next();
+});
 
 // ── Routes ─────────────────────────────────────────────────────────────────────
 

@@ -87,7 +87,11 @@ async function handleRetestAction({ action, messageTs, channelId, userName }) {
   // a number or boolean from a crafted payload, which passes the truthy check but breaks
   // downstream string operations and URL construction in runCrawl.
   const targetUrl = parsedValue.url;
-  if (typeof targetUrl !== 'string' || !targetUrl.startsWith('http')) return;
+  if (typeof targetUrl !== 'string') return;
+  let _parsed;
+  try { _parsed = new URL(targetUrl); } catch { return; }
+  if (!['http:', 'https:'].includes(_parsed.protocol)) return;
+  if (/^(localhost|127\.|0\.0\.0\.0|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|169\.254\.|::1)/i.test(_parsed.hostname)) return;
 
   let mcp;
   try {
@@ -95,12 +99,17 @@ async function handleRetestAction({ action, messageTs, channelId, userName }) {
 
     // GAP-34 + GAP-40: Do NOT mutate process.env.TARGET_DEV_URL — concurrent retests share
     // the same Node.js process env and would corrupt each other's URLs. Pass targetUrl directly.
-    const report = await runCrawl(mcp, [{ path: '', name: 'Retest', critical: true, waitFor: null }], targetUrl);
+    const CRAWL_TIMEOUT_MS = parseInt(process.env.ARGUS_CRAWL_TIMEOUT_MS ?? '120000', 10);
+    const report = await Promise.race([
+      runCrawl(mcp, [{ path: '', name: 'Retest', critical: true, waitFor: null }], targetUrl),
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`Crawl timed out after ${Math.round(CRAWL_TIMEOUT_MS / 1000)}s`)), CRAWL_TIMEOUT_MS)),
+    ]);
 
     const passed = report.summary.critical === 0;
+    const safeUserName = (userName ?? 'unknown').replace(/[*_`~<>&]/g, '');
     const details =
       `URL: ${targetUrl}\n` +
-      `Triggered by: @${userName}\n` +
+      `Triggered by: @${safeUserName}\n` +
       `Critical: ${report.summary.critical} | Warnings: ${report.summary.warning} | Info: ${report.summary.info}`;
 
     await postRetestResult(messageTs, channelId, passed ? 'pass' : 'fail', details);

@@ -18,6 +18,8 @@
  * cannot abort the entire analysis.
  */
 
+import { resolveUidForSelector } from './flow-runner.js';
+
 // ── Discovery script ──────────────────────────────────────────────────────────
 // Runs in the live page to find hover-testable candidates.
 // Returns JSON array of { kind, selector, controls, tooltipId, label }.
@@ -143,6 +145,7 @@ export async function analyzeHover(mcp, url, isCritical = false) {
 
   try {
     await mcp.navigate_page({ url });
+    await mcp.wait_for({ state: 'networkidle' }).catch(() => {});
     await new Promise(r => setTimeout(r, 1000));
   } catch {
     return findings;
@@ -159,7 +162,10 @@ export async function analyzeHover(mcp, url, isCritical = false) {
 
   for (const candidate of candidates) {
     try {
-      await mcp.hover({ selector: candidate.selector });
+      // MCP hover requires uid (not CSS selector) — resolve via snapshot
+      const hoverUid = await resolveUidForSelector(mcp, candidate.selector);
+      if (!hoverUid) continue; // element not found in snapshot — skip
+      await mcp.hover({ uid: hoverUid });
       await new Promise(r => setTimeout(r, 350));
 
       if (candidate.kind === 'haspopup') {

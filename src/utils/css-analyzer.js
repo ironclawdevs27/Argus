@@ -286,6 +286,11 @@ export function parseCssAnalysisResult(rawResult, url) {
   try {
     const str = typeof rawResult === 'string' ? rawResult : JSON.stringify(rawResult);
     data = JSON.parse(str);
+    // Detect double-encoding: if the result is still a string after first parse, unwrap once more
+    if (typeof data === 'string') {
+      console.warn('[ARGUS] css-analyzer: double-encoded JSON detected — unwrapping');
+      data = JSON.parse(data);
+    }
   } catch {
     return [{
       type: 'css_analysis_error',
