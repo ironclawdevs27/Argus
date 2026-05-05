@@ -37,6 +37,10 @@ export async function compareScreenshots(pathA, pathB, diffOutputPath, threshold
   const width = Math.min(imgA.width, imgB.width);
   const height = Math.min(imgA.height, imgB.height);
 
+  if (width === 0 || height === 0) {
+    throw new Error(`compareScreenshots: one or both screenshots have zero dimensions (${imgA.width}×${imgA.height} vs ${imgB.width}×${imgB.height}) — screenshot capture likely failed`);
+  }
+
   // Crop both images to matching dimensions
   const croppedA = cropPNG(imgA, width, height);
   const croppedB = cropPNG(imgB, width, height);
@@ -89,6 +93,10 @@ function cropPNG(png, width, height) {
  * @returns {object[]} Array of diff entries
  */
 export function diffDomSnapshots(domA, domB) {
+  if (typeof domA !== 'string' || typeof domB !== 'string') {
+    console.warn('[ARGUS] diffDomSnapshots: non-string argument — one or both DOM snapshots may be missing');
+    return [];
+  }
   const diffs = [];
 
   // Parse tag/attribute counts as a lightweight structural fingerprint

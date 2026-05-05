@@ -27,7 +27,7 @@ import 'dotenv/config';
 import { routes, config, auth, flows, apiContracts, severityOverrides, codebase, autoDiscover } from '../config/targets.js';
 import { discoverRoutes } from '../utils/route-discoverer.js';
 import { analyzeCodebase, detectDeadRoutes, INTERNAL_LINKS_SCRIPT } from '../utils/codebase-analyzer.js';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { postBugReport } from './slack-notifier.js';
 import { isSlackConfigured } from '../utils/slack-guard.js';
 import { isGitHubConfigured, reportToGitHub } from '../utils/github-reporter.js';
@@ -117,10 +117,13 @@ function openInBrowser(filePath) {
   if (process.env.CI) return;
   try {
     const abs = path.resolve(filePath);
-    const cmd = process.platform === 'win32' ? `start "" "${abs}"`
-              : process.platform === 'darwin' ? `open "${abs}"`
-              : `xdg-open "${abs}"`;
-    exec(cmd, () => {});
+    if (process.platform === 'win32') {
+      execFile('cmd', ['/c', 'start', '', abs], () => {});
+    } else if (process.platform === 'darwin') {
+      execFile('open', [abs], () => {});
+    } else {
+      execFile('xdg-open', [abs], () => {});
+    }
   } catch {
     // no display available — skip silently
   }
@@ -873,7 +876,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
   result.errors = deduplicateErrors(result.errors);
 
   // 12. Screenshot
-  const screenshotPath = path.join(OUTPUT_DIR, `screenshot-${slugify(route.name)}-${Date.now()}.png`);
+  const screenshotPath = path.join(OUTPUT_DIR, `screenshot-${slugify(route.name)}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.png`);
   try {
     const screenshotData = await mcp.take_screenshot({ format: 'png' });
     if (screenshotData?.data) {
@@ -1038,7 +1041,7 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
     result.errors.push(...responsiveFindings);
     const responsiveScreenshotPaths = {};
     for (const [viewport, data] of Object.entries(responsiveShots)) {
-      const shotPath = path.join(OUTPUT_DIR, `screenshot-${slugify(route.name)}-responsive-${viewport}-${Date.now()}.png`);
+      const shotPath = path.join(OUTPUT_DIR, `screenshot-${slugify(route.name)}-responsive-${viewport}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.png`);
       try {
         fs.writeFileSync(shotPath, Buffer.from(data, 'base64'));
         responsiveScreenshotPaths[viewport] = shotPath;
@@ -1089,7 +1092,8 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
   try {
     const linksRaw = await mcp.evaluate_script({ function: INTERNAL_LINKS_SCRIPT });
     const parsed   = unwrapEval(linksRaw);
-    result.discoveredLinks = Array.isArray(parsed) ? parsed : JSON.parse(String(parsed ?? '[]'));
+    const _linksParsed = Array.isArray(parsed) ? parsed : (() => { try { const p = JSON.parse(String(parsed ?? '[]')); return Array.isArray(p) ? p : []; } catch { return []; } })();
+    result.discoveredLinks = _linksParsed;
   } catch {
     result.discoveredLinks = [];
   }
@@ -1171,7 +1175,8 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
 
   // D7.3: parallel route crawling — set ARGUS_CONCURRENCY=N to spawn N MCP clients
   // Capped at 10 to prevent resource exhaustion; beyond 10, Chrome becomes the bottleneck anyway.
-  const concurrency = Math.min(10, Math.max(1, parseInt(process.env.ARGUS_CONCURRENCY ?? '1', 10)));
+  const _rawConcurrency = parseInt(process.env.ARGUS_CONCURRENCY ?? '1', 10);
+  const concurrency = Math.min(10, Math.max(1, isNaN(_rawConcurrency) ? 1 : _rawConcurrency));
 
   if (concurrency > 1) {
     console.log(`[ARGUS] Parallel mode: concurrency=${concurrency}, sharding ${targetRoutes.length} route(s)`);
@@ -1299,8 +1304,9 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
 
   // Historical baselines + trend tracking (v3 Phase B3 / D7.2 per-branch)
   const branch       = getCurrentBranch();
-  const baselinePath = path.join(OUTPUT_DIR, 'baselines', `${branch}.json`);
-  const trendsPath   = path.join(OUTPUT_DIR, 'baselines', `${branch}-trends.json`);
+  const safeBranch   = branch.replace(/[/\\]/g, '__').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const baselinePath = path.join(OUTPUT_DIR, 'baselines', `${safeBranch}.json`);
+  const trendsPath   = path.join(OUTPUT_DIR, 'baselines', `${safeBranch}-trends.json`);
   console.log(`[ARGUS] Branch: "${branch}" → baseline: ${baselinePath}`);
   const baseline     = loadBaseline(baselinePath);
   const diff         = applyBaseline(report, baseline);
@@ -1326,7 +1332,11 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
 
   // D7.7: dispatch to Slack when configured; otherwise generate HTML report
   if (isSlackConfigured()) {
-    await dispatchToSlack(report, diff);
+    try {
+      await dispatchToSlack(report, diff);
+    } catch (err) {
+      console.error(`[ARGUS] Slack dispatch failed — baseline will still be saved: ${err.message}`);
+    }
   } else {
     console.log('\n[ARGUS] No Slack credentials — generating HTML report...');
     const htmlPath = generateHtmlReport(reportPath);
@@ -1336,7 +1346,11 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
 
   // C2: GitHub PR comment + commit status (independent of Slack — runs whenever configured)
   if (isGitHubConfigured()) {
-    await reportToGitHub(report, diff);
+    try {
+      await reportToGitHub(report, diff);
+    } catch (err) {
+      console.error(`[ARGUS] GitHub reporting failed — baseline will still be saved: ${err.message}`);
+    }
   }
 
   // Persist baseline + append trend entry
@@ -1395,7 +1409,7 @@ async function dispatchToSlack(report, diff) {
       url: routeResult.url,
       screenshotPath: routeResult.screenshot,
       details: { route: routeResult.route, errors: criticals },
-    });
+    }).catch(err => console.warn(`[ARGUS] Slack: critical report failed for ${routeResult.route}: ${err.message}`));
   }
 
   // ── Warnings: one Slack message per affected route ────────────────────────
@@ -1414,7 +1428,7 @@ async function dispatchToSlack(report, diff) {
       url: routeResult.url,
       screenshotPath: routeResult.screenshot,
       details: { route: routeResult.route, errors: warnings },
-    });
+    }).catch(err => console.warn(`[ARGUS] Slack: warning report failed for ${routeResult.route}: ${err.message}`));
   }
 
   // ── Responsive screenshots: mobile view for routes with responsive findings ──
@@ -1437,7 +1451,7 @@ async function dispatchToSlack(report, diff) {
       url: routeResult.url,
       screenshotPath: mobileShot,
       details: { responsiveFindings: responsiveErrors },
-    });
+    }).catch(err => console.warn(`[ARGUS] Slack: responsive report failed for ${routeResult.route}: ${err.message}`));
   }
 
   // ── Flow failures (v3 Phase B5): one message per failed flow ─────────────
@@ -1451,7 +1465,7 @@ async function dispatchToSlack(report, diff) {
         url: report.baseUrl,
         screenshotPath: null,
         details: { flow: flowResult.flowName, errors: flowCriticals },
-      });
+      }).catch(err => console.warn(`[ARGUS] Slack: flow critical report failed for ${flowResult.flowName}: ${err.message}`));
     }
     const flowWarnings = (flowResult.findings ?? []).filter(f => f.severity === 'warning' && f.isNew === true);
     if (flowWarnings.length > 0) {
@@ -1462,7 +1476,7 @@ async function dispatchToSlack(report, diff) {
         url: report.baseUrl,
         screenshotPath: null,
         details: { flow: flowResult.flowName, errors: flowWarnings },
-      });
+      }).catch(err => console.warn(`[ARGUS] Slack: flow warning report failed for ${flowResult.flowName}: ${err.message}`));
     }
   }
 
@@ -1476,7 +1490,7 @@ async function dispatchToSlack(report, diff) {
       url: report.baseUrl,
       screenshotPath: null,
       details: { codebase: cbCriticals },
-    });
+    }).catch(err => console.warn(`[ARGUS] Slack: codebase critical report failed: ${err.message}`));
   }
   const cbWarnings = (report.codebase ?? []).filter(f => f.severity === 'warning' && f.isNew === true);
   if (cbWarnings.length > 0) {
@@ -1487,12 +1501,12 @@ async function dispatchToSlack(report, diff) {
       url: report.baseUrl,
       screenshotPath: null,
       details: { codebase: cbWarnings },
-    });
+    }).catch(err => console.warn(`[ARGUS] Slack: codebase warning report failed: ${err.message}`));
   }
 
   // ── Info digest: one summary message across all routes ────────────────────
   const allInfos = report.routes.flatMap(r =>
-    r.errors.filter(e => e.severity === 'info').map(e => ({ ...e, routeName: r.route }))
+    r.errors.filter(e => e.severity === 'info' && e.isNew !== false).map(e => ({ ...e, routeName: r.route }))
   );
 
   // Skip pure noise: don't post digest if only api_call_summary / css_summary with no issues
@@ -1556,7 +1570,7 @@ async function dispatchToSlack(report, diff) {
       url: report.baseUrl,
       screenshotPath: null,
       details: { summary, infos: allInfos },
-    });
+    }).catch(err => console.warn(`[ARGUS] Slack: info digest report failed: ${err.message}`));
   }
 }
 
@@ -1567,5 +1581,5 @@ async function dispatchToSlack(report, diff) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   console.log('[ARGUS] crawl-and-report.js loaded. Invoke runCrawl(mcp) from Claude Code with MCP tools connected.');
   console.log('[ARGUS] Target base URL:', BASE_URL);
-  console.log('[ARGUS] Routes to crawl:', routes.map(r => r.path).join(', '));
+  console.log('[ARGUS] Routes to crawl:', (routes ?? []).map(r => r?.path ?? '(no path)').join(', '));
 }

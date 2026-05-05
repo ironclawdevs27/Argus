@@ -47,7 +47,7 @@ export const TOUCH_TARGET_SCRIPT = `() => {
     var r = el.getBoundingClientRect();
     var w = Math.round(r.width);
     var h = Math.round(r.height);
-    if ((w > 0 || h > 0) && (w < MIN || h < MIN)) {
+    if (w > 0 && h > 0 && (w < MIN || h < MIN)) {
       small.push({
         tag: el.tagName.toLowerCase(),
         id: el.id || null,
@@ -149,90 +149,92 @@ export async function analyzeResponsive(mcp, url) {
   const findings    = [];
   const screenshots = {};
 
-  for (const bp of BREAKPOINTS) {
-    // GAP-095: Apply 4× CPU throttle for mobile/tablet breakpoints to expose JS-heavy
-    // layout issues that only manifest under realistic mobile device load.
-    // Reset to 1× for desktop breakpoints to avoid slowing subsequent analyses.
-    try {
-      await mcp.emulate_cpu({ throttlingRate: bp.width <= 768 ? 4 : 1 });
-    } catch { /* emulate_cpu is best-effort — proceed without throttle if unavailable */ }
-
-    try {
-      await mcp.emulate({ viewport: viewportString(bp.width, bp.height) });
-      await mcp.navigate_page({ url });
-      await new Promise(r => setTimeout(r, 1000));
-
-      // ── Overflow check ──────────────────────────────────────────────────
+  try {
+    for (const bp of BREAKPOINTS) {
+      // GAP-095: Apply 4× CPU throttle for mobile/tablet breakpoints to expose JS-heavy
+      // layout issues that only manifest under realistic mobile device load.
+      // Reset to 1× for desktop breakpoints to avoid slowing subsequent analyses.
       try {
-        const raw         = await mcp.evaluate_script({ function: OVERFLOW_CHECK_SCRIPT });
-        const overflowData = parseEvalObject(raw);
+        await mcp.emulate_cpu({ throttlingRate: bp.width <= 768 ? 4 : 1 });
+      } catch { /* emulate_cpu is best-effort — proceed without throttle if unavailable */ }
 
-        if (overflowData?.overflows) {
-          const isMobile = bp.width <= 768;
-          findings.push({
-            type:        'responsive_overflow',
-            viewport:    bp.width,
-            label:       bp.label,
-            scrollWidth: overflowData.scrollWidth,
-            clientWidth: overflowData.clientWidth,
-            message:     `Horizontal overflow at ${bp.width}px (${bp.label}): scrollWidth ${overflowData.scrollWidth}px > viewport ${overflowData.clientWidth}px`,
-            severity:    isMobile ? 'critical' : 'warning',
-            url,
-          });
-        }
-      } catch (err) {
-        console.warn(`[ARGUS] Overflow check failed at ${bp.width}px: ${err.message}`);
-      }
+      try {
+        await mcp.emulate({ viewport: viewportString(bp.width, bp.height) });
+        await mcp.navigate_page({ url });
+        await new Promise(r => setTimeout(r, 1000));
 
-      // ── Touch target check — at 375 px (mobile) and 768 px (tablet) ──────
-      if (bp.width === 375 || bp.width === 768) {
+        // ── Overflow check ──────────────────────────────────────────────────
         try {
-          const raw         = await mcp.evaluate_script({ function: TOUCH_TARGET_SCRIPT });
-          const smallTargets = parseEvalArray(raw);
+          const raw         = await mcp.evaluate_script({ function: OVERFLOW_CHECK_SCRIPT });
+          const overflowData = parseEvalObject(raw);
 
-          if (smallTargets.length > 0) {
+          if (overflowData?.overflows) {
+            const isMobile = bp.width <= 768;
             findings.push({
-              type:     'responsive_small_touch_target',
-              viewport:  bp.width,
-              label:     bp.label,
-              count:     smallTargets.length,
-              targets:   smallTargets.slice(0, 10),
-              message:   `${smallTargets.length} interactive element(s) smaller than 44×44 px at ${bp.width}px (${bp.label}): ${
-                smallTargets.map(t => `<${t.tag}${t.id ? '#' + t.id : ''}> ${t.width}×${t.height}px`).join(', ')
-              }`,
-              severity:  'warning',
+              type:        'responsive_overflow',
+              viewport:    bp.width,
+              label:       bp.label,
+              scrollWidth: overflowData.scrollWidth,
+              clientWidth: overflowData.clientWidth,
+              message:     `Horizontal overflow at ${bp.width}px (${bp.label}): scrollWidth ${overflowData.scrollWidth}px > viewport ${overflowData.clientWidth}px`,
+              severity:    isMobile ? 'critical' : 'warning',
               url,
             });
           }
         } catch (err) {
-          console.warn(`[ARGUS] Touch target check failed at ${bp.width}px: ${err.message}`);
+          console.warn(`[ARGUS] Overflow check failed at ${bp.width}px: ${err.message}`);
         }
+
+        // ── Touch target check — at 375 px (mobile) and 768 px (tablet) ──────
+        if (bp.width === 375 || bp.width === 768) {
+          try {
+            const raw         = await mcp.evaluate_script({ function: TOUCH_TARGET_SCRIPT });
+            const smallTargets = parseEvalArray(raw);
+
+            if (smallTargets.length > 0) {
+              findings.push({
+                type:     'responsive_small_touch_target',
+                viewport:  bp.width,
+                label:     bp.label,
+                count:     smallTargets.length,
+                targets:   smallTargets.slice(0, 10),
+                message:   `${smallTargets.length} interactive element(s) smaller than 44×44 px at ${bp.width}px (${bp.label}): ${
+                  smallTargets.map(t => `<${t.tag}${t.id ? '#' + t.id : ''}> ${t.width}×${t.height}px`).join(', ')
+                }`,
+                severity:  'warning',
+                url,
+              });
+            }
+          } catch (err) {
+            console.warn(`[ARGUS] Touch target check failed at ${bp.width}px: ${err.message}`);
+          }
+        }
+
+        // ── Screenshot ──────────────────────────────────────────────────────
+        try {
+          const shot = await mcp.take_screenshot({ format: 'png' });
+          // GAP-49: Cap at 5 MB base64 — a 1440×900 PNG can exceed this on complex pages;
+          // storing unbounded data across 4 breakpoints × N routes risks OOM.
+          if (shot?.data && shot.data.length < 5_000_000) {
+            screenshots[`${bp.width}x${bp.height}`] = shot.data;
+          } else if (shot?.data) {
+            // GAP-086: Record omission metadata so operators know which breakpoints were
+            // skipped and can investigate rather than silently missing screenshot data.
+            screenshots[`${bp.width}x${bp.height}`] = { omitted: true, reason: 'size_cap', bytes: shot.data.length };
+          }
+        } catch { /* screenshots are optional */ }
+
+      } catch (err) {
+        console.warn(`[ARGUS] Responsive analysis failed at ${bp.width}px: ${err.message}`);
       }
-
-      // ── Screenshot ──────────────────────────────────────────────────────
-      try {
-        const shot = await mcp.take_screenshot({ format: 'png' });
-        // GAP-49: Cap at 5 MB base64 — a 1440×900 PNG can exceed this on complex pages;
-        // storing unbounded data across 4 breakpoints × N routes risks OOM.
-        if (shot?.data && shot.data.length < 5_000_000) {
-          screenshots[`${bp.width}x${bp.height}`] = shot.data;
-        } else if (shot?.data) {
-          // GAP-086: Record omission metadata so operators know which breakpoints were
-          // skipped and can investigate rather than silently missing screenshot data.
-          screenshots[`${bp.width}x${bp.height}`] = { omitted: true, reason: 'size_cap', bytes: shot.data.length };
-        }
-      } catch { /* screenshots are optional */ }
-
-    } catch (err) {
-      console.warn(`[ARGUS] Responsive analysis failed at ${bp.width}px: ${err.message}`);
     }
+  } finally {
+    // ── Always restore viewport and CPU throttle ─────────────────────────
+    try { await mcp.emulate_cpu({ throttlingRate: 1 }); } catch { /* best-effort */ }
+    try {
+      await mcp.emulate({ viewport: viewportString(RESTORE_VIEWPORT.width, RESTORE_VIEWPORT.height) });
+    } catch { /* best-effort restore */ }
   }
-
-  // ── Always restore viewport and CPU throttle ───────────────────────────
-  try { await mcp.emulate_cpu({ throttlingRate: 1 }); } catch { /* best-effort */ }
-  try {
-    await mcp.emulate({ viewport: viewportString(RESTORE_VIEWPORT.width, RESTORE_VIEWPORT.height) });
-  } catch { /* best-effort restore */ }
 
   return { findings, screenshots };
 }

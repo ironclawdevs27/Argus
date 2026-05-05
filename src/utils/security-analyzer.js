@@ -85,7 +85,7 @@ export const SECURITY_ANALYSIS_SCRIPT = `async () => {
     for (var fi = 0; fi < iframes.length && fi < 20; fi++) {
       var iframe = iframes[fi];
       var iframeSrc = iframe.getAttribute('src') || '';
-      if (!iframe.hasAttribute('sandbox') && iframeSrc && !iframeSrc.startsWith('javascript:')) {
+      if (!iframe.hasAttribute('sandbox') && iframeSrc && !iframeSrc.startsWith('javascript:') && !iframeSrc.startsWith('about:') && !iframeSrc.startsWith('blob:')) {
         unsandboxedIframes.push({ src: iframeSrc.slice(0, 100) });
       }
     }
@@ -193,7 +193,7 @@ export function parseSecurityAnalysisResult(rawResult, url) {
       bugs.push({
         type:    'security_iframe_no_sandbox',
         src:     frame.src,
-        message: `<iframe src="${frame.src}"> has no sandbox attribute — add sandbox="allow-scripts allow-same-origin" to restrict capabilities`,
+        message: `<iframe> with src="${String(frame.src).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').slice(0, 200)}" has no sandbox attribute — add sandbox="allow-scripts allow-same-origin" to restrict capabilities`,
         severity: 'warning',
         url,
       });
@@ -227,10 +227,10 @@ export function parseSecurityAnalysisResult(rawResult, url) {
 export function analyzeSecurityConsole(consoleMsgs, url) {
   const bugs = [];
   // Targeted: require delimiter after keyword (password=, secret:) OR structural patterns
-  const sensitivePattern = /password[:=]|secret[:=]|api[_-]?key[:=]|credential[:=]|eyJ[A-Za-z0-9_-]{10,}|Bearer\s+\S{6,}|\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,7}\b/i;
+  const sensitivePattern = /password[:=]|secret[:=]|api[_-]?key[:=]|credential[:=]|eyJ[A-Za-z0-9_-]{10,}|Bearer\s+\S{6,}|\b[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9.\-]{1,253}\.[A-Za-z]{2,63}\b/i;
   const mixedContentPattern = /mixed content/i;
 
-  for (const msg of consoleMsgs ?? []) {
+  for (const msg of (Array.isArray(consoleMsgs) ? consoleMsgs : [])) {
     const text = String(msg.text ?? msg.message ?? msg ?? '');
     if (!text) continue;
     if (mixedContentPattern.test(text)) {
@@ -269,7 +269,7 @@ export function analyzeSecurityNetwork(networkReqs, url) {
   const pageIsHttps = (url ?? '').startsWith('https://');
   const isLoopback  = /^http:\/\/(localhost|127\.|0\.0\.0\.0)/i;
 
-  for (const req of networkReqs ?? []) {
+  for (const req of (Array.isArray(networkReqs) ? networkReqs : [])) {
     const reqUrl = req.url ?? req.requestUrl ?? '';
     if (!reqUrl) continue;
 

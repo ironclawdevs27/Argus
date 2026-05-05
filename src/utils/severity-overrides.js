@@ -44,7 +44,9 @@ export function applyOverrides(report, severityOverrides) {
     if (!Array.isArray(findings)) return [];
     const kept = [];
     for (const finding of findings) {
-      const override = severityOverrides[finding.type];
+      const override = Object.prototype.hasOwnProperty.call(severityOverrides, finding.type)
+        ? severityOverrides[finding.type]
+        : undefined;
       if (override === undefined) {
         kept.push(finding);
         continue;

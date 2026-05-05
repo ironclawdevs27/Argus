@@ -14,7 +14,19 @@
 
 import { spawn } from 'child_process';
 
-const BROWSER_URL = process.env.MCP_BROWSER_URL ?? 'http://127.0.0.1:9222';
+// Validate MCP_BROWSER_URL early — re-serialize through URL to strip any shell-special chars
+// that could inject commands when the value is embedded in a spawn arg with shell:true.
+const _rawBrowserUrl = process.env.MCP_BROWSER_URL ?? 'http://127.0.0.1:9222';
+let BROWSER_URL;
+try {
+  const _parsed = new URL(_rawBrowserUrl);
+  if (_parsed.protocol !== 'http:' && _parsed.protocol !== 'https:') {
+    throw new Error('protocol must be http or https');
+  }
+  BROWSER_URL = _parsed.toString();
+} catch (e) {
+  throw new Error(`[ARGUS] Invalid MCP_BROWSER_URL "${_rawBrowserUrl}": ${e.message}`);
+}
 
 /**
  * Unwrap an evaluate_script result to its plain value.
@@ -68,7 +80,12 @@ export async function createMcpClient() {
     pending.clear();
   });
 
+  const MAX_BUFFER_BYTES = 50 * 1024 * 1024;
   proc.stdout.on('data', (chunk) => {
+    if (buffer.length + chunk.length > MAX_BUFFER_BYTES) {
+      console.error('[ARGUS] MCP stdout buffer overflow — discarding buffer');
+      buffer = '';
+    }
     buffer += chunk.toString();
     const lines = buffer.split(/\r?\n/);
     buffer = lines.pop(); // keep incomplete line in buffer
@@ -91,10 +108,10 @@ export async function createMcpClient() {
     }
   });
 
-  proc.on('exit', (code) => {
-    if (code !== 0) {
+  proc.on('exit', (code, signal) => {
+    if (code !== 0 || signal) {
       for (const { reject } of pending.values()) {
-        reject(new Error(`MCP process exited with code ${code}`));
+        reject(new Error(`MCP process exited: code=${code}, signal=${signal}`));
       }
       pending.clear();
     }
@@ -133,7 +150,13 @@ export async function createMcpClient() {
         reject: (e) => { clearTimeout(timer); origReject(e); },
       });
 
-      proc.stdin.write(request);
+      proc.stdin.write(request, (err) => {
+        if (err && pending.has(id)) {
+          const { reject: rej } = pending.get(id);
+          pending.delete(id);
+          rej(err);
+        }
+      });
     });
   }
 

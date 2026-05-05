@@ -127,7 +127,7 @@ export function parseContentAnalysisResult(rawResult, url) {
     });
   }
 
-  for (const src of data.brokenImages ?? []) {
+  for (const src of (Array.isArray(data.brokenImages) ? data.brokenImages : [])) {
     bugs.push({
       type:     'content_broken_image',
       src,

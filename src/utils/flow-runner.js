@@ -304,7 +304,7 @@ export async function runFlow(flow, baseUrl, mcp) {
       switch (step.action) {
         case 'navigate':
           // step.url = absolute URL override; step.path = relative to baseUrl
-          await mcp.navigate_page({ url: step.url ?? (baseUrl + (step.path ?? '')) });
+          await mcp.navigate_page({ url: step.url ?? (`${baseUrl.replace(/\/$/, '')}/${(step.path ?? '').replace(/^\//, '')}`) });
           // Re-inject error listener — navigation destroys the previous page context
           await mcp.evaluate_script({ function: INJECT_ERROR_LISTENER }).catch(err => console.warn('[ARGUS] flow-runner: INJECT_ERROR_LISTENER failed:', err.message));
           break;
@@ -388,6 +388,7 @@ export async function runFlow(flow, baseUrl, mcp) {
               }
             }
           }
+          if (!step.filePath) throw new Error('upload_file: step.filePath is required');
           await mcp.upload_file({ uid: uploadUid, filePath: step.filePath });
           break;
         }

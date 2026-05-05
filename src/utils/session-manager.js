@@ -45,12 +45,12 @@ const SESSION_CAPTURE_SCRIPT = `() => {
   var ls = {};
   for (var i = 0; i < localStorage.length; i++) {
     var k = localStorage.key(i);
-    ls[k] = localStorage.getItem(k);
+    if (k !== null) ls[k] = localStorage.getItem(k);
   }
   var ss = {};
-  for (var i = 0; i < sessionStorage.length; i++) {
-    var k = sessionStorage.key(i);
-    ss[k] = sessionStorage.getItem(k);
+  for (var j = 0; j < sessionStorage.length; j++) {
+    var sk = sessionStorage.key(j);
+    if (sk !== null) ss[sk] = sessionStorage.getItem(sk);
   }
   return JSON.stringify({
     cookies: document.cookie,
@@ -150,8 +150,8 @@ export async function saveSession(mcp, sessionFile) {
     savedAt:        new Date().toISOString(),
     originUrl:      String(parsed.origin ?? ''),
     cookies:        String(parsed.cookies ?? ''),
-    localStorage:   typeof parsed.localStorage  === 'object' ? parsed.localStorage  : {},
-    sessionStorage: typeof parsed.sessionStorage === 'object' ? parsed.sessionStorage : {},
+    localStorage:   parsed.localStorage  !== null && typeof parsed.localStorage  === 'object' ? parsed.localStorage  : {},
+    sessionStorage: parsed.sessionStorage !== null && typeof parsed.sessionStorage === 'object' ? parsed.sessionStorage : {},
   };
 
   // GAP-084: Write to a .tmp file first, then rename atomically. A direct writeFileSync
@@ -301,6 +301,7 @@ export async function refreshSession(mcp, auth, baseUrl) {
   }
 
   const age         = Date.now() - new Date(state.savedAt).getTime();
+  if (isNaN(age)) return { refreshed: false };
   const remainingMs = maxAgeMs - age;
 
   if (remainingMs > refreshWindowMs) return { refreshed: false };
@@ -326,7 +327,7 @@ export async function refreshSession(mcp, auth, baseUrl) {
     await saveSession(mcp, sessionFile);
     return { refreshed: true };
   } finally {
-    try { fs.closeSync(lockFd); } catch {}
+    if (lockFd !== null) { try { fs.closeSync(lockFd); } catch {} }
     try { fs.unlinkSync(lockFile); } catch {}
   }
 }

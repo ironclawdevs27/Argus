@@ -101,7 +101,7 @@ const DUPLICATE_LANDMARK_SCRIPT = `() => {
     // (<article>, <aside>, <main>, <nav>, <section>) don't expose global landmark
     // roles per the HTML-AAM spec — only count document-scoped instances.
     els = els.filter(function(el) {
-      return !el.parentElement || !el.parentElement.closest('article,aside,main,nav,section');
+      return !el.parentElement || !el.parentElement.closest('article,aside,nav,section');
     });
     if (els.length < 2) return;
     var labels = els.map(function(el) {
@@ -283,7 +283,7 @@ export async function analyzeSnapshot(mcp, url) {
             id:      item.id,
             snippet: item.snippet,
             message: item.detail
-              ? `<${item.tag}${item.id ? '#' + item.id : ''}> aria-expanded — ${item.detail}`
+              ? `<${item.tag}${item.id ? '#' + item.id : ''}> aria-expanded — ${String(item.detail).slice(0, 200)}`
               : `<${item.tag}${item.id ? '#' + item.id : ''}> has aria-expanded but no aria-controls — AT users cannot navigate to the controlled content`,
             severity: 'warning',
             url,

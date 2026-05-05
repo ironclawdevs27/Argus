@@ -14,5 +14,5 @@
  * @returns {boolean} true when SLACK_BOT_TOKEN is set and non-empty
  */
 export function isSlackConfigured() {
-  return !!process.env.SLACK_BOT_TOKEN;
+  return !!(process.env.SLACK_BOT_TOKEN ?? '').trim();
 }

@@ -149,8 +149,8 @@ export function formatPrComment(report, diff) {
  */
 export function buildStatusPayload(report, diff) {
   const newCriticals = [
-    ...report.routes.flatMap(r =>
-      r.errors.filter(e => e.severity === 'critical' && e.isNew !== false)
+    ...(report.routes ?? []).flatMap(r =>
+      (r.errors ?? []).filter(e => e.severity === 'critical' && e.isNew !== false)
     ),
     ...(report.codebase ?? []).filter(f => f.severity === 'critical' && f.isNew !== false),
     ...(report.flows ?? []).flatMap(f =>
@@ -198,8 +198,8 @@ async function ghFetch(urlPath, method, body, attempt = 1) {
     throw err;
   }
 
-  // Retry on transient server errors (5xx) with exponential backoff
-  if (res.status >= 500 && attempt < 3) {
+  // Retry on transient server errors (5xx) and rate-limit (429) with exponential backoff
+  if ((res.status >= 500 || res.status === 429) && attempt < 3) {
     await new Promise(r => setTimeout(r, attempt * 1000));
     return ghFetch(urlPath, method, body, attempt + 1);
   }
