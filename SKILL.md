@@ -372,7 +372,7 @@ Defined in `src/utils/flow-runner.js`. Steps are objects with an `action` field.
 // Interaction (uid resolved automatically from snapshot via resolveUidForSelector)
 { action: 'click', selector: 'button.submit' }
 { action: 'fill', selector: 'input[name=email]', value: 'user@test.com' }
-{ action: 'fill', selector: 'textarea', value: 'Hello', typing: true }  // typing:true → real keyboard events via type_text
+{ action: 'fill', selector: 'textarea', value: 'Hello', typing: true }  // typing:true → per-keystroke keyboard events via type_text (vs fill's single consolidated input event)
 { action: 'drag', sourceSelector: '.draggable', targetSelector: '.dropzone' }
 { action: 'upload_file', selector: 'input[type=file]', filePath: '/abs/path/to/file.txt' }
 { action: 'upload_file', uid: 'e4', filePath: '/abs/path/to/file.txt' }  // uid bypasses snapshot lookup
@@ -957,9 +957,13 @@ Always walk at least 3 levels back — the proximate cause is almost never the r
 
 These are chrome-devtools-mcp restrictions that **cannot be worked around in Argus code**. They cause 3 permanent failures in the correctness harness (320/323 pass).
 
-> **Note on `type_text` and DOM `input` events**: `type_text` DOES fire DOM `input` events when the target element is properly focused. Harness block [48b] failed due to two successive test code bugs — not an MCP limitation:
+> **Note on `fill` vs `type_text` and DOM events**: Both tools fire DOM `input` events, but differently:
+> - `mcp.fill({ uid, value })` fires **one consolidated `input` event** with the full value — counter shows `value.length`. It does NOT fire per-keystroke `keydown`/`keypress`/`keyup` events.
+> - `mcp.type_text({ text })` fires **per-keystroke events** (`keydown`, `keypress`, `input`, `keyup` for each character). Use this (via `typing: true` in a flow step) when the target input needs per-keystroke handling (e.g., typeahead, per-key validation).
+>
+> **Note on harness block [48b]**: `type_text` DOES fire DOM `input` events when the target element is properly focused. [48b] failed due to two successive test code bugs — not an MCP limitation:
 > 1. `mcp.click({ selector: '...' })` silently does nothing (requires a uid, not a CSS selector) — element was never focused.
-> 2. After switching to `mcp.click({ uid })`: the call executed but still did not transfer `document.activeElement` to text inputs in headless Chrome from direct test code — element was clicked but not focused.
+> 2. After switching to `mcp.click({ uid })`: the call executed but still did not transfer `document.activeElement` to text inputs in headless Chrome from direct test code.
 >
 > Correct fix: `evaluate_script(() => el.focus())` before `type_text` in direct test code (see "Focus before `type_text`" in §3). The `fill` step with `typing: true` via `runFlow` uses `mcp.click({ uid })` and works correctly in that context.
 

@@ -6,9 +6,10 @@
  *
  * Supported step actions:
  *   navigate        — navigate_page to step.url or baseUrl + step.path
- *   fill            — mcp.fill (sets .value directly, no keyboard events)
+ *   fill            — mcp.fill (fires one consolidated input event with full value,
+ *                     no per-keystroke keydown/keyup events)
  *                     Add typing: true to use mcp.type_text instead, which
- *                     dispatches real keydown/keyup/input events (D8.3)
+ *                     dispatches real per-keystroke keydown/keyup/input events (D8.3)
  *   click           — mcp.click on step.selector
  *   press_key       — mcp.press_key with step.key
  *   drag            — mcp.drag from step.selector to step.target (D8.4)
@@ -346,9 +347,10 @@ export async function runFlow(flow, baseUrl, mcp) {
 
         case 'fill': {
           // MCP fill/click require uid (not CSS selector) — resolve via snapshot.
-          // typing: true uses mcp.type_text (dispatches real keyboard events) instead of
-          // mcp.fill (which sets .value directly and does not fire keydown/input events).
-          // Use typing: true when the target input has input-event-driven validation (D8.3).
+          // typing: true uses mcp.type_text (dispatches real per-keystroke keyboard events)
+          // instead of mcp.fill (which fires one consolidated input event with the full value,
+          // but not keydown/keypress/keyup per character).
+          // Use typing: true when the target input needs per-keystroke event handling (D8.3).
           const fillUid = await resolveUidForSelector(mcp, step.selector);
           if (!fillUid) throw new Error(`fill: no uid found for selector "${step.selector}"`);
           if (step.typing) {

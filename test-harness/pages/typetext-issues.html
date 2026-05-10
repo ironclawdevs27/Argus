@@ -13,23 +13,23 @@
   <h1>Type-Text Issues Fixture</h1>
   <p>
     Two identical inputs with <code>input</code>-event-triggered character counters.
-    <code>mcp.fill</code> sets <code>.value</code> directly and does NOT fire <code>input</code>
-    events — the counter stays at 0. <code>mcp.type_text</code> dispatches real keyboard events —
-    the counter updates per keystroke.
+    <code>mcp.fill</code> fires one consolidated <code>input</code> event with the full value —
+    the counter shows the value length. <code>mcp.type_text</code> dispatches real per-keystroke
+    keyboard events — the counter updates per character typed.
   </p>
 
-  <!-- Input for the fill test — counter must stay at 0 after mcp.fill -->
+  <!-- Input for the fill test — counter must equal value.length after mcp.fill -->
   <div class="field">
-    <label for="fill-input">Fill input (counter should stay at 0 after mcp.fill):</label><br>
+    <label for="fill-input">Fill input (counter equals value length after mcp.fill):</label><br>
     <input id="fill-input" type="text" autocomplete="off">
-    <span id="fill-counter" class="counter" data-count="0">0 chars</span>
+    <span id="fill-counter" class="counter" data-count="0" data-event-count="0">0 chars</span>
   </div>
 
   <!-- Input for the type_text test — counter must update after mcp.type_text -->
   <div class="field">
     <label for="type-input">Type-text input (counter should update after mcp.type_text):</label><br>
     <input id="type-input" type="text" autocomplete="off">
-    <span id="type-counter" class="counter" data-count="0">0 chars</span>
+    <span id="type-counter" class="counter" data-count="0" data-event-count="0">0 chars</span>
   </div>
 
   <script>
@@ -39,6 +39,8 @@
         var el = document.getElementById(counterId);
         el.textContent = len + ' chars';
         el.setAttribute('data-count', String(len));
+        var ec = parseInt(el.getAttribute('data-event-count') || '0', 10) + 1;
+        el.setAttribute('data-event-count', String(ec));
       });
     }
     setupCounter('fill-input', 'fill-counter');

@@ -2257,20 +2257,22 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   // ── [48] type_text step action — D8.3 (typing: true flag in fill step) ───────
   console.log('\n[48] type_text step action — D8.3 (typing: true flag in fill step)');
   {
-    // [48a] mcp.fill sets .value but does NOT fire input events — char counter stays at 0
+    // [48a] mcp.fill fires ONE consolidated input event with the full value — counter shows
+    // value.length (not per-keystroke like type_text, but not silent either).
     await mcp.navigate_page({ url: `${B}/typetext-issues.html` });
     await new Promise(r => setTimeout(r, 300));
+    const FILL_VALUE = 'hello world';
     const fillUid = await resolveUidForSelector(mcp, '#fill-input');
-    if (fillUid) await mcp.fill({ uid: fillUid, value: 'hello world' });
+    if (fillUid) await mcp.fill({ uid: fillUid, value: FILL_VALUE });
     const rawA = await mcp.evaluate_script({
       function: `() => document.getElementById('fill-counter').getAttribute('data-count')`,
     });
     const countA = String(unwrapEval(rawA) ?? '');
-    // fillUid != null is a required precondition — if uid resolution failed, the fill was
-    // skipped entirely and countA === '0' would pass for the wrong reason (false pass).
+    // fillUid != null is a required precondition — if uid resolution failed, fill was skipped
+    // and countA === '0' would pass for the wrong reason (false pass).
     assert(
-      fillUid != null && (countA === '0' || countA === ''),
-      `[48a] mcp.fill does not fire input events — char counter stays at 0 (uid resolved: ${fillUid != null}, count: "${countA}")`
+      fillUid != null && countA === String(FILL_VALUE.length),
+      `[48a] mcp.fill fires one consolidated input event — counter equals value length (uid resolved: ${fillUid != null}, count: "${countA}", expected: "${FILL_VALUE.length}")`
     );
 
     // [48b] mcp.type_text dispatches keyboard events — char counter updates
@@ -2307,14 +2309,16 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
       `[48c] flow with typing: true completes without error (type_text wired in fill step)`
     );
 
-    // [48d] after typing: true flow, char counter is updated — proves type_text was called, not fill
+    // [48d] after typing: true flow, input-event count is 3 (one per keystroke) — proves
+    // type_text was called and NOT mcp.fill, which fires only 1 consolidated input event.
+    // Both would produce data-count="3" for value "abc"; data-event-count distinguishes them.
     const rawD = await mcp.evaluate_script({
-      function: `() => document.getElementById('type-counter').getAttribute('data-count')`,
+      function: `() => document.getElementById('type-counter').getAttribute('data-event-count')`,
     });
     const countD = String(unwrapEval(rawD) ?? '');
     assert(
       countD === '3',
-      `[48d] typing: true dispatches type_text — char counter updated to 3 after "abc" (got "${countD}")`
+      `[48d] typing: true dispatches type_text — 3 separate input events for "abc" (fill fires 1) (got "${countD}")`
     );
   }
 
