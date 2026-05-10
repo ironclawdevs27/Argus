@@ -2,10 +2,13 @@
  * ARGUS Test Harness Server
  *
  * Serves deliberately broken fixture pages so the Argus crawl pipeline has
- * something real to detect.  Start on port 3100 (dev) or 3101 (staging).
+ * something real to detect.
  *
- *   node test-harness/server.js              # dev  → http://localhost:3100
- *   PORT=3101 node test-harness/server.js    # staging → http://localhost:3101
+ *   node test-harness/server.js                          # dev  → http://localhost:3100
+ *   PORT=3101 ARGUS_ENV=staging node test-harness/server.js  # staging → http://localhost:3101
+ *
+ * IS_STAGING is determined by ARGUS_ENV, NOT the port number, so dynamic port
+ * allocation (findFreePort) doesn't accidentally flip staging to dev behaviour.
  */
 
 import express from 'express';
@@ -14,7 +17,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT ?? '3100', 10);
-const IS_STAGING = PORT === 3101;
+const IS_STAGING = process.env.ARGUS_ENV === 'staging';
 
 const app = express();
 app.use(express.json());
@@ -23,7 +26,7 @@ app.use(express.json());
 // Permissive CSP (allows everything) so no existing fixture behaviour breaks.
 // security-issues.html intentionally omits these headers to trigger the detection.
 app.use((_req, res, next) => {
-  // GAP-64: Use exact path match — .includes() would also suppress headers for paths like
+  // Use exact path match — .includes() would also suppress headers for paths like
   // /admin/security-issues-report.html, giving those pages weaker security posture in tests.
   if (_req.path !== '/security-issues.html') {
     res.setHeader('Content-Security-Policy', "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:");
@@ -36,7 +39,7 @@ app.use((_req, res, next) => {
 
 // Always returns 500 — used to test HTTP 5xx detection
 app.get('/api/always-500', (_req, res) => {
-  // GAP-68: Explicit type before status — res.json() sets it too, but explicit ordering is
+  // Explicit type before status — res.json() sets it too, but explicit ordering is
   // more robust under HTTP/2 proxies where header framing order can differ.
   res.type('application/json').status(500).json({ error: 'Internal Server Error', type: 'deliberate_500' });
 });
@@ -72,7 +75,7 @@ app.get('/api/feature-flags', (_req, res) => {
 // the image finally renders, which will be 3 000 ms+ after navigation.
 app.get('/api/slow-image', (_req, res) => {
   setTimeout(() => {
-    // GAP-67: Guard against client disconnect — if the browser navigated away during the
+    // Guard against client disconnect — if the browser navigated away during the
     // 3 s delay, res.send() on a closed socket throws ECONNRESET and crashes the worker.
     if (res.headersSent) return;
     // Minimal valid 1×1 transparent PNG
@@ -127,31 +130,31 @@ app.get('/api/tracking', (_req, res) => {
 
 // ── D6.6 — deliberately uncached assets (no Cache-Control, no ETag) ─────────
 // res.writeHead + res.end bypasses Express's automatic ETag/Last-Modified generation.
-// Cache-Control: no-store is explicit so proxy servers don't cache these fixtures between
-// test runs — the Argus detector fires on the absence of max-age/s-maxage, not no-store.
-// HEAD routes required so the in-page HEAD fetch works as well as GET.
-// GAP-71: Added Cache-Control: no-store to all four writeHead calls.
+// No cache headers at all — the D6.6 detector flags assets with neither Cache-Control
+// nor ETag. HEAD routes required so the in-page HEAD fetch works as well as GET.
 app.get('/api/nocache.css', (_req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/css', 'Cache-Control': 'no-store' });
+  res.writeHead(200, { 'Content-Type': 'text/css' });
   res.end('/* argus d6.6 nocache fixture */');
 });
 app.head('/api/nocache.css', (_req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/css', 'Cache-Control': 'no-store' });
+  res.writeHead(200, { 'Content-Type': 'text/css' });
   res.end();
 });
 app.get('/api/nocache.js', (_req, res) => {
-  res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-store' });
+  res.writeHead(200, { 'Content-Type': 'application/javascript' });
   res.end('/* argus d6.6 nocache fixture */');
 });
 app.head('/api/nocache.js', (_req, res) => {
-  res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-store' });
+  res.writeHead(200, { 'Content-Type': 'application/javascript' });
   res.end();
 });
 
 // ── D6.7 — external script with debugger; statement ──────────────────────────
 app.get('/api/debug-script.js', (_req, res) => {
   res.type('application/javascript');
-  res.send('function processData(val) { debugger; return val + 1; } processData(41);');
+  // processData is defined but NOT called at module level — calling it would hit the debugger;
+  // breakpoint and pause Chrome when DevTools is connected, hanging navigate_page.
+  res.send('function processData(val) { debugger; return val + 1; }');
 });
 
 // ── Security test endpoint ─────────────────────────────────────────────────────
@@ -166,7 +169,7 @@ app.get('/api/user-data', (_req, res) => {
 
 // Slow response — warning tier (1 500 ms > 1 000 ms threshold)
 app.get('/api/slow-warning', (_req, res) => {
-  // GAP-70: Wrap callback in try/catch — JSON serialization errors inside setTimeout are
+  // Wrap callback in try/catch — JSON serialization errors inside setTimeout are
   // uncaught exceptions that crash the process rather than returning a 500.
   setTimeout(() => {
     try { res.json({ status: 'ok', delay: 1500, tier: 'warning' }); }
@@ -214,7 +217,7 @@ app.get('/redirect-chain-hop2', (_req, res) => {
 
 app.get('/perf-issues.html', (_req, res) => {
   setTimeout(() => {
-    // GAP-69: Error callback — sendFile() silently fails (ENOENT, EACCES) without one;
+    // Error callback — sendFile() silently fails (ENOENT, EACCES) without one;
     // the response hangs open until the browser times out.
     res.sendFile(path.join(__dirname, 'pages', 'perf-issues.html'), err => {
       if (err) console.error('[ARGUS Harness] sendFile error:', err.message);
@@ -233,12 +236,28 @@ app.get('/', (_req, res) => {
   });
 });
 
+// ── Dynamic sitemap — uses actual host:port so same-origin filtering works
+// regardless of which dynamic port findFreePort assigned.
+app.get('/sitemap.xml', (req, res) => {
+  const base = `${req.protocol}://${req.get('host')}`;
+  res.type('application/xml').send(
+    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+    `  <url><loc>${base}/</loc></url>\n` +
+    `  <url><loc>${base}/about</loc></url>\n` +
+    `  <url><loc>${base}/blog</loc></url>\n` +
+    `  <url><loc>${base}/contact</loc></url>\n` +
+    `  <url><loc>https://external.example.com/offsite-page</loc></url>\n` +
+    `</urlset>`
+  );
+});
+
 // ── Static assets ──────────────────────────────────────────────────────────────
 app.use('/static', express.static(path.join(__dirname, 'static')));
 app.use('/', express.static(path.join(__dirname, 'pages')));
 
 // ── Start ──────────────────────────────────────────────────────────────────────
-// GAP-65: Capture the server handle so we can attach an error listener — without it,
+// Capture the server handle so we can attach an error listener — without it,
 // EADDRINUSE (port already in use) crashes the process with no actionable message.
 const server = app.listen(PORT, () => {
   console.log(`[ARGUS Harness] Server running on http://localhost:${PORT} (${IS_STAGING ? 'staging' : 'dev'})`);

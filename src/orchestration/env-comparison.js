@@ -30,7 +30,7 @@ import { slugify } from '../utils/slug.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEV_URL = process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
 const RAW_STAGING_URL = process.env.TARGET_STAGING_URL ?? '';
-// GAP-91: Validate as a parseable URL with a non-localhost hostname — checking only against
+// Validate as a parseable URL with a non-localhost hostname — checking only against
 // one hardcoded placeholder string misses 'TODO', 'your-url-here', http://localhost, etc.
 const STAGING_URL_SET = (() => {
   if (!RAW_STAGING_URL || RAW_STAGING_URL === 'https://staging.yourapp.com') return false;
@@ -60,7 +60,7 @@ const SCREENSHOT_THRESHOLD = config.screenshotDiffThreshold; // %
 async function capturePage(url, label, routeName, mcp) {
   console.log(`[ARGUS] Capturing ${label}: ${url}`);
 
-  // GAP-089: Snapshot buffer counts BEFORE navigation so staging capture does not
+  // Snapshot buffer counts BEFORE navigation so staging capture does not
   // include dev's accumulated console messages and network requests from the prior capture.
   const consoleBaseline = normalizeArray(await mcp.list_console_messages().catch(() => [])).length;
   const networkBaseline = normalizeArray(await mcp.list_network_requests().catch(() => [])).length;
@@ -275,7 +275,7 @@ export async function runComparison(mcp) {
   fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
   console.log(`[ARGUS] Comparison report: ${reportPath}`);
 
-  // GAP-98: Slack dispatch is best-effort — a network error or Slack API failure should not
+  // Slack dispatch is best-effort — a network error or Slack API failure should not
   // crash the entire comparison run and discard the already-written JSON report.
   await dispatchComparisonToSlack(report).catch(err =>
     console.error('[ARGUS] Slack dispatch failed:', err.message)
@@ -321,7 +321,7 @@ async function runCssAnalysisMode(mcp) {
     };
 
     try {
-      // GAP-090: Snapshot network count BEFORE navigation so API frequency analysis for
+      // Snapshot network count BEFORE navigation so API frequency analysis for
       // this route does not include requests accumulated from previous CSS-analysis routes.
       const networkBaseline = normalizeArray(await mcp.list_network_requests().catch(() => [])).length;
 
@@ -332,7 +332,7 @@ async function runCssAnalysisMode(mcp) {
       // CSS analysis
       const cssRaw = await mcp.evaluate_script({ function:CSS_ANALYSIS_SCRIPT });
       const cssResult = unwrapEval(cssRaw);
-      // GAP-92: Type-check before parse — unwrapEval may return null/string on MCP error;
+      // Type-check before parse — unwrapEval may return null/string on MCP error;
       // parseCssAnalysisResult iterating a non-object would throw and drop all findings.
       if (cssResult && typeof cssResult === 'object') {
         const cssBugs = parseCssAnalysisResult(cssResult, url);
@@ -341,7 +341,7 @@ async function runCssAnalysisMode(mcp) {
         console.warn(`[ARGUS] CSS analysis: unexpected response type (${typeof cssResult}), skipping ${url}`);
       }
 
-      // API frequency analysis — sliced from per-route baseline (GAP-090)
+      // API frequency analysis — sliced from per-route baseline
       const networkReqs = normalizeArray(await mcp.list_network_requests().catch(() => [])).slice(networkBaseline);
       const apiFindings = analyzeApiFrequency(networkReqs, url);
       routeResult.findings.push(...apiFindings);

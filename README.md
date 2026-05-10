@@ -14,7 +14,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 | 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
 |:---:|:---:|:---:|:---:|
-| **114 distinct issue types detected** | **24 analysis engines** | **319 test assertions** | **77 test blocks** |
+| **114 distinct issue types detected** | **24 analysis engines** | **323 test assertions** | **77 test blocks** |
 
 </div>
 
@@ -630,9 +630,9 @@ argus/
 │       ├── slack-guard.js            # Slack-optional guard: isSlackConfigured() (D7.7)
 │       ├── hover-analyzer.js         # Hover-state bug detection — aria-haspopup + data-tooltip (D8.1)
 │       ├── snapshot-analyzer.js      # Accessibility tree snapshot — missing names, labels, landmarks, heading hierarchy, ARIA state (D8.2 + v6)
-│       ├── issues-analyzer.js        # Chrome DevTools Issues panel — CSP/deprecated/cookie issues (v6 GAP-093)
-│       ├── network-timing-analyzer.js # HAR timing analysis — slow third-party detection (v6 GAP-094)
-│       ├── keyboard-analyzer.js      # Keyboard Tab-walk — focus_visible_missing, focus_lost (v6 GAP-097)
+│       ├── issues-analyzer.js        # Chrome DevTools Issues panel — CSP/deprecated/cookie issues
+│       ├── network-timing-analyzer.js # HAR timing analysis — slow third-party detection
+│       ├── keyboard-analyzer.js      # Keyboard Tab-walk — focus_visible_missing, focus_lost
 │       ├── codebase-analyzer.js      # Codebase cross-reference — env vars, feature flags, dead routes (C1)
 │       ├── github-reporter.js        # GitHub PR comment + commit status integration (C2)
 │       ├── route-discoverer.js       # Auto route discovery — sitemap + Next.js + React Router (C3)
@@ -640,7 +640,7 @@ argus/
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
 │   └── cli/
 │       └── init.js                   # argus init setup wizard — detect framework, discover routes, write .env + targets.js (C4)
-├── test-harness/                     # Fixture server + test runner (77 blocks, 319 hard assertions, 53 categories)
+├── test-harness/                     # Fixture server + test runner (77 blocks, 323 hard assertions, 53 categories)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
@@ -679,6 +679,21 @@ argus/
 | Long task detection | `PerformanceObserver({ entryTypes: ['longtask'] })` injected before load | Only the duration is included in the finding message (not `startTime`) — ensures identical tasks on two crawl runs produce the same dedup key |
 | CI MCP client | JSON-RPC over stdio | In CI there's no Claude Code agent — the headless client replaces it with the same API surface |
 | Node.js | v20.19+ | Minimum required by Chrome DevTools MCP |
+
+---
+
+## Known MCP Tool Limitations
+
+The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`320/323` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code.
+
+> **`type_text` clarification**: `type_text` does fire DOM `input` events when the element is properly focused first with `mcp.click({ uid })`. Always use uid-based focus — passing `{ selector }` to `mcp.click` silently does nothing.
+
+| Tool | Constraint | Impact |
+|------|-----------|--------|
+| `drag` | Uses mouse simulation, **not** HTML5 DnD API | `dragstart`/`dragover`/`drop` events never fire |
+| `list_console_messages({ types: ['issue'] })` | Issues panel returns empty even when violations exist | CSP and deprecated-API detection is unreliable |
+
+These constraints are documented with workarounds in [SKILL.md §10](SKILL.md).
 
 ---
 

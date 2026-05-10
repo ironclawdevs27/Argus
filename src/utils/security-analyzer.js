@@ -32,7 +32,7 @@ export const SECURITY_ANALYSIS_SCRIPT = `async () => {
     var keys = Object.keys(localStorage || {});
     for (var i = 0; i < keys.length; i++) {
       var k = keys[i];
-      var v = (localStorage.getItem(k) || '').slice(0, 500);  // GAP-51: String() coercion was redundant
+      var v = (localStorage.getItem(k) || '').slice(0, 500);
       if (kPat.test(k) || jwtPat.test(v)) storageTokenKeys.push(k);
     }
   } catch (e) {}
@@ -54,12 +54,12 @@ export const SECURITY_ANALYSIS_SCRIPT = `async () => {
   try {
     jsCookies = document.cookie.split(';')
       .map(function(c) { return c.trim(); })
-      .filter(function(c) { return c.length > 0; })  // GAP-50: .filter(Boolean) drops "0"/"false" cookie names
+      .filter(function(c) { return c.length > 0; })
       .map(function(c) { return c.split('=')[0].trim(); });
   } catch (e) {}
 
   // 4. Response headers — CSP + X-Frame-Options via fetch HEAD (same-origin)
-  // GAP-48: Timeout is configurable via ARGUS_SECURITY_TIMEOUT (ms); defaults to 3000.
+  // Timeout is configurable via ARGUS_SECURITY_TIMEOUT (ms); defaults to 3000.
   // Hardcoded 3s caused false negatives on staging servers behind VPNs/proxies.
   var hasCSP = null, hasXFrame = null;
   try {
@@ -67,7 +67,7 @@ export const SECURITY_ANALYSIS_SCRIPT = `async () => {
     var timeout = (typeof ARGUS_SECURITY_TIMEOUT !== 'undefined' ? ARGUS_SECURITY_TIMEOUT : 3000);
     var tid     = setTimeout(function() { ctrl.abort(); }, timeout);
     try {
-      // GAP-44: clearTimeout must run even if fetch rejects — use inner try/finally.
+      // clearTimeout must run even if fetch rejects — use inner try/finally.
       var r = await fetch(location.href, { method: 'HEAD', cache: 'no-store', signal: ctrl.signal });
       hasCSP    = r.headers.has('Content-Security-Policy');
       hasXFrame = r.headers.has('X-Frame-Options');
@@ -76,7 +76,7 @@ export const SECURITY_ANALYSIS_SCRIPT = `async () => {
     }
   } catch (e) {}
 
-  // 5. iframe sandbox check (GAP-102)
+  // 5. iframe sandbox check
   // Cross-origin iframes without the sandbox attribute can execute scripts,
   // access top-level navigation, and exfiltrate cookies — significant security risk.
   var unsandboxedIframes = [];
@@ -91,7 +91,7 @@ export const SECURITY_ANALYSIS_SCRIPT = `async () => {
     }
   } catch (e) {}
 
-  // 6. Links opening in new tabs without rel="noopener noreferrer" (GAP-132)
+  // 6. Links opening in new tabs without rel="noopener noreferrer"
   // window.opener on the opened page allows it to navigate the opener — phishing vector.
   var unsafeBlankLinks = [];
   try {
@@ -121,10 +121,10 @@ export function parseSecurityAnalysisResult(rawResult, url) {
 
   let data;
   try {
-    // GAP-43: Unwrap MCP { result: '...' } wrapper before parsing. Without this,
+    // Unwrap MCP { result: '...' } wrapper before parsing. Without this,
     // JSON.stringify({ result: '{"key":"val"}' }) → parse → { result: '...' } and
     // all field lookups (storageTokenKeys, evalUsage, etc.) return undefined — zero findings.
-    // GAP-47: JSON.stringify on a circular object throws; catch logs and returns [].
+    // JSON.stringify on a circular object throws; catch logs and returns [].
     let raw = rawResult;
     if (typeof raw === 'object' && !Array.isArray(raw) && raw !== null && raw.result !== undefined) {
       raw = raw.result;
@@ -187,7 +187,7 @@ export function parseSecurityAnalysisResult(rawResult, url) {
     });
   }
 
-  // GAP-102: unsandboxed cross-origin iframes
+  // unsandboxed cross-origin iframes
   if (Array.isArray(data.unsandboxedIframes) && data.unsandboxedIframes.length > 0) {
     for (const frame of data.unsandboxedIframes) {
       bugs.push({
@@ -200,7 +200,7 @@ export function parseSecurityAnalysisResult(rawResult, url) {
     }
   }
 
-  // GAP-132: target="_blank" links without rel="noopener noreferrer"
+  // target="_blank" links without rel="noopener noreferrer"
   // The opened page can access window.opener and redirect the parent tab — phishing vector.
   if (Array.isArray(data.unsafeBlankLinks) && data.unsafeBlankLinks.length > 0) {
     bugs.push({

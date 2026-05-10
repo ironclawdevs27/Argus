@@ -71,7 +71,7 @@ function parseEvalObject(raw) {
     const inner = raw.result !== undefined ? raw.result : raw;
     if (typeof inner === 'object' && !Array.isArray(inner)) return inner;
     if (typeof inner === 'string') {
-      // GAP-42: Log parse failures so a broken evaluate_script response is diagnosable.
+      // Log parse failures so a broken evaluate_script response is diagnosable.
       try { return JSON.parse(inner); } catch (e) {
         console.warn('[ARGUS] parseEvalObject: JSON.parse failed —', e.message, '— raw type:', typeof raw);
         return null;
@@ -94,12 +94,12 @@ function parseEvalArray(raw) {
   if (raw == null) return [];
   if (Array.isArray(raw)) return raw;
   if (typeof raw === 'object') {
-    // GAP-45: Use raw as fallback (not raw.value) — MCP responses use .result consistently;
+    // Use raw as fallback (not raw.value) — MCP responses use .result consistently;
     // .value is not part of the MCP wrapper schema.
     const inner = raw.result !== undefined ? raw.result : raw;
     if (Array.isArray(inner)) return inner;
     if (typeof inner === 'string') {
-      // GAP-42: Log parse failures.
+      // Log parse failures.
       try { const p = JSON.parse(inner); return Array.isArray(p) ? p : []; } catch (e) {
         console.warn('[ARGUS] parseEvalArray: JSON.parse failed —', e.message, '— raw type:', typeof raw);
         return [];
@@ -151,7 +151,7 @@ export async function analyzeResponsive(mcp, url) {
 
   try {
     for (const bp of BREAKPOINTS) {
-      // GAP-095: Apply 4× CPU throttle for mobile/tablet breakpoints to expose JS-heavy
+      // Apply 4× CPU throttle for mobile/tablet breakpoints to expose JS-heavy
       // layout issues that only manifest under realistic mobile device load.
       // Reset to 1× for desktop breakpoints to avoid slowing subsequent analyses.
       try {
@@ -213,12 +213,12 @@ export async function analyzeResponsive(mcp, url) {
         // ── Screenshot ──────────────────────────────────────────────────────
         try {
           const shot = await mcp.take_screenshot({ format: 'png' });
-          // GAP-49: Cap at 5 MB base64 — a 1440×900 PNG can exceed this on complex pages;
+          // Cap at 5 MB base64 — a 1440×900 PNG can exceed this on complex pages;
           // storing unbounded data across 4 breakpoints × N routes risks OOM.
           if (shot?.data && shot.data.length < 5_000_000) {
             screenshots[`${bp.width}x${bp.height}`] = shot.data;
           } else if (shot?.data) {
-            // GAP-086: Record omission metadata so operators know which breakpoints were
+            // Record omission metadata so operators know which breakpoints were
             // skipped and can investigate rather than silently missing screenshot data.
             screenshots[`${bp.width}x${bp.height}`] = { omitted: true, reason: 'size_cap', bytes: shot.data.length };
           }

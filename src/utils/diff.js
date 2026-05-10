@@ -8,7 +8,7 @@
 import { PNG } from 'pngjs';
 import pixelmatch from 'pixelmatch';
 import fs from 'fs';
-// GAP-60: Import shared URL normalizer so diffNetworkRequests uses the same ID-collapsing
+// Import shared URL normalizer so diffNetworkRequests uses the same ID-collapsing
 // strategy as analyzeApiFrequency — previously each module had its own private normalizer,
 // causing the same endpoint to be keyed differently in frequency vs diff analysis.
 import { normalizeApiUrl } from './api-frequency.js';
@@ -23,7 +23,7 @@ import { normalizeApiUrl } from './api-frequency.js';
  * @returns {{ diffPixels: number, diffPercent: number, totalPixels: number }}
  */
 export async function compareScreenshots(pathA, pathB, diffOutputPath, threshold = 0.1) {
-  // GAP-54: Wrap file I/O in try/catch — readFileSync throws on missing/invalid files,
+  // Wrap file I/O in try/catch — readFileSync throws on missing/invalid files,
   // PNG.sync.read throws on corrupt data; both would crash the entire report pipeline.
   let imgA, imgB;
   try {
@@ -56,7 +56,7 @@ export async function compareScreenshots(pathA, pathB, diffOutputPath, threshold
     { threshold }
   );
 
-  // GAP-63: Don't let a bad output path crash the report — diff images are optional visuals.
+  // Don't let a bad output path crash the report — diff images are optional visuals.
   try {
     fs.writeFileSync(diffOutputPath, PNG.sync.write(diff));
   } catch (err) {
@@ -64,7 +64,7 @@ export async function compareScreenshots(pathA, pathB, diffOutputPath, threshold
   }
 
   const totalPixels = width * height;
-  // GAP-55: Guard against division by zero if both images are 0×0 pixels.
+  // Guard against division by zero if both images are 0×0 pixels.
   const diffPercent = totalPixels > 0 ? (diffPixels / totalPixels) * 100 : 0;
 
   return { diffPixels, diffPercent, totalPixels, width, height };
@@ -142,11 +142,11 @@ export function diffDomSnapshots(domA, domB) {
  * @returns {{ added: object[], removed: object[], changed: object[] }}
  */
 export function diffNetworkRequests(reqsA, reqsB) {
-  // GAP-60: Use the shared normalizeApiUrl (from api-frequency.js) which collapses numeric
+  // Use the shared normalizeApiUrl (from api-frequency.js) which collapses numeric
   // and UUID path segments to /{id}. The previous private normalizeUrl didn't do this,
   // so /api/123 and /api/456 were treated as different endpoints in diffs but the same
   // endpoint in frequency analysis — inconsistent findings across modules.
-  // GAP-93: Object.fromEntries last-write-wins — if two requests normalize to the same key
+  // Object.fromEntries last-write-wins — if two requests normalize to the same key
   // (e.g. /api/123 and /api/456 → /api/{id}), the first request object is silently dropped.
   // Use first-entry-wins so the earlier request (usually the most representative) is kept.
   function buildRequestMap(reqs) {

@@ -43,7 +43,7 @@ export const harnessRoutes = [
     name: 'Network Errors',
     critical: false,
     waitFor: null,
-    // GAP-72: 401 = "critical" per Argus HTTP status severity map in crawl-and-report.js;
+    // 401 = "critical" per Argus HTTP status severity map in crawl-and-report.js;
     // if that mapping ever changes, update this expected string to match.
     expected: 'HTTP 500 (critical), 401 (critical), 404 (info)',
   },
@@ -307,7 +307,7 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'a11y_missing_name warning (SVG-only button), a11y_missing_form_label warning (bare input), a11y_duplicate_landmark warning (main + role=main)',
   },
-  // D8.3–D8.5 — flow-runner integration form fixture (GAP-66: was missing from harnessRoutes)
+  // D8.3–D8.5 — flow-runner integration form fixture (was missing from harnessRoutes)
   // Referenced by validate.js blocks for type_text, drag, and upload_file step actions.
   {
     path: '/flow-form.html',
@@ -348,7 +348,7 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'dead_route warning ×2 (/argus-dead-route-alpha, /argus-dead-route-beta); valid /clean.html and skip-targets not flagged',
   },
-  // GAP-093 — Chrome DevTools Issues panel: CSP violation fixture
+  // Chrome DevTools Issues panel: CSP violation fixture
   {
     path: '/issues-csp.html',
     name: 'Issues CSP',
@@ -356,7 +356,7 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'csp_violation critical from Chrome DevTools Issues panel (inline script blocked by script-src \'self\' CSP)',
   },
-  // GAP-093 — Chrome DevTools Issues panel: deprecated API usage fixture
+  // Chrome DevTools Issues panel: deprecated API usage fixture
   {
     path: '/issues-deprecated.html',
     name: 'Issues Deprecated',
@@ -364,7 +364,7 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'deprecated_api_use info from Chrome DevTools Issues panel (document.domain + DOMSubtreeModified mutation event)',
   },
-  // GAP-096 — heading hierarchy: h1→h3 and h4→h6 skips (two heading_level_skip findings)
+  // heading hierarchy: h1→h3 and h4→h6 skips (two heading_level_skip findings)
   {
     path: '/heading-issues.html',
     name: 'Heading Issues',
@@ -372,7 +372,7 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'heading_level_skip warning ×2 (h1→h3 skips h2, h4→h6 skips h5)',
   },
-  // GAP-097 — keyboard navigation: button with outline:none has no visible focus indicator
+  // keyboard navigation: button with outline:none has no visible focus indicator
   {
     path: '/keyboard-issues.html',
     name: 'Keyboard Issues',
@@ -380,7 +380,7 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'focus_visible_missing warning (#no-focus-ring button has outline:0 and no box-shadow)',
   },
-  // GAP-098 — ARIA state: aria-expanded without aria-controls (missing or broken reference)
+  // ARIA state: aria-expanded without aria-controls (missing or broken reference)
   {
     path: '/aria-state-issues.html',
     name: 'ARIA State Issues',
@@ -388,7 +388,7 @@ export const harnessRoutes = [
     waitFor: '#aria-checks-done[data-ready]',
     expected: 'aria_expanded_no_controls warning ×2 (toggle-no-controls + toggle-bad-controls); valid aria-controls not flagged',
   },
-  // GAP-099 — select_option flow step: select country + size, verify result
+  // select_option flow step: select country + size, verify result
   {
     path: '/select-form.html',
     name: 'Select Form',
@@ -396,7 +396,7 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'select_option flow step selects country=US and size=L, submit shows "US/L" in #form-result',
   },
-  // GAP-102 — iframe sandbox: two unsandboxed iframes + one sandboxed (should not flag)
+  // iframe sandbox: two unsandboxed iframes + one sandboxed (should not flag)
   {
     path: '/iframe-sandbox.html',
     name: 'Iframe Sandbox',

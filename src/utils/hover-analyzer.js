@@ -26,7 +26,7 @@ import { resolveUidForSelector } from './flow-runner.js';
 const HOVER_CANDIDATE_SCRIPT = `() => {
   var results = [];
   function buildSelector(el) {
-    // GAP-087: Use CSS.escape() — raw id/class names containing :, ., [, / or spaces
+    // Use CSS.escape() — raw id/class names containing :, ., [, / or spaces
     // produce invalid selectors that querySelector silently fails to match.
     if (el.id) return '#' + CSS.escape(el.id);
     var classes = Array.from(el.classList)

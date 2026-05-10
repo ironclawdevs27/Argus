@@ -10,12 +10,12 @@
  * Finding key: same scheme as baseline-manager — type::message[:100]::status
  */
 
-// GAP-082: Exported so baseline-manager.js uses the same normalization (trim + collapse
+// Exported so baseline-manager.js uses the same normalization (trim + collapse
 // whitespace). Previously each module had its own private findingKey() with different
 // whitespace handling, so the same finding could be new in baselines but confirmed in
 // flakiness, producing inconsistent cross-module annotation.
 export function findingKey(finding) {
-  // GAP-56: Normalize whitespace before truncating — same finding with minor formatting
+  // Normalize whitespace before truncating — same finding with minor formatting
   // differences (extra spaces, newlines) between run1 and run2 would produce different
   // keys and be incorrectly classified as flaky.
   const msg = (finding.message ?? '').trim().replace(/\s+/g, ' ').slice(0, 100);
@@ -36,7 +36,7 @@ export function findingKey(finding) {
  * @returns {object} Merged result with confirmed + flaky findings combined
  */
 export function mergeRunResults(run1, run2) {
-  // GAP-61: Validate inputs — accessing .errors on undefined throws a cryptic TypeError.
+  // Validate inputs — accessing .errors on undefined throws a cryptic TypeError.
   if (!run1 || !Array.isArray(run1.errors)) {
     throw new TypeError('mergeRunResults: run1.errors must be an array');
   }
@@ -64,7 +64,7 @@ export function mergeRunResults(run1, run2) {
   for (const f of run2.errors) {
     const key = findingKey(f);
     if (keys1.has(key)) {
-      // GAP-52: Prefer run2's version of confirmed findings — run2 is more recent and
+      // Prefer run2's version of confirmed findings — run2 is more recent and
       // may have updated metadata. Replace run1's copy in the confirmed array.
       const idx = confirmedIndexByKey.get(key) ?? -1;
       if (idx !== -1) confirmed[idx] = { ...f, flaky: false };

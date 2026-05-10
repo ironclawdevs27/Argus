@@ -1,5 +1,5 @@
 /**
- * ARGUS Chrome DevTools Issues Analyzer (v6 GAP-093)
+ * ARGUS Chrome DevTools Issues Analyzer
  *
  * Queries the Chrome DevTools Issues panel via
  * list_console_messages({ types: ['issue'] }). The Issues panel is a
@@ -36,7 +36,7 @@ const CLASSIFIERS = [
   },
   {
     type:             'csp_violation',
-    issueTypePattern: /content.security|csp/i,
+    issueTypePattern: /ContentSecurityPolicy|content.security|csp/i,
     textPattern:      /content.security.policy|refused to (execute|load|apply|connect|frame)|violates.*csp/i,
     severity:         () => 'critical',
   },
@@ -74,10 +74,11 @@ const CLASSIFIERS = [
 
 function classifyIssue(issue, url, isCritical) {
   const text = (issue.text ?? issue.message ?? issue.description ?? '').toString();
-  if (!text) return null;
-
   // chrome-devtools-mcp may expose a structured type identifier
   const structuredType = (issue.issueType ?? issue.code ?? issue.kind ?? '').toString();
+  // Skip only when both text AND structured type are absent — structured-type-only
+  // issues (e.g. ContentSecurityPolicyIssue with no text body) must not be dropped.
+  if (!text && !structuredType) return null;
 
   for (const c of CLASSIFIERS) {
     const matchesType = structuredType && c.issueTypePattern.test(structuredType);

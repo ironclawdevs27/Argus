@@ -2,7 +2,7 @@
 
 Validates that every Argus detection category fires correctly by running the full crawl pipeline against deliberately broken fixture pages hosted on a local Express server.
 
-> **v4 Quality Audit complete** — all 30 gaps resolved. **v5 Correctness Hardening complete** (GAP-073–GAP-092, 20 gaps). **v6 Detection Expansion complete** (GAP-093–GAP-102, 10 new detection categories). **v7 Final Production Hardening complete** (2026-05-05) — 50+ security and robustness fixes across 17 source files; zero known gaps remaining; codebase is public-release ready.
+> **v4 Quality Audit complete** — all 30 gaps resolved. **v5 Correctness Hardening complete** (20 gaps). **v6 Detection Expansion complete** (10 new detection categories). **v7 Final Production Hardening complete** (2026-05-05) — 50+ security and robustness fixes across 17 source files. **v8 Harness Correctness** (2026-05-10) — uid regex rewrite, sync-xhr timing fix, select_option label resolution.
 
 <br/>
 
@@ -17,9 +17,9 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-77 test blocks · 319 hard assertions · 46 verified detection categories · 53 fixture pages
+77 test blocks · 323 hard assertions · 46 verified detection categories · 53 fixture pages
 
-> **Coverage note**: 53 detection categories exist in production code. 46 are positively exercised by the harness. The remaining 7 have no fixture trigger yet — see [argus-v6-strategy.md §10](../argus-v6-strategy.md) (GAP-103–GAP-110) for details and planned fixtures.
+> **Coverage note**: 53 detection categories exist in production code. 46 are positively exercised by the harness. The remaining 7 have no fixture trigger yet — see [argus-v6-strategy.md §10](../argus-v6-strategy.md) for details and planned fixtures.
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -89,19 +89,19 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 62 | _(temp dir with package.json)_ | C4.1 `detectFramework` — non-existent dir → `'unknown'` · no package.json → `'unknown'` · `next` dep → `'nextjs'` · `react-router-dom` dep → `'react-router'` (C4) | Hard |
 | 63 | _(pure function — no fixture page)_ | C4.2 `generateTargetsJs` — returns non-empty string · contains export statements · route paths included · autoDiscover block reflects framework · empty routes falls back to default home route (C4) | Hard |
 | 64 | _(pure function — no fixture page)_ | C4.3 `generateEnvFile` — returns non-empty string · devUrl substituted · Slack token not commented when provided · GitHub values substituted · blanks render as commented-out placeholders (C4) | Hard |
-| 65 | `clean.html` | Production crawl pipeline smoke — `crawlRouteCheap()` returns errors array · all issues are info/warning · no criticals on clean fixture (GAP-091) | Hard |
-| 66 | `clean.html` | Chrome DevTools Issues panel baseline — `analyzeIssues()` returns array · no issue findings on clean page · no `csp_violation` (GAP-093) | Hard |
-| 67 | `issues-csp.html` | Chrome DevTools Issues panel — `csp_violation` critical detected · finding has type/message/severity/url fields (GAP-093) | Hard |
-| 68 | `issues-deprecated.html` | Chrome DevTools Issues panel — `deprecated_api_use` info detected · findings are severity `info` (GAP-093) | Hard |
-| 69 | _(pure function — no fixture page)_ | HAR timing `parseNetworkTiming` unit tests — empty array → 0 findings · cross-origin TTFB > 2000ms → `slow_third_party_blocking` warning · static asset skipped · same-origin skipped · below-threshold skipped (GAP-094) | Hard |
-| 70 | `heading-issues.html` | `heading_level_skip` warning ×2 — h1→h3 skips h2, h4→h6 skips h5 · severity warning · skips have `from`/`to` fields (GAP-096) | Hard |
-| 71 | `responsive-issues.html` | CPU throttle (4×) applied during ≤768px breakpoints — `responsive_overflow` critical still fires correctly under throttle (GAP-095) | Hard |
-| 72 | `keyboard-issues.html` | `focus_visible_missing` warning detected · severity warning · `#no-focus-ring` button id present in findings (GAP-097) | Hard |
-| 73 | `aria-state-issues.html` | `aria_expanded_no_controls` warning ×2 (toggle-no-controls + toggle-bad-controls) · severity warning · `#toggle-valid` with valid aria-controls NOT flagged (GAP-098) | Hard |
-| 74 | `select-form.html` | `select_option` flow step — flow passes · no `flow_step_failed` · #form-result text is "US/L" after selecting country=US, size=L (GAP-099) | Hard |
-| 75 | `clean.html` | Origin tagging — `crawlRouteCheap` returns errors array · all network-type findings carry `origin` field (GAP-100) | Hard |
-| 76 | `clean.html` (localhost exclusion) | HTTPS enforcement — `security_no_https` NOT emitted for localhost · URL parsing correctly classifies non-localhost as non-local · `http://example.com` protocol = `http:` (GAP-101) | Hard |
-| 77 | `iframe-sandbox.html` | `security_iframe_no_sandbox` warning ×2 (example.com + w3.org) · severity warning · sandboxed iframe NOT flagged (GAP-102) | Hard |
+| 65 | `clean.html` | Production crawl pipeline smoke — `crawlRouteCheap()` returns errors array · all issues are info/warning · no criticals on clean fixture (091) | Hard |
+| 66 | `clean.html` | Chrome DevTools Issues panel baseline — `analyzeIssues()` returns array · no issue findings on clean page · no `csp_violation` (093) | Hard |
+| 67 | `issues-csp.html` | Chrome DevTools Issues panel — `csp_violation` critical detected · finding has type/message/severity/url fields (093) | Hard |
+| 68 | `issues-deprecated.html` | Chrome DevTools Issues panel — `deprecated_api_use` info detected · findings are severity `info` (093) | Hard |
+| 69 | _(pure function — no fixture page)_ | HAR timing `parseNetworkTiming` unit tests — empty array → 0 findings · cross-origin TTFB > 2000ms → `slow_third_party_blocking` warning · static asset skipped · same-origin skipped · below-threshold skipped (094) | Hard |
+| 70 | `heading-issues.html` | `heading_level_skip` warning ×2 — h1→h3 skips h2, h4→h6 skips h5 · severity warning · skips have `from`/`to` fields (096) | Hard |
+| 71 | `responsive-issues.html` | CPU throttle (4×) applied during ≤768px breakpoints — `responsive_overflow` critical still fires correctly under throttle (095) | Hard |
+| 72 | `keyboard-issues.html` | `focus_visible_missing` warning detected · severity warning · `#no-focus-ring` button id present in findings (097) | Hard |
+| 73 | `aria-state-issues.html` | `aria_expanded_no_controls` warning ×2 (toggle-no-controls + toggle-bad-controls) · severity warning · `#toggle-valid` with valid aria-controls NOT flagged (098) | Hard |
+| 74 | `select-form.html` | `select_option` flow step — flow passes · no `flow_step_failed` · #form-result text is "US/L" after selecting country=US, size=L (099) | Hard |
+| 75 | `clean.html` | Origin tagging — `crawlRouteCheap` returns errors array · all network-type findings carry `origin` field (100) | Hard |
+| 76 | `clean.html` (localhost exclusion) | HTTPS enforcement — `security_no_https` NOT emitted for localhost · URL parsing correctly classifies non-localhost as non-local · `http://example.com` protocol = `http:` (101) | Hard |
+| 77 | `iframe-sandbox.html` | `security_iframe_no_sandbox` warning ×2 (example.com + w3.org) · severity warning · sandboxed iframe NOT flagged (102) | Hard |
 
 ---
 
@@ -251,7 +251,7 @@ The validator will:
 5. Print pass / fail for each assertion
 6. Shut down both fixture servers and exit
 
-**Expected output (all passing):**
+**Expected output (320/323 — 3 permanent MCP-limited failures):**
 
 ```
 ╔══════════════════════════════════════════════════════╗
@@ -305,9 +305,13 @@ The validator will:
   ✓ Flaky count: 2 (expected 2)
 
 ────────────────────────────────────────────────────────
-Results: 319/319 hard assertions passed, 0 failed
+Results: 320/323 hard assertions passed, 3 failed
 
-✅ All hard assertions passed.
+✗ [49b] drag uses mouse simulation — HTML5 drop event never fires (MCP behavioral limit)
+✗ [67b] Chrome DevTools Issues panel not returned by list_console_messages (MCP behavioral limit)
+✗ [68b] Chrome DevTools Issues panel not returned by list_console_messages (MCP behavioral limit)
+
+⚠ 3 permanent MCP-limited failures — these cannot be fixed in Argus code.
 ```
 
 ---

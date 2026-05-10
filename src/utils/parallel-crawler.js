@@ -16,7 +16,7 @@
  * @returns {Array[]}
  */
 export function chunkArray(arr, n) {
-  // GAP-57: Validate inputs — arr.length throws on undefined; non-integer n produces
+  // Validate inputs — arr.length throws on undefined; non-integer n produces
   // fractional chunk sizes that silently skip elements or create unexpected extra chunks.
   if (!Array.isArray(arr)) throw new TypeError('chunkArray: arr must be an array');
   if (!Number.isInteger(n) || n <= 0) throw new RangeError('chunkArray: n must be a positive integer');

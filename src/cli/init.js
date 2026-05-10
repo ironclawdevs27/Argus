@@ -56,10 +56,12 @@ export function detectFramework(projectRoot) {
 export function generateTargetsJs(routes, options = {}) {
   const { framework = 'unknown', sourceDir = null, envFile = null } = options;
 
+  // Escape for single-quoted JS string literals: backslash → \\ , CR → \r , LF → \n , ' → \'
+  const esc = s => String(s ?? '').replace(/\\/g, '\\\\').replace(/\r/g, '\\r').replace(/\n/g, '\\n').replace(/'/g, "\\'");
   const routeLines = routes.length
     ? routes.map(r => {
-        const wf = r.waitFor ? JSON.stringify(r.waitFor) : 'null';
-        return `  { path: ${JSON.stringify(r.path)}, name: ${JSON.stringify(r.name)}, critical: ${!!r.critical}, waitFor: ${wf} },`;
+        const wf = r.waitFor ? `'${esc(r.waitFor)}'` : 'null';
+        return `  { path: '${esc(r.path)}', name: '${esc(r.name)}', critical: ${!!r.critical}, waitFor: ${wf} },`;
       }).join('\n')
     : `  { path: '/', name: 'Home', critical: true, waitFor: 'main' },`;
 

@@ -11,14 +11,23 @@
   <p>This page makes a synchronous XMLHttpRequest to trigger the D6.1 detection.</p>
   <div id="result" data-ready="true">Pending...</div>
   <script>
-    try {
-      var xhr = new XMLHttpRequest();
-      xhr.open('GET', '/api/data', false); // third arg false = synchronous — blocks main thread
-      xhr.send(null);
-      document.getElementById('result').textContent = 'Done: ' + xhr.status;
-    } catch (e) {
-      document.getElementById('result').textContent = 'XHR error: ' + e.message;
-    }
+    // Delayed so Argus can inject the XHR patch before this fires.
+    // The patch is injected immediately after navigate_page returns; 300ms gives it time.
+    window.addEventListener('load', function() {
+      // 1500ms gives the Argus XHR patch time to be injected via evaluate_script
+      // before the synchronous XHR fires (patch is injected immediately after navigate_page
+      // returns, but the CDP round-trip can exceed 300ms under MCP overhead).
+      setTimeout(function() {
+        try {
+          var xhr = new XMLHttpRequest();
+          xhr.open('GET', '/api/data', false); // third arg false = synchronous — blocks main thread
+          xhr.send(null);
+          document.getElementById('result').textContent = 'Done: ' + xhr.status;
+        } catch (e) {
+          document.getElementById('result').textContent = 'XHR error: ' + e.message;
+        }
+      }, 1500);
+    });
   </script>
 </body>
 </html>

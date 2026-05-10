@@ -1,5 +1,5 @@
 /**
- * ARGUS Network HAR Timing Analyzer (v6 GAP-094)
+ * ARGUS Network HAR Timing Analyzer
  *
  * Reads per-request TTFB (timing.wait) from list_network_requests HAR output.
  * Detects third-party resources that block page load — cross-origin requests

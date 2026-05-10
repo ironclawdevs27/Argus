@@ -37,7 +37,7 @@ export function analyzeApiFrequency(networkReqs, pageUrl) {
   const groups = {};
   for (const req of apiCalls) {
     const method = (req.method ?? 'GET').toUpperCase();
-    // GAP-53: Coalesce req.url — the filter uses a coerced copy but the loop uses the
+    // Coalesce req.url — the filter uses a coerced copy but the loop uses the
     // original; req.url could still be undefined, causing new URL(undefined) to throw.
     const normalized = normalizeApiUrl(req.url ?? '');
     const key = `${method}::${normalized}`;
@@ -109,7 +109,7 @@ export function analyzeApiFrequency(networkReqs, pageUrl) {
  * @returns {string}
  */
 export function normalizeApiUrl(url) {
-  // GAP-79: Guard non-string input — new URL(null) throws into the catch, then
+  // Guard non-string input — new URL(null) throws into the catch, then
   // null.replace() in the catch block throws a second uncaught TypeError.
   if (typeof url !== 'string') return '';
   try {
@@ -117,7 +117,7 @@ export function normalizeApiUrl(url) {
     const pathname = u.pathname
       .replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '/{id}')
       .replace(/\/\d+/g, '/{id}');
-    // GAP-87: Include protocol so http://api.example.com and https://api.example.com
+    // Include protocol so http://api.example.com and https://api.example.com
     // are not collapsed to the same key in frequency analysis and diffs.
     return `${u.protocol}//${u.hostname}${pathname}`;
   } catch {

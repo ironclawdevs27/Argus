@@ -56,7 +56,7 @@ Chrome must be running with remote debugging before starting the harness:
 
 # Then run the harness:
 npm run test:harness
-# Expected: 210/210 hard assertions passed
+# Expected: 320/323 (3 permanent MCP-limited failures)
 ```
 
 Soft assertions (Lighthouse, perf traces) require non-headless Chrome — they are expected to be skipped in headless CI.

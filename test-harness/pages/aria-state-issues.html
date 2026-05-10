@@ -13,13 +13,13 @@
 <body>
   <h1>ARIA State Issues Fixture</h1>
   <p>
-    This page exercises GAP-098 ARIA state detection.
+    This page exercises ARIA state detection.
     Two disclosure buttons have <code>aria-expanded</code> but broken
     <code>aria-controls</code> references.
   </p>
 
   <!--
-    GAP-098 fixture A: aria-expanded with no aria-controls at all.
+    Fixture A: aria-expanded with no aria-controls at all.
     Argus should flag aria_expanded_no_controls.
   -->
   <button id="toggle-no-controls" aria-expanded="false">
@@ -28,7 +28,7 @@
   <div id="panel-a" class="dropdown">Panel A content</div>
 
   <!--
-    GAP-098 fixture B: aria-expanded with aria-controls pointing to a non-existent id.
+    Fixture B: aria-expanded with aria-controls pointing to a non-existent id.
     Argus should flag aria_expanded_no_controls with broken-reference detail.
   -->
   <button id="toggle-bad-controls" aria-expanded="false" aria-controls="panel-does-not-exist">

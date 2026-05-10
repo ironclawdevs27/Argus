@@ -20,7 +20,7 @@ import { createMcpClient } from '../utils/mcp-client.js';
 import { runCrawl } from '../orchestration/crawl-and-report.js';
 import { WebClient } from '@slack/web-api';
 
-// GAP-31: Lazy-initialize the Slack client so SLACK_BOT_TOKEN is read at call time,
+// Lazy-initialize the Slack client so SLACK_BOT_TOKEN is read at call time,
 // not at module import time (before dotenv has run).
 let _slack;
 function getSlack() {
@@ -54,7 +54,7 @@ export function verifySlackSignature(req) {
     .update(sigBasestring)
     .digest('hex');
 
-  // GAP-94: timingSafeEqual throws TypeError if buffer lengths differ — pre-check so we
+  // timingSafeEqual throws TypeError if buffer lengths differ — pre-check so we
   // return false (invalid signature) instead of crashing with an unhandled exception.
   if (mySignature.length !== slackSignature.length) return false;
   return crypto.timingSafeEqual(
@@ -75,7 +75,7 @@ export async function handleSlashCommand(req, res) {
   }
 
   const { command, text, response_url } = req.body;
-  // GAP-84: Slack guarantees channel_id and user_name in slash commands, but crafted or
+  // Slack guarantees channel_id and user_name in slash commands, but crafted or
   // malformed POSTs may omit them. Guard explicitly so downstream interpolations are safe.
   const channel_id = req.body.channel_id;
   const user_name = req.body.user_name ?? 'unknown';
@@ -111,7 +111,7 @@ export async function handleSlashCommand(req, res) {
     return res.json({ response_type: 'ephemeral', text: '⚠️ Private and loopback URLs are not allowed.' });
   }
 
-  // GAP-95: Strip backticks from the URL before interpolating into Slack mrkdwn — a URL
+  // Strip backticks from the URL before interpolating into Slack mrkdwn — a URL
   // containing a backtick would break out of the inline code span and could alter formatting.
   const safeUrl      = targetUrl.replace(/`/g, '');
   const safeName     = user_name.replace(/[*_`~<>&]/g, '');
@@ -122,7 +122,7 @@ export async function handleSlashCommand(req, res) {
     text: `🔄 *ARGUS retest started* for \`${safeUrl}\`\nRequested by @${safeName}. Results will appear here shortly...`,
   });
 
-  // GAP-32: Attach .catch() so an unexpected rejection doesn't become an unhandled rejection
+  // Attach .catch() so an unexpected rejection doesn't become an unhandled rejection
   // that crashes the server (Node 15+ terminates on unhandled rejections).
   runRetestAsync({ targetUrl, channelId: channel_id, responseUrl: response_url, requestedBy: user_name })
     .catch(err => console.error('[ARGUS] runRetestAsync unhandled:', err.message));
@@ -137,7 +137,7 @@ async function runRetestAsync({ targetUrl, channelId, responseUrl, requestedBy }
   try {
     mcp = await createMcpClient();
 
-    // GAP-33 + GAP-40: Do NOT mutate process.env.TARGET_DEV_URL — concurrent retests share
+    // Do NOT mutate process.env.TARGET_DEV_URL — concurrent retests share
     // the same Node.js process env and would corrupt each other's URLs. Pass targetUrl directly.
     const singleRoute = [{ path: '', name: 'Retest', critical: true, waitFor: null }];
     const CRAWL_TIMEOUT_MS = parseInt(process.env.ARGUS_CRAWL_TIMEOUT_MS ?? '120000', 10);
@@ -159,7 +159,7 @@ async function runRetestAsync({ targetUrl, channelId, responseUrl, requestedBy }
         `Critical: ${summary.critical} | Warnings: ${summary.warning} | Info: ${summary.info}`,
     });
 
-    // GAP-38: Guard against SLACK_CHANNEL_CRITICAL being unset — would post "#undefined"
+    // Guard against SLACK_CHANNEL_CRITICAL being unset — would post "#undefined"
     if (!passed && process.env.SLACK_CHANNEL_CRITICAL) {
       await getSlack().chat.postMessage({
         channel: channelId,
@@ -167,10 +167,10 @@ async function runRetestAsync({ targetUrl, channelId, responseUrl, requestedBy }
       });
     }
   } catch (err) {
-    // GAP-37: Log full error server-side; post only a generic message to Slack so internal
+    // Log full error server-side; post only a generic message to Slack so internal
     // paths/stack traces/env var names are not leaked to the channel.
     console.error('[ARGUS] Retest failed:', err);
-    // GAP-74: Log delivery failures — silent .catch(() => {}) meant the operator
+    // Log delivery failures — silent .catch(() => {}) meant the operator
     // had no indication when the error notification itself failed to post.
     await getSlack().chat.postMessage({
       channel: channelId,

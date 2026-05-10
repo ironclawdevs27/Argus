@@ -97,7 +97,7 @@ const DUPLICATE_LANDMARK_SCRIPT = `() => {
     var els = Array.from(document.querySelectorAll(
       '[role="' + role + '"]' + (role === 'main' ? ',main' : role === 'banner' ? ',header' : role === 'contentinfo' ? ',footer' : role === 'navigation' ? ',nav' : role === 'complementary' ? ',aside' : role === 'form' ? ',form' : '')
     ));
-    // GAP-088: <header>/<footer> (banner/contentinfo) inside sectioning content
+    // <header>/<footer> (banner/contentinfo) inside sectioning content
     // (<article>, <aside>, <main>, <nav>, <section>) don't expose global landmark
     // roles per the HTML-AAM spec — only count document-scoped instances.
     els = els.filter(function(el) {
@@ -115,7 +115,7 @@ const DUPLICATE_LANDMARK_SCRIPT = `() => {
   return JSON.stringify(results);
 }`;
 
-// ── Heading hierarchy check script (GAP-096) ─────────────────────────────────
+// ── Heading hierarchy check script ─────────────────────────────────────────
 // Detects heading level skips (e.g. h1 → h3) that break screen-reader nav.
 const HEADING_HIERARCHY_SCRIPT = `() => {
   var headings = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6'));
@@ -133,7 +133,7 @@ const HEADING_HIERARCHY_SCRIPT = `() => {
   return JSON.stringify(skips);
 }`;
 
-// ── ARIA state check script (GAP-098) ────────────────────────────────────────
+// ── ARIA state check script ──────────────────────────────────────────────────
 // Detects aria-expanded elements that have no aria-controls pointing to a real element,
 // and form controls that have aria-required but the attribute value is incorrect.
 const ARIA_STATE_SCRIPT = `() => {
@@ -270,7 +270,7 @@ export async function analyzeSnapshot(mcp, url) {
     // Skip silently
   }
 
-  // ── ARIA state checks (GAP-098) ──────────────────────────────────────────
+  // ── ARIA state checks ────────────────────────────────────────────────────
   try {
     const raw   = await mcp.evaluate_script({ function: ARIA_STATE_SCRIPT });
     const items = parseJson(raw);
@@ -295,7 +295,7 @@ export async function analyzeSnapshot(mcp, url) {
     // Skip silently
   }
 
-  // ── Heading hierarchy (GAP-096) ───────────────────────────────────────────
+  // ── Heading hierarchy ─────────────────────────────────────────────────────
   try {
     const raw   = await mcp.evaluate_script({ function: HEADING_HIERARCHY_SCRIPT });
     const items = parseJson(raw);

@@ -12,7 +12,7 @@
 import fs            from 'fs';
 import path          from 'path';
 import { execSync }  from 'child_process';
-// GAP-082: Import shared findingKey from flakiness-detector so both modules use
+// Import shared findingKey from flakiness-detector so both modules use
 // identical normalization (trim + whitespace collapse). Local copy removed.
 import { findingKey } from './flakiness-detector.js';
 
@@ -140,7 +140,7 @@ export function applyBaseline(report, baseline) {
     for (const finding of (report.codebase ?? [])) {
       finding.isNew = true;
     }
-    // GAP-083: Include codebase counts so PR/Slack trend summaries reflect codebase findings.
+    // Include codebase counts so PR/Slack trend summaries reflect codebase findings.
     return { isFirstRun: true, newCount, resolvedCount: 0, flowNewCount, flowResolvedCount: 0, codebaseNewCount, codebaseResolvedCount: 0 };
   }
 
@@ -183,7 +183,7 @@ export function applyBaseline(report, baseline) {
     }
   }
 
-  // C1 codebase findings — annotate isNew + count new/resolved (GAP-083)
+  // C1 codebase findings — annotate isNew + count new/resolved
   const baselineCodebase = baseline.codebase ?? new Set();
   const currentCodebaseKeys = new Set();
   let codebaseNewCount = 0;
@@ -198,7 +198,7 @@ export function applyBaseline(report, baseline) {
     if (!currentCodebaseKeys.has(key)) codebaseResolvedCount++;
   }
 
-  // GAP-083: Return codebase counts alongside route/flow counts so Slack/GitHub reporters
+  // Return codebase counts alongside route/flow counts so Slack/GitHub reporters
   // can include codebase findings in trend summaries and PR comments.
   return { isFirstRun: false, newCount, resolvedCount, flowNewCount, flowResolvedCount, codebaseNewCount, codebaseResolvedCount };
 }
@@ -233,7 +233,7 @@ export function appendTrend(trendsFile, entry) {
   try {
     let trends = [];
     if (fs.existsSync(trendsFile)) {
-      // GAP-86: JSON.parse may return a non-array (corrupt file contains `{}`); assigning
+      // JSON.parse may return a non-array (corrupt file contains `{}`); assigning
       // that to trends would cause trends.push() to throw "not a function" later.
       try {
         const parsed = JSON.parse(fs.readFileSync(trendsFile, 'utf8'));

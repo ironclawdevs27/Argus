@@ -12,18 +12,18 @@
 <body>
   <h1>Iframe Sandbox Issues Fixture</h1>
   <p>
-    This page exercises GAP-102 iframe sandbox detection.
+    This page exercises iframe sandbox detection.
     Two iframes lack the <code>sandbox</code> attribute — Argus should flag them.
   </p>
 
   <!--
-    GAP-102 fixture A: cross-origin iframe with no sandbox attribute.
+    Fixture A: cross-origin iframe with no sandbox attribute.
     Argus should detect security_iframe_no_sandbox.
   -->
   <iframe src="https://example.com" width="200" height="100" title="Unsandboxed external A"></iframe>
 
   <!--
-    GAP-102 fixture B: another unsandboxed cross-origin iframe.
+    Fixture B: another unsandboxed cross-origin iframe.
   -->
   <iframe src="https://www.w3.org" width="200" height="100" title="Unsandboxed external B"></iframe>
 

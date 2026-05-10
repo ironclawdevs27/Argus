@@ -83,7 +83,7 @@ export async function createMcpClient() {
   let buffer = '';
 
   // Parse newline-delimited JSON-RPC responses from stdout
-  // GAP-88: Propagate stdin write errors — if the MCP process closes unexpectedly or the
+  // Propagate stdin write errors — if the MCP process closes unexpectedly or the
   // write buffer fills, stdin emits 'error'. Without this listener the error is an
   // unhandled EventEmitter exception that crashes the process. Reject all pending calls
   // so callers get a meaningful error instead of waiting for the 30 s timeout.
@@ -193,7 +193,7 @@ export async function createMcpClient() {
             const text = item.text;
             // chrome-devtools-mcp wraps evaluate_script results in a markdown code block:
             // "Script ran on page and returned:\n```json\n<value>\n```"
-            // GAP-78: \n? before closing fence — responses without a trailing newline
+            // \n? before closing fence — responses without a trailing newline
             // before the ``` would not match and fall through to raw JSON.parse, which
             // then fails because the fence characters are still present in the text.
             const mdMatch = text.match(/```(?:json)?\n([\s\S]*?)\n?```/);
@@ -208,7 +208,7 @@ export async function createMcpClient() {
   }
 
   // Graceful shutdown — idempotent and rejects all in-flight calls immediately.
-  // GAP-080: Without this, pending promises wait until TOOL_TIMEOUT_MS (30 s) after
+  // Without this, pending promises wait until TOOL_TIMEOUT_MS (30 s) after
   // shutdown, making CI teardown slow and leaving dangling rejections.
   let closed = false;
   function close() {

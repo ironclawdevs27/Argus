@@ -26,6 +26,7 @@
  */
 
 import { spawn } from 'child_process';
+import net from 'net';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -45,7 +46,7 @@ import { analyzeSnapshot } from '../src/utils/snapshot-analyzer.js';
 import { saveSession, restoreSession, refreshSession } from '../src/utils/session-manager.js';
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend, getCurrentBranch } from '../src/utils/baseline-manager.js';
 import { mergeRunResults } from '../src/utils/flakiness-detector.js';
-import { runFlow, normalizeArray } from '../src/utils/flow-runner.js';
+import { runFlow, normalizeArray, resolveUidForSelector } from '../src/utils/flow-runner.js';
 import { chunkArray } from '../src/utils/parallel-crawler.js';
 import { validateSchema, matchesContract } from '../src/utils/contract-validator.js';
 import { applyOverrides } from '../src/utils/severity-overrides.js';
@@ -57,12 +58,12 @@ import { detectFramework, generateTargetsJs, generateEnvFile } from '../src/cli/
 import os from 'os';
 import { generateHtmlReport } from '../src/utils/html-reporter.js';
 import {
-  HARNESS_DEV_URL, HARNESS_DEV_PORT,
-  HARNESS_STAGING_URL, HARNESS_STAGING_PORT
+  HARNESS_DEV_PORT,
+  HARNESS_STAGING_PORT
 } from './harness-config.js';
-// GAP-091: Import the production crawl function so the harness exercises the real pipeline,
-// not a hand-rolled duplicate. The Slack init side-effect concern was resolved by GAP-31
-// (lazy WebClient init), so importing crawl-and-report.js is now safe in test context.
+// Import the production crawl function so the harness exercises the real pipeline,
+// not a hand-rolled duplicate. The Slack init side-effect concern was resolved by lazy
+// WebClient init, so importing crawl-and-report.js is now safe in test context.
 import { crawlRouteCheap } from '../src/orchestration/crawl-and-report.js';
 import { analyzeIssues } from '../src/utils/issues-analyzer.js';
 import { parseNetworkTiming } from '../src/utils/network-timing-analyzer.js';
@@ -94,12 +95,13 @@ function soft(condition, message) {
 
 // ── Server management ─────────────────────────────────────────────────────────
 
-function startServer(port) {
+function startServer(port, { staging = false } = {}) {
   return new Promise((resolve, reject) => {
+    const env = { ...process.env, PORT: String(port), ARGUS_ENV: staging ? 'staging' : 'dev' };
     const proc = spawn(
       'node',
       [path.join(__dirname, 'server.js')],
-      { env: { ...process.env, PORT: String(port) }, stdio: 'pipe' }
+      { env, stdio: 'pipe' }
     );
     proc.stdout.on('data', chunk => {
       const line = chunk.toString();
@@ -109,6 +111,18 @@ function startServer(port) {
     proc.stderr.on('data', chunk => process.stderr.write(`  [harness:${port}] ${chunk}`));
     proc.on('error', reject);
     setTimeout(() => reject(new Error(`Harness server (port ${port}) did not start within 10 s`)), 10000);
+  });
+}
+
+/** Finds the next available TCP port starting from startPort. */
+function findFreePort(startPort) {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.listen(startPort, () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+    srv.on('error', () => resolve(findFreePort(startPort + 1)));
   });
 }
 
@@ -199,11 +213,45 @@ const INJECT_DOC_WRITE_LISTENER = `() => {
 }`;
 const EXTRACT_DOC_WRITE_LISTENER = `() => JSON.stringify(window.__argusDocWrites ?? [])`;
 
+// D6.2 — Static analysis: scan inline + same-origin external scripts for document.write/writeln calls.
+// More reliable than runtime patching because post-load document.write causes document.open() which
+// resets the JS context and destroys any previously-injected patches.
+const DETECT_DOC_WRITE_STATIC = `async () => {
+  var found = [];
+  var seen = new Set();
+  function checkSrc(src, label) {
+    if (/\\bdocument\\.write\\s*\\(/.test(src) && !seen.has('write:'+label)) {
+      found.push({ method: 'write', content: label }); seen.add('write:'+label);
+    }
+    if (/\\bdocument\\.writeln\\s*\\(/.test(src) && !seen.has('writeln:'+label)) {
+      found.push({ method: 'writeln', content: label }); seen.add('writeln:'+label);
+    }
+  }
+  function isJsType(el) {
+    var t = (el.type || '').toLowerCase().trim();
+    return t === '' || t === 'text/javascript' || t === 'application/javascript' || t === 'module';
+  }
+  var inlines = document.querySelectorAll('script:not([src])');
+  for (var i = 0; i < inlines.length; i++) {
+    if (isJsType(inlines[i])) checkSrc(inlines[i].textContent||'','(inline)');
+  }
+  var externals = document.querySelectorAll('script[src]');
+  var fetches = [];
+  for (var i = 0; i < externals.length; i++) {
+    if (!isJsType(externals[i])) continue;
+    var u = externals[i].src;
+    if (!u || !u.startsWith(location.origin)) continue;
+    fetches.push(fetch(u).then(function(r){return r.text();}).then(function(t){checkSrc(t,u);}).catch(function(){}));
+  }
+  await Promise.all(fetches);
+  return JSON.stringify(found);
+}`;
+
 // D6.3 — Long task detection (same logic as crawl-and-report.js)
 const INJECT_LONG_TASK_LISTENER = `() => {
+  if (!window.__argusLongTasks) window.__argusLongTasks = []; // preserve in-page direct measurement
   if (window.__argusLongTaskPatched) return;
   window.__argusLongTaskPatched = true;
-  window.__argusLongTasks = [];
   try {
     var obs = new PerformanceObserver(function(list) {
       var entries = list.getEntries();
@@ -228,9 +276,9 @@ const EXTRACT_LONG_TASK_LISTENER = `() => JSON.stringify(window.__argusLongTasks
 
 // D6.5 — Service worker registration failure detection (same logic as crawl-and-report.js)
 const INJECT_SW_LISTENER = `() => {
+  if (!window.__argusSwErrors) window.__argusSwErrors = []; // preserve in-page direct capture
   if (window.__argusSwPatched) return;
   window.__argusSwPatched = true;
-  window.__argusSwErrors = [];
   if (!navigator.serviceWorker) return;
   var _register = navigator.serviceWorker.register.bind(navigator.serviceWorker);
   navigator.serviceWorker.register = function(scriptURL, options) {
@@ -265,8 +313,13 @@ const DUPLICATE_ID_SCRIPT = `() => {
 // D6.7 — debugger; statement detection (inline + same-origin external scripts)
 const DEBUGGER_SCRIPT = `async () => {
   var found = [];
+  function isJsType(el) {
+    var t = (el.type || '').toLowerCase().trim();
+    return t === '' || t === 'text/javascript' || t === 'application/javascript' || t === 'module';
+  }
   var inline = document.querySelectorAll('script:not([src])');
   for (var i = 0; i < inline.length; i++) {
+    if (!isJsType(inline[i])) continue;
     var src = inline[i].textContent || '';
     var lines = src.split('\\n');
     for (var ln = 0; ln < lines.length; ln++) {
@@ -277,11 +330,15 @@ const DEBUGGER_SCRIPT = `async () => {
   }
   var origin = window.location.origin;
   var seen = {};
-  var extUrls = window.performance.getEntriesByType('resource')
-    .filter(function(e){ return e.initiatorType === 'script' && e.name.startsWith(origin); })
-    .map(function(e){ return e.name; })
-    .filter(function(u){ if (seen[u]) return false; seen[u] = true; return true; })
-    .slice(0, 20);
+  var extEls = document.querySelectorAll('script[src]');
+  var extUrls = [];
+  for (var i = 0; i < extEls.length && extUrls.length < 20; i++) {
+    if (!isJsType(extEls[i])) continue;
+    var u = extEls[i].src;
+    if (!u || !u.startsWith(origin) || seen[u]) continue;
+    seen[u] = true;
+    extUrls.push(u);
+  }
   await Promise.all(extUrls.map(async function(scriptUrl) {
     try {
       var r = await fetch(scriptUrl, { cache: 'force-cache', credentials: 'same-origin' });
@@ -330,16 +387,18 @@ const CACHE_HEADER_SCRIPT = `async () => {
 async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {}) {
   const errors = [];
 
-  // Snapshot browser console count before navigation (for D6.4 CORS baseline slicing)
+  // Snapshot browser console count before navigation for CORS baseline slicing.
+  // Captured here (before navigate) to establish the accumulation watermark.
   const consoleListBaseline = normalizeArray(await mcp.list_console_messages().catch(() => [])).length;
 
-  // Inject listeners before navigation
+  await mcp.navigate_page({ url });
+
+  // Inject listeners IMMEDIATELY after navigation so the new page context is live.
+  // Must run before the settle wait so events fired by setTimeout/onload are captured.
   await mcp.evaluate_script({ function: INJECT_SYNC_XHR_LISTENER }).catch(() => { });   // D6.1
   await mcp.evaluate_script({ function: INJECT_DOC_WRITE_LISTENER }).catch(() => { });  // D6.2
   await mcp.evaluate_script({ function: INJECT_LONG_TASK_LISTENER }).catch(() => { });  // D6.3
-  await mcp.evaluate_script({ function: INJECT_SW_LISTENER }).catch(() => { });  // D6.5
-
-  await mcp.navigate_page({ url });
+  await mcp.evaluate_script({ function: INJECT_SW_LISTENER }).catch(() => { });         // D6.5
 
   if (waitFor) {
     // Poll every 300 ms for up to 5 s — wait_for alone doesn't reliably reject on timeout.
@@ -574,9 +633,11 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
     }
   } catch { /* skip */ }
 
-  // document.write detection (D6.2)
+  // document.write detection — static analysis (D6.2)
+  // Runtime patching is unreliable: post-load document.write triggers document.open() which
+  // resets the JS context. Scanning script source is stable regardless of execution timing.
   try {
-    const docWriteRaw = await mcp.evaluate_script({ function: EXTRACT_DOC_WRITE_LISTENER });
+    const docWriteRaw = await mcp.evaluate_script({ function: DETECT_DOC_WRITE_STATIC });
     const docWrites = evalToArray(docWriteRaw);
     for (const entry of docWrites) {
       errors.push({
@@ -605,18 +666,27 @@ async function crawlFixture(mcp, url, { critical = false, waitFor = null } = {})
     }
   } catch { /* skip */ }
 
-  // CORS error detection (D6.4) — browser-generated errors not captured by in-page interceptor
+  // CORS error detection (D6.4)
+  // Primary: in-page console interceptor (fixture calls console.error with "cors policy" text).
+  // Fallback: CDP list_console_messages() which may capture browser-level CORS messages.
   try {
-    const browserMsgs = normalizeArray(await mcp.list_console_messages().catch(() => [])).slice(consoleListBaseline);
+    const corsSet = new Set();
+    const addCors = (text) => {
+      if (!corsSet.has(text)) {
+        corsSet.add(text);
+        errors.push({ type: 'cors_error', message: text || 'CORS policy violation', severity: 'critical' });
+      }
+    };
+    for (const msg of consoleMsgs) {
+      const text = (msg.text ?? msg.message ?? '');
+      if (text.toLowerCase().includes('has been blocked by cors policy')) addCors(text);
+    }
+    const allCdpMsgs = normalizeArray(await mcp.list_console_messages().catch(() => []));
+    const corsBase = allCdpMsgs.length > consoleListBaseline ? consoleListBaseline : 0;
+    const browserMsgs = allCdpMsgs.slice(corsBase);
     for (const msg of browserMsgs) {
       const text = (msg.text ?? msg.message ?? '');
-      if (text.toLowerCase().includes('has been blocked by cors policy')) {
-        errors.push({
-          type: 'cors_error',
-          message: text || 'CORS policy violation',
-          severity: 'critical',
-        });
-      }
+      if (text.toLowerCase().includes('has been blocked by cors policy')) addCors(text);
     }
   } catch { /* skip */ }
 
@@ -767,9 +837,9 @@ function visualDiff(devShot, stagingShot) {
 
 // ── Test suite ────────────────────────────────────────────────────────────────
 
-async function runTests(mcp, stagingProc) {
-  const B = HARNESS_DEV_URL;
-  const BS = HARNESS_STAGING_URL;
+async function runTests(mcp, stagingProc, devPort, stagingPort) {
+  const B = `http://localhost:${devPort}`;
+  const BS = `http://localhost:${stagingPort}`;
 
   // Clear any Chrome state left by a previous harness run (auth cookies, localStorage)
   try {
@@ -815,7 +885,7 @@ async function runTests(mcp, stagingProc) {
     assert(ce.every(e => e.severity === 'warning'), `All at severity "warning"`);
   }
 
-  // ── [4] JS errors (critical route) — GAP 2 FIX ──────────────────────────
+  // ── [4] JS errors (critical route) ──────────────────────────────────────
   console.log('\n[4] JS Errors on critical route — expect: severity "critical" (not "warning")');
   {
     const { errors } = await crawlFixture(mcp, `${B}/js-errors-critical.html`, { critical: true });
@@ -824,7 +894,7 @@ async function runTests(mcp, stagingProc) {
     assert(ce.every(e => e.severity === 'critical'), `All console errors → severity "critical" on critical route`);
   }
 
-  // ── [5] Network errors — GAP 1 FIX: added HTTP 403 ───────────────────────
+  // ── [5] Network errors — added HTTP 403 ─────────────────────────────────
   console.log('\n[5] Network Errors — HTTP 500 critical, 401 critical, 403 critical, 404 info');
   {
     const { errors } = await crawlFixture(mcp, `${B}/network-errors.html`, { critical: false });
@@ -834,15 +904,15 @@ async function runTests(mcp, stagingProc) {
     const n404 = errors.filter(e => e.type === 'network' && e.status === 404);
     assert(n500.length > 0, `HTTP 500 detected`);
     assert(n401.length > 0, `HTTP 401 detected`);
-    assert(n403.length > 0, `HTTP 403 detected`);              // GAP 1
+    assert(n403.length > 0, `HTTP 403 detected`);
     assert(n404.length > 0, `HTTP 404 detected`);
     assert(n500[0]?.severity === 'critical', `HTTP 500 → "critical"`);
     assert(n401[0]?.severity === 'critical', `HTTP 401 → "critical" (auth)`);
-    assert(n403[0]?.severity === 'critical', `HTTP 403 → "critical" (forbidden)`); // GAP 1
+    assert(n403[0]?.severity === 'critical', `HTTP 403 → "critical" (forbidden)`);
     assert(n404[0]?.severity === 'info', `HTTP 404 → "info" on non-critical route`);
   }
 
-  // ── [6] API frequency — GAP 4 FIX: added api_call_summary assertion ───────
+  // ── [6] API frequency — added api_call_summary assertion ────────────────
   console.log('\n[6] API Frequency — ×6 critical, ×3 warning, ×2 info, plus summary entry');
   {
     const { errors } = await crawlFixture(mcp, `${B}/api-frequency.html`);
@@ -856,7 +926,7 @@ async function runTests(mcp, stagingProc) {
     assert(loop[0]?.severity === 'critical', `data-loop → "critical"`);
     assert(batch[0]?.severity === 'warning', `data-batch → "warning"`);
     assert(pair[0]?.severity === 'info', `data-pair → "info"`);
-    assert(summary.length > 0, `API call summary entry generated (gap 4)`); // GAP 4
+    assert(summary.length > 0, `API call summary entry generated`);
   }
 
   // ── [7] Blank page ────────────────────────────────────────────────────────
@@ -876,22 +946,22 @@ async function runTests(mcp, stagingProc) {
       `No load_failure — selector appeared within timeout`);
   }
 
-  // ── [9] WaitFor timeout — GAP 3 FIX ─────────────────────────────────────
+  // ── [9] WaitFor timeout ──────────────────────────────────────────────────
   console.log('\n[9] WaitFor timeout — #never-appears never exists → load_failure warning');
   {
     const { errors } = await crawlFixture(mcp, `${B}/waitfor-timeout.html`,
       { waitFor: '#never-appears', critical: false });
     const lf = errors.filter(e => e.type === 'load_failure');
-    assert(lf.length > 0, `load_failure detected when selector never appears`); // GAP 3
+    assert(lf.length > 0, `load_failure detected when selector never appears`);
     assert(lf[0]?.severity === 'warning', `load_failure → "warning" on non-critical route`);
   }
 
-  // ── [10] CSS issues — GAPS 5 & 6 FIX: non-important cascade + SCSS map ───
+  // ── [10] CSS issues — non-important cascade + SCSS map ──────────────────
   console.log('\n[10] CSS Issues — !important override, cascade override, unused rules, component leak, CSS Modules, inline conflict, SCSS map');
   {
     const { errors } = await crawlFixture(mcp, `${B}/css-issues.html`);
     const impOverrides = errors.filter(e => e.type === 'css_override' && e.hasImportant);
-    const nonImpOverrides = errors.filter(e => e.type === 'css_override' && !e.hasImportant);  // GAP 5
+    const nonImpOverrides = errors.filter(e => e.type === 'css_override' && !e.hasImportant);
     const unusedRules = errors.filter(e => e.type === 'css_unused_rules');
     const leaks = errors.filter(e => e.type === 'css_component_leak');
     const modules = errors.filter(e => e.type === 'css_modules_detected');
@@ -901,7 +971,7 @@ async function runTests(mcp, stagingProc) {
     assert(impOverrides.length > 0,
       `!important CSS override detected — header background (found ${impOverrides.length})`);
     assert(nonImpOverrides.length > 0,
-      `Non-!important cascade override detected — h1 color declared twice (gap 5, found ${nonImpOverrides.length})`); // GAP 5
+      `Non-!important cascade override detected — h1 color declared twice (found ${nonImpOverrides.length})`);
     assert(unusedRules.length > 0 && unusedRules[0].count > 10,
       `Unused CSS rules > 10 detected (found ${unusedRules[0]?.count ?? 0})`);
     assert(leaks.length > 0,
@@ -911,7 +981,7 @@ async function runTests(mcp, stagingProc) {
     assert(inlineConflicts.length > 0,
       `Inline style conflict — .inline-conflict (found ${inlineConflicts.length})`);
     assert((cssSummary?.scssSourceFiles?.length ?? 0) > 0,
-      `SCSS sourceMappingURL detected in <style> tag (gap 6)`);                   // GAP 6
+      `SCSS sourceMappingURL detected in <style> tag`);
   }
 
   // ── [11] Performance budgets — GAPS 8–10 FIX: LCP, CLS, FID pages ────────
@@ -921,15 +991,15 @@ async function runTests(mcp, stagingProc) {
     soft(ttfbMetrics.ttfb != null && ttfbMetrics.ttfb > 800,
       `TTFB=${ttfbMetrics.ttfb ?? 'N/A'} ms — budget 800 ms`);
 
-    const lcpMetrics = await measurePerf(mcp, `${B}/perf-lcp.html`);   // GAP 8
+    const lcpMetrics = await measurePerf(mcp, `${B}/perf-lcp.html`);
     soft(lcpMetrics.lcp != null && lcpMetrics.lcp > 2500,
       `LCP=${lcpMetrics.lcp ?? 'N/A'} ms — budget 2500 ms`);
 
-    const clsMetrics = await measurePerf(mcp, `${B}/perf-cls.html`);   // GAP 9
+    const clsMetrics = await measurePerf(mcp, `${B}/perf-cls.html`);
     soft(clsMetrics.cls != null && clsMetrics.cls > 0.1,
       `CLS=${clsMetrics.cls ?? 'N/A'} — budget 0.1`);
 
-    const fidMetrics = await measurePerf(mcp, `${B}/perf-fid.html`);   // GAP 10
+    const fidMetrics = await measurePerf(mcp, `${B}/perf-fid.html`);
     soft(fidMetrics.fid != null && fidMetrics.fid > 100,
       `FID/TBT=${fidMetrics.fid ?? 'N/A'} ms — budget 100 ms`);
   }
@@ -950,8 +1020,8 @@ async function runTests(mcp, stagingProc) {
       `Lighthouse a11y score=${score ?? 'N/A'}/100 (expected 50–89)`);
   }
 
-  // ── [14] Individual Lighthouse audit items — GAP 7 FIX ───────────────────
-  console.log('\n[14] Individual Lighthouse audit items — at least one failing audit (gap 7)');
+  // ── [14] Individual Lighthouse audit items ───────────────────────────────
+  console.log('\n[14] Individual Lighthouse audit items — at least one failing audit');
   {
     const { score, failingAudits } = await measureA11y(mcp, `${B}/a11y-critical.html`);
     soft(failingAudits.length > 0,
@@ -965,7 +1035,7 @@ async function runTests(mcp, stagingProc) {
   }
 
   // ── [16] Full Lighthouse suite — v3 Phase A1 ────────────────────────────
-  // GAP-092: Shape/parser checks are hard; score thresholds stay soft (Lighthouse
+  // Shape/parser checks are hard; score thresholds stay soft (Lighthouse
   // requires non-headless Chrome and may return null scores in headless CI).
   console.log('\n[16] Full Lighthouse suite — performance, SEO, best-practices, a11y');
   {
@@ -1382,7 +1452,7 @@ async function runTests(mcp, stagingProc) {
   const stagingDOMRaw = await mcp.evaluate_script({ function: '() => document.body.innerHTML' });
   const stagingDOM = String(parseEval(stagingDOMRaw, ''));
 
-  // [15a] API status regression: checkout 200 dev → 500 staging (GAP 11)
+  // [15a] API status regression: checkout 200 dev → 500 staging
   const devCheckout = devReqs.find(r => (r.url ?? '').includes('/api/checkout'));
   const stagingCheckout = stagingReqs.find(r => (r.url ?? '').includes('/api/checkout'));
   assert(devCheckout?.status === 200,
@@ -1390,35 +1460,35 @@ async function runTests(mcp, stagingProc) {
   assert(stagingCheckout?.status === 500,
     `Checkout returns 500 on staging — API regression detected (got ${stagingCheckout?.status ?? 'not found'})`);
 
-  // [15b] New network request on staging: /api/tracking (GAP 12)
+  // [15b] New network request on staging: /api/tracking
   const devTracking = devReqs.find(r => (r.url ?? '').includes('/api/tracking'));
   const stagingTracking = stagingReqs.find(r => (r.url ?? '').includes('/api/tracking'));
   assert(!devTracking && !!stagingTracking,
     `New request on staging only: /api/tracking (dev: ${!!devTracking}, staging: ${!!stagingTracking})`);
 
-  // [15c] Request in dev missing on staging: /api/feature-flags (GAP 13)
+  // [15c] Request in dev missing on staging: /api/feature-flags
   const devFlags = devReqs.find(r => (r.url ?? '').includes('/api/feature-flags'));
   const stagingFlags = stagingReqs.find(r => (r.url ?? '').includes('/api/feature-flags'));
   assert(!!devFlags && !stagingFlags,
     `Request present in dev but missing on staging: /api/feature-flags (dev: ${!!devFlags}, staging: ${!!stagingFlags})`);
 
-  // [15d] API status changed non-5xx: analytics 200 dev → 404 staging (GAP 14)
+  // [15d] API status changed non-5xx: analytics 200 dev → 404 staging
   const devAnalytics = devReqs.find(r => (r.url ?? '').includes('/api/analytics'));
   const stagingAnalytics = stagingReqs.find(r => (r.url ?? '').includes('/api/analytics'));
   assert(devAnalytics?.status === 200 && stagingAnalytics?.status === 404,
     `Analytics status changed: ${devAnalytics?.status ?? '?'} dev → ${stagingAnalytics?.status ?? '?'} staging`);
 
-  // [15e] New console error in staging (GAP 15)
+  // [15e] New console error in staging
   const devErrCount = devMsgs.filter(m => (m.level ?? '').toLowerCase() === 'error').length;
   const stagingErrCount = stagingMsgs.filter(m => (m.level ?? '').toLowerCase() === 'error').length;
   assert(stagingErrCount > devErrCount,
     `More console errors on staging (${stagingErrCount}) than dev (${devErrCount}) — regressions logged`);
 
-  // [15f] DOM structural change: pricing section missing on staging (GAP 15)
+  // [15f] DOM structural change: pricing section missing on staging
   assert(devDOM.includes('class="pricing"') && !stagingDOM.includes('class="pricing"'),
     `DOM diff: .pricing section present on dev, missing on staging`);
 
-  // [15g] Visual diff > 0.5% — hero background blue→red (soft, GAP 15)
+  // [15g] Visual diff > 0.5% — hero background blue→red (soft)
   const { diffPct, error: diffErr } = visualDiff(devShot, stagingShot);
   soft(diffPct != null && diffPct > 0.5,
     `Visual diff: ${diffPct != null ? diffPct + '%' : `unavailable (${diffErr ?? 'no screenshot data'})`} pixels changed (threshold: 0.5%)`);
@@ -1749,11 +1819,17 @@ async function runTests(mcp, stagingProc) {
   // ── [31] Console/network per-route slicing — D5 ──────────────────────────
   console.log('\n[31] D5 Console Slicing — prior-route messages excluded from clean-page crawl');
   {
-    // Generate console errors on js-errors.html
+    // Navigate to the error page and wait for delayed throws (400ms/500ms)
     await mcp.navigate_page({ url: `${B}/js-errors.html` });
     await sleep(2000);
 
-    // Snapshot baseline BEFORE navigating to clean.html — this is the D5 pattern
+    // Use in-page capture (window.__argus_console) to confirm the error page HAS errors.
+    // list_console_messages() may reset on navigation in some MCP implementations; the
+    // in-page array is always reliable because js-errors.html sets it up itself.
+    const inPageMsgs = evalToArray(await mcp.evaluate_script({ function: CONSOLE_READ_SCRIPT }));
+    const errorsUnsliced = inPageMsgs.filter(m => (m.level ?? '').toLowerCase() === 'error');
+
+    // Take D5-style baseline AFTER error page, BEFORE clean page (the production pattern)
     const allBeforeClean = toArray(await mcp.list_console_messages().catch(() => []));
     const consoleBaseline = allBeforeClean.length;
 
@@ -1761,14 +1837,11 @@ async function runTests(mcp, stagingProc) {
     await mcp.navigate_page({ url: `${B}/clean.html` });
     await sleep(1500);
 
-    const allMsgsRaw = await mcp.list_console_messages().catch(() => []);
-    const allMsgs = toArray(allMsgsRaw);
-
-    // Without slicing: errors from js-errors.html are still visible
-    const errorsUnsliced = allMsgs.filter(m => (m.level ?? '').toLowerCase() === 'error');
-
+    const allMsgs = toArray(await mcp.list_console_messages().catch(() => []));
     // With D5 slicing: only messages produced AFTER the baseline (i.e. by clean.html)
-    const cleanMsgs = allMsgs.slice(consoleBaseline);
+    const allCdpNow = toArray(await mcp.list_console_messages().catch(() => []));
+    const corsBase2 = allCdpNow.length > consoleBaseline ? consoleBaseline : 0;
+    const cleanMsgs = allCdpNow.slice(corsBase2);
     const errorsSliced = cleanMsgs.filter(m => (m.level ?? '').toLowerCase() === 'error');
 
     assert(errorsUnsliced.length > 0,
@@ -2187,27 +2260,37 @@ async function runTests(mcp, stagingProc) {
     // [48a] mcp.fill sets .value but does NOT fire input events — char counter stays at 0
     await mcp.navigate_page({ url: `${B}/typetext-issues.html` });
     await new Promise(r => setTimeout(r, 300));
-    await mcp.fill({ selector: '#fill-input', value: 'hello world' });
+    const fillUid = await resolveUidForSelector(mcp, '#fill-input');
+    if (fillUid) await mcp.fill({ uid: fillUid, value: 'hello world' });
     const rawA = await mcp.evaluate_script({
       function: `() => document.getElementById('fill-counter').getAttribute('data-count')`,
     });
     const countA = String(unwrapEval(rawA) ?? '');
+    // fillUid != null is a required precondition — if uid resolution failed, the fill was
+    // skipped entirely and countA === '0' would pass for the wrong reason (false pass).
     assert(
-      countA === '0' || countA === '',
-      `[48a] mcp.fill does not fire input events — char counter stays at 0 (got "${countA}")`
+      fillUid != null && (countA === '0' || countA === ''),
+      `[48a] mcp.fill does not fire input events — char counter stays at 0 (uid resolved: ${fillUid != null}, count: "${countA}")`
     );
 
     // [48b] mcp.type_text dispatches keyboard events — char counter updates
     await mcp.navigate_page({ url: `${B}/typetext-issues.html` });
     await new Promise(r => setTimeout(r, 300));
-    await mcp.type_text({ selector: '#type-input', text: 'hi' });
+    // mcp.click dispatches Input.dispatchMouseEvent via CDP but headless Chrome does not
+    // move document.activeElement for text inputs via this pathway. Use evaluate_script
+    // to call element.focus() directly — this is the reliable focus mechanism.
+    const focusRaw = await mcp.evaluate_script({
+      function: `() => { const el = document.getElementById('type-input'); if (!el) return false; el.focus(); return true; }`,
+    });
+    const elementFocused = !!unwrapEval(focusRaw);
+    await mcp.type_text({ text: 'hi' });
     const rawB = await mcp.evaluate_script({
       function: `() => document.getElementById('type-counter').getAttribute('data-count')`,
     });
     const countB = String(unwrapEval(rawB) ?? '');
     assert(
-      countB === '2',
-      `[48b] mcp.type_text fires input events — char counter updates to 2 (got "${countB}")`
+      elementFocused && countB === '2',
+      `[48b] mcp.type_text fires input events — char counter updates to 2 (focused: ${elementFocused}, count: "${countB}")`
     );
 
     // [48c] flow step with typing: true executes without error (step is wired to type_text)
@@ -2863,7 +2946,7 @@ async function runTests(mcp, stagingProc) {
     );
   }
 
-  // ── [65] Production crawl pipeline smoke test — GAP-091 ───────────────────
+  // ── [65] Production crawl pipeline smoke test ────────────────────────────
   // Exercises crawlRouteCheap() directly so harness regressions surface in
   // the production code path, not just in the hand-rolled crawlFixture().
   console.log('\n[65] Production crawl path — crawlRouteCheap on clean fixture');
@@ -2882,8 +2965,8 @@ async function runTests(mcp, stagingProc) {
       `[65d] Production crawl: no criticals on clean fixture (got ${criticals65.length}: ${criticals65.map(e => e.type).join(', ') || 'none'})`);
   }
 
-  // ── [66] Chrome Issues panel — clean page (GAP-093) ──────────────────────────
-  console.log('\n[66] Chrome DevTools Issues panel (GAP-093) — clean fixture produces no issue findings');
+  // ── [66] Chrome Issues panel — clean page ────────────────────────────────
+  console.log('\n[66] Chrome DevTools Issues panel — clean fixture produces no issue findings');
   {
     const findings66 = await analyzeIssues(mcp, `${B}/clean.html`);
     assert(Array.isArray(findings66),
@@ -2895,8 +2978,8 @@ async function runTests(mcp, stagingProc) {
       `[66c] Clean page has no csp_violation findings (got ${findings66.length} total)`);
   }
 
-  // ── [67] Chrome Issues panel — CSP violation fixture (GAP-093) ───────────────
-  console.log('\n[67] Chrome DevTools Issues panel (GAP-093) — CSP violation fixture');
+  // ── [67] Chrome Issues panel — CSP violation fixture ─────────────────────
+  console.log('\n[67] Chrome DevTools Issues panel — CSP violation fixture');
   {
     const findings67 = await analyzeIssues(mcp, `${B}/issues-csp.html`);
     assert(Array.isArray(findings67),
@@ -2908,8 +2991,8 @@ async function runTests(mcp, stagingProc) {
       '[67c] csp_violation findings have required fields: type, message, severity, url');
   }
 
-  // ── [68] Chrome Issues panel — deprecated API fixture (GAP-093) ──────────────
-  console.log('\n[68] Chrome DevTools Issues panel (GAP-093) — deprecated API fixture');
+  // ── [68] Chrome Issues panel — deprecated API fixture ────────────────────
+  console.log('\n[68] Chrome DevTools Issues panel — deprecated API fixture');
   {
     const findings68 = await analyzeIssues(mcp, `${B}/issues-deprecated.html`);
     assert(Array.isArray(findings68),
@@ -2921,8 +3004,8 @@ async function runTests(mcp, stagingProc) {
       '[68c] deprecated_api_use findings are severity: info');
   }
 
-  // ── [69] Network HAR timing — pure unit tests (GAP-094) ──────────────────────
-  console.log('\n[69] Network HAR timing analysis (GAP-094) — parseNetworkTiming unit tests');
+  // ── [69] Network HAR timing — pure unit tests ────────────────────────────
+  console.log('\n[69] Network HAR timing analysis — parseNetworkTiming unit tests');
   {
     const PAGE = 'http://localhost:3100/';
 
@@ -2975,8 +3058,8 @@ async function runTests(mcp, stagingProc) {
       '[69g] Cross-origin request below 2000ms threshold not flagged');
   }
 
-  // ── [70] Heading hierarchy — analyzeSnapshot extension (GAP-096) ──────────────
-  console.log('\n[70] Heading hierarchy validation (GAP-096) — heading-issues.html fixture');
+  // ── [70] Heading hierarchy — analyzeSnapshot extension ───────────────────
+  console.log('\n[70] Heading hierarchy validation — heading-issues.html fixture');
   {
     const findings70 = await analyzeSnapshot(mcp, `${B}/heading-issues.html`);
     assert(Array.isArray(findings70),
@@ -2990,8 +3073,8 @@ async function runTests(mcp, stagingProc) {
       `[70d] h1→h3 skip detected (got skips: ${JSON.stringify(skips70.map(s => ({ from: s.from, to: s.to })))})`);
   }
 
-  // ── [71] CPU throttle applied during responsive analysis (GAP-095) ────────────
-  console.log('\n[71] CPU throttle for mobile breakpoints (GAP-095) — responsive-issues.html');
+  // ── [71] CPU throttle applied during responsive analysis ─────────────────
+  console.log('\n[71] CPU throttle for mobile breakpoints — responsive-issues.html');
   {
     // analyzeResponsive now calls emulate_cpu({ throttlingRate: 4 }) at ≤768px.
     // The fixture findings must still be correct — throttle must not suppress detections.
@@ -3005,8 +3088,8 @@ async function runTests(mcp, stagingProc) {
       '[71c] mobile overflow is severity: critical under CPU throttle');
   }
 
-  // ── [72] Keyboard navigation — focus_visible_missing (GAP-097) ───────────────
-  console.log('\n[72] Keyboard navigation analysis (GAP-097) — keyboard-issues.html fixture');
+  // ── [72] Keyboard navigation — focus_visible_missing ─────────────────────
+  console.log('\n[72] Keyboard navigation analysis — keyboard-issues.html fixture');
   {
     const findings72 = await analyzeKeyboard(mcp, `${B}/keyboard-issues.html`);
     assert(Array.isArray(findings72),
@@ -3020,8 +3103,8 @@ async function runTests(mcp, stagingProc) {
       `[72d] #no-focus-ring button detected (found ids: ${noFocus72.map(f => f.id).join(', ')})`);
   }
 
-  // ── [73] ARIA state checks — aria_expanded_no_controls (GAP-098) ─────────────
-  console.log('\n[73] ARIA state checks (GAP-098) — aria-state-issues.html fixture');
+  // ── [73] ARIA state checks — aria_expanded_no_controls ───────────────────
+  console.log('\n[73] ARIA state checks — aria-state-issues.html fixture');
   {
     const findings73 = await analyzeSnapshot(mcp, `${B}/aria-state-issues.html`);
     assert(Array.isArray(findings73),
@@ -3036,8 +3119,8 @@ async function runTests(mcp, stagingProc) {
       `[73d] #toggle-valid (has aria-controls pointing to real element) is NOT flagged`);
   }
 
-  // ── [74] select_option flow step (GAP-099) ────────────────────────────────────
-  console.log('\n[74] select_option flow step (GAP-099) — select-form.html fixture');
+  // ── [74] select_option flow step ─────────────────────────────────────────
+  console.log('\n[74] select_option flow step — select-form.html fixture');
   {
     const flow74 = {
       name: 'select_option test',
@@ -3065,8 +3148,8 @@ async function runTests(mcp, stagingProc) {
       `[74c] flow result is "US/L" after select_option steps (got "${text74}")`);
   }
 
-  // ── [75] Origin tagging on network findings (GAP-100) ─────────────────────────
-  console.log('\n[75] Origin tagging on network findings (GAP-100) — pure unit test');
+  // ── [75] Origin tagging on network findings ───────────────────────────────
+  console.log('\n[75] Origin tagging on network findings — pure unit test');
   {
     // Test the classifyOrigin logic via crawlRouteCheap result shape.
     // The CORS error fixture makes cross-origin fetch — its network finding should have origin: third-party.
@@ -3084,8 +3167,8 @@ async function runTests(mcp, stagingProc) {
       `[75b] all network findings have origin field (checked ${networkErrors75.length} findings)`);
   }
 
-  // ── [76] HTTPS enforcement (GAP-101) — unit test via URL parsing ──────────────
-  console.log('\n[76] HTTPS enforcement check (GAP-101) — unit-level URL check');
+  // ── [76] HTTPS enforcement — unit test via URL parsing ───────────────────
+  console.log('\n[76] HTTPS enforcement check — unit-level URL check');
   {
     // The security_no_https finding fires for non-localhost http:// URLs.
     // Test harness runs on localhost — it must NOT emit security_no_https.
@@ -3106,8 +3189,8 @@ async function runTests(mcp, stagingProc) {
     assert(parsed76.protocol === 'http:', '[76c] http://example.com has protocol http:');
   }
 
-  // ── [77] Iframe sandbox check (GAP-102) ──────────────────────────────────────
-  console.log('\n[77] Iframe sandbox check (GAP-102) — iframe-sandbox.html fixture');
+  // ── [77] Iframe sandbox check ────────────────────────────────────────────
+  console.log('\n[77] Iframe sandbox check — iframe-sandbox.html fixture');
   {
     await mcp.navigate_page({ url: `${B}/iframe-sandbox.html` });
     await new Promise(r => setTimeout(r, 800));
@@ -3132,20 +3215,23 @@ async function runTests(mcp, stagingProc) {
 
 async function main() {
   console.log('');
-  console.log('\u2554' + '\u2550'.repeat(54) + '\u2557');
+  console.log('\u2554' + '\u2550'.repeat(55) + '\u2557');
   console.log('\u2551     ARGUS Test Harness Validator — full coverage      \u2551');
-  console.log('\u255A' + '\u2550'.repeat(54) + '\u255D');
+  console.log('\u255A' + '\u2550'.repeat(55) + '\u255D');
   console.log('');
 
   let serverProc, stagingProc, mcp;
 
   try {
-    console.log('\u25B6 Starting dev fixture server on port', HARNESS_DEV_PORT, '...');
-    serverProc = await startServer(HARNESS_DEV_PORT);
+    const devPort = await findFreePort(HARNESS_DEV_PORT);
+    const stagingPort = await findFreePort(devPort + 1);
 
-    console.log('\u25B6 Starting staging fixture server on port', HARNESS_STAGING_PORT, '...');
+    console.log('\u25B6 Starting dev fixture server on port', devPort, '...');
+    serverProc = await startServer(devPort);
+
+    console.log('\u25B6 Starting staging fixture server on port', stagingPort, '...');
     try {
-      stagingProc = await startServer(HARNESS_STAGING_PORT);
+      stagingProc = await startServer(stagingPort, { staging: true });
     } catch (stagingErr) {
       console.warn('  ⚠  Staging server failed to start: ' + stagingErr.message + ' — env-comparison tests will be skipped');
     }
@@ -3154,7 +3240,7 @@ async function main() {
     mcp = await createMcpClient();
     console.log('  Connected.\n');
 
-    await runTests(mcp, stagingProc);
+    await runTests(mcp, stagingProc, devPort, stagingPort);
 
   } catch (err) {
     console.error('\n\u274C Fatal error:', err.message);
@@ -3177,8 +3263,14 @@ async function main() {
       console.log('\nFailed assertions:');
       failLog.forEach(f => console.log(`  \u2717 ${f}`));
     }
-    if (failed > 0) process.exitCode = 1;
-    else if (total > 0) console.log('\n\u2705 All hard assertions passed.');
+    if (failed > 0) {
+      process.exit(1);
+    } else if (total > 0) {
+      console.log('\n\u2705 All hard assertions passed.');
+      process.exit(0);
+    } else {
+      process.exit(0);
+    }
   }
 }
 

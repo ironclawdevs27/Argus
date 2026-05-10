@@ -1,5 +1,5 @@
 /**
- * ARGUS Keyboard Navigation Analyzer (v6 GAP-097)
+ * ARGUS Keyboard Navigation Analyzer
  *
  * Tab-walks the page using press_key({ key: 'Tab' }) and evaluates
  * document.activeElement after each step to detect focus management issues.

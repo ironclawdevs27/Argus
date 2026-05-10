@@ -32,6 +32,7 @@
  *   no_js_errors        — window.__argusErrors must be empty
  */
 
+import fs   from 'fs';
 import os   from 'os';
 import path from 'path';
 import { unwrapEval } from './mcp-client.js';
@@ -60,43 +61,69 @@ const DEFAULT_TIMEOUT = 10_000;
  *
  * Returns null if the element is not found or has no distinguishing attribute.
  *
- * GAP-75 / GAP-77: Added to support type_text and drag which require uids.
+ * Added to support type_text and drag which require uids.
  */
 export async function resolveUidForSelector(mcp, selector) {
+  // Collect multiple candidate identifiers — CDP snapshots use accessible names
+  // (button text, label text), not HTML id attributes, so we try several sources.
   const rawAttr = await mcp.evaluate_script({
     function: `() => {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return null;
-      return el.id || el.getAttribute('aria-label') || el.getAttribute('name') || el.getAttribute('placeholder') || null;
+      const idents = [];
+      const ariaLabel = el.getAttribute('aria-label');
+      if (ariaLabel) idents.push(ariaLabel);
+      if (el.id) {
+        // Check for an associated <label> — its text is the accessible name in the snapshot
+        const lbl = document.querySelector('label[for="' + el.id + '"]');
+        if (lbl) idents.push(lbl.textContent.trim().slice(0, 50));
+        idents.push(el.id);
+      }
+      // Button/link text content IS the accessible name in the CDP snapshot
+      const txt = (el.textContent ?? '').trim().replace(/\\s+/g, ' ').slice(0, 50);
+      if (txt) idents.push(txt);
+      const name = el.getAttribute('name');
+      if (name) idents.push(name);
+      const placeholder = el.getAttribute('placeholder');
+      if (placeholder) idents.push(placeholder);
+      return [...new Set(idents)].filter(Boolean).join('\\n') || null;
     }`,
   });
-  const identifier = unwrapEval(rawAttr);
-  if (!identifier) return null;
+  const combined = unwrapEval(rawAttr);
+  if (!combined) return null;
+  const identifiers = combined.split('\n').filter(Boolean);
+  if (!identifiers.length) return null;
 
   const snap = await mcp.take_snapshot();
   let text = typeof snap === 'string' ? snap : JSON.stringify(snap ?? '');
   const fence = text.match(/```(?:json|text)?\s*([\s\S]*?)\s*```/);
   if (fence) text = fence[1];
 
-  const esc = identifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // Text-tree: "- input type-input e5" or similar — uid is a short alphanumeric at end of line
-  const m1 = text.match(new RegExp(`${esc}[^\\n\\r]{0,100}\\s([a-zA-Z][0-9]+)\\s*(?:\\n|$)`, 'm'));
-  if (m1) return m1[1];
-  // JSON tree: "uid":"e5" near identifier string
-  const m2 = text.match(new RegExp(`"${esc}"[^}]{0,300}"uid"\\s*:\\s*"([^"]+)"`));
-  if (m2) return m2[1];
-  const m3 = text.match(new RegExp(`"uid"\\s*:\\s*"([^"]+)"[^}]{0,300}"${esc}"`));
-  if (m3) return m3[1];
-
+  for (const identifier of identifiers) {
+    const esc = identifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Current snapshot format: "uid=N_M role "accessible name" [attrs]"
+    // uid precedes the role and accessible name; MCP tools expect just the N_M part (no "uid=" prefix).
+    // Prefer interactive element lines (combobox, button, etc.) over StaticText label
+    // nodes — both may share the same accessible name (e.g. a <label> and its <select>).
+    const m1 = text.match(new RegExp(`uid=([^\\s]+)\\s+(?!StaticText)[^\\n]*"[^"]*${esc}`, 'm'));
+    if (m1) return m1[1];
+    // Fallback: accept StaticText nodes (e.g. draggable divs whose only a11y node is text)
+    const m1b = text.match(new RegExp(`uid=([^\\s]+)[^\\n]*"[^"]*${esc}`, 'm'));
+    if (m1b) return m1b[1];
+    // Legacy JSON tree: "uid":"e15" near identifier string
+    const m2 = text.match(new RegExp(`"${esc}"[^}]{0,300}"uid"\\s*:\\s*"([^"]+)"`));
+    if (m2) return m2[1];
+    const m3 = text.match(new RegExp(`"uid"\\s*:\\s*"([^"]+)"[^}]{0,300}"${esc}"`));
+    if (m3) return m3[1];
+  }
   return null;
 }
 
 /**
  * Extract the uid of the first file input from a take_snapshot response.
  *
- * chrome-devtools-mcp snapshot format uses "[Upload]" as the accessibility role
- * for <input type="file"> elements, followed by the element uid (e.g. "e4").
- * Multiple fallback patterns handle JSON tree formats and general uid placement.
+ * Current snapshot format: "uid=N_M button "Choose file:" value="No file chosen""
+ * File inputs render as buttons with value="No file chosen" (Chrome's default label).
  */
 function extractFileInputUid(snapResponse) {
   let text = typeof snapResponse === 'string'
@@ -107,24 +134,32 @@ function extractFileInputUid(snapResponse) {
   const fence = text.match(/```(?:json|text)?\s*([\s\S]*?)\s*```/);
   if (fence) text = fence[1];
 
-  // Pattern 1: text-tree format — "- input [Upload] e4"
+  // Pattern 1: current format — file inputs appear as button with "No file chosen" value
+  // "uid=N_M button "Choose file:" value="No file chosen""
+  // MCP tools expect the N_M part only (no "uid=" prefix).
+  const p1 = text.match(/uid=([^\s]+)[^\n]*value="No file chosen"/);
+  if (p1) return p1[1];
+
+  // Pattern 2: any line containing "Choose file" (the default Chrome file-input label)
+  const p2 = text.match(/uid=([^\s]+)[^\n]*[Cc]hoose file/);
+  if (p2) return p2[1];
+
+  // Pattern 3: legacy text-tree format — "- input [Upload] e4"
   const uploadRole = text.match(/\[Upload\]\s+([A-Za-z0-9_-]+)/);
   if (uploadRole) return uploadRole[1];
 
-  // Pattern 2: JSON tree — uid near inputType:"file" marker
+  // Pattern 4: legacy JSON tree — uid near inputType:"file" marker
   const jsonA = text.match(/"inputType"\s*:\s*"file"[^}]{0,200}"uid"\s*:\s*"([^"]+)"/);
   if (jsonA) return jsonA[1];
   const jsonB = text.match(/"uid"\s*:\s*"([^"]+)"[^}]{0,200}"inputType"\s*:\s*"file"/);
   if (jsonB) return jsonB[1];
 
-  // Pattern 3: line-scan — uid value on a line near upload/file keywords
+  // Pattern 5: line-scan — any line with uid= near upload/file keywords
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; i++) {
-    if (/upload|file.input/i.test(lines[i])) {
-      for (let j = Math.max(0, i - 1); j <= Math.min(lines.length - 1, i + 2); j++) {
-        const m = lines[j].match(/\buid\b[:\s='"]+([A-Za-z0-9_-]+)/i);
-        if (m) return m[1];
-      }
+    if (/upload|file.input|Choose file/i.test(lines[i])) {
+      const m = lines[i].match(/uid=([^\s]+)/);
+      if (m) return m[1];
     }
   }
 
@@ -309,23 +344,29 @@ export async function runFlow(flow, baseUrl, mcp) {
           await mcp.evaluate_script({ function: INJECT_ERROR_LISTENER }).catch(err => console.warn('[ARGUS] flow-runner: INJECT_ERROR_LISTENER failed:', err.message));
           break;
 
-        case 'fill':
+        case 'fill': {
+          // MCP fill/click require uid (not CSS selector) — resolve via snapshot.
           // typing: true uses mcp.type_text (dispatches real keyboard events) instead of
           // mcp.fill (which sets .value directly and does not fire keydown/input events).
           // Use typing: true when the target input has input-event-driven validation (D8.3).
+          const fillUid = await resolveUidForSelector(mcp, step.selector);
+          if (!fillUid) throw new Error(`fill: no uid found for selector "${step.selector}"`);
           if (step.typing) {
-            // GAP-75: type_text requires uid, not a CSS selector. Resolve via snapshot.
-            const typeUid = await resolveUidForSelector(mcp, step.selector);
-            if (!typeUid) throw new Error(`type_text: no uid found for selector "${step.selector}" — ensure element is visible and has id/aria-label/name`);
-            await mcp.type_text({ uid: typeUid, text: step.value ?? '' });
+            await mcp.click({ uid: fillUid });
+            await mcp.type_text({ text: step.value ?? '' });
           } else {
-            await mcp.fill({ selector: step.selector, value: step.value ?? '' });
+            await mcp.fill({ uid: fillUid, value: step.value ?? '' });
           }
           break;
+        }
 
-        case 'click':
-          await mcp.click({ selector: step.selector });
+        case 'click': {
+          // MCP click requires uid — resolve CSS selector to uid via snapshot.
+          const clickUid = await resolveUidForSelector(mcp, step.selector);
+          if (!clickUid) throw new Error(`click: no uid found for selector "${step.selector}"`);
+          await mcp.click({ uid: clickUid });
           break;
+        }
 
         case 'press_key':
           if (!step.key) throw new Error('press_key: step.key is required');
@@ -333,7 +374,7 @@ export async function runFlow(flow, baseUrl, mcp) {
           break;
 
         case 'waitFor': {
-          // GAP-074: wait_for({ selector }) is unreliable in headless MCP mode — it can
+          // wait_for({ selector }) is unreliable in headless MCP mode — it can
           // early-exit without actually polling. Use evaluate_script polling instead.
           const wfFound = await waitForSelector(mcp, step.selector, step.timeout ?? DEFAULT_TIMEOUT);
           if (!wfFound) throw new Error(`waitFor: selector "${step.selector}" not found within ${step.timeout ?? DEFAULT_TIMEOUT}ms`);
@@ -345,7 +386,7 @@ export async function runFlow(flow, baseUrl, mcp) {
           break;
 
         case 'drag': {
-          // GAP-77: drag MCP API requires { startUid, endUid } — CSS selectors are not
+          // drag MCP API requires { from_uid, to_uid } — CSS selectors are not
           // accepted. The DSL exposes sourceSelector/targetSelector (with selector/target
           // as backwards-compatible aliases) and resolves them to uids via snapshot.
           // Fires dragstart → dragover → drop on the target; drop only lands if the
@@ -356,7 +397,7 @@ export async function runFlow(flow, baseUrl, mcp) {
           const endUid   = await resolveUidForSelector(mcp, tgtSelector);
           if (!startUid) throw new Error(`drag: no uid found for source "${srcSelector}"`);
           if (!endUid)   throw new Error(`drag: no uid found for target "${tgtSelector}"`);
-          await mcp.drag({ startUid, endUid });
+          await mcp.drag({ from_uid: startUid, to_uid: endUid });
           break;
         }
 
@@ -366,9 +407,14 @@ export async function runFlow(flow, baseUrl, mcp) {
           let uploadUid = step.uid;
           if (!uploadUid) {
             if (step.selector) {
-              // GAP-077: When a selector is provided, resolve it to the matching uid so
+              // When a selector is provided, resolve it to the matching uid so
               // pages with multiple file inputs upload to the intended field, not just the first.
               uploadUid = await resolveUidForSelector(mcp, step.selector);
+              if (!uploadUid) {
+                // File inputs appear as [Upload] in the CDP snapshot, not by id — fall back.
+                const snap = await mcp.take_snapshot();
+                uploadUid = extractFileInputUid(snap);
+              }
               if (!uploadUid) {
                 throw new Error(
                   `upload_file: no uid found for selector "${step.selector}" — ` +
@@ -389,6 +435,8 @@ export async function runFlow(flow, baseUrl, mcp) {
             }
           }
           if (!step.filePath) throw new Error('upload_file: step.filePath is required');
+          if (!fs.existsSync(step.filePath))
+            throw new Error(`upload_file: file not found: "${step.filePath}"`);
           await mcp.upload_file({ uid: uploadUid, filePath: step.filePath });
           break;
         }
@@ -398,7 +446,7 @@ export async function runFlow(flow, baseUrl, mcp) {
           break;
 
         case 'select_option': {
-          // GAP-099: select_option requires a uid from the page snapshot.
+          // select_option requires a uid from the page snapshot.
           // Accepts explicit step.uid or resolves from step.selector.
           let selectUid = step.uid;
           if (!selectUid) {
@@ -414,7 +462,22 @@ export async function runFlow(flow, baseUrl, mcp) {
               );
             }
           }
-          await mcp.select_option({ uid: selectUid, value: step.value ?? '' });
+          // mcp.fill on a combobox requires the option LABEL text, not the HTML value
+          // attribute. Resolve value → label via in-page evaluation when selector is known.
+          let fillValue = step.value ?? '';
+          if (step.selector && fillValue) {
+            const rawLabel = await mcp.evaluate_script({
+              function: `() => {
+                const sel = document.querySelector(${JSON.stringify(step.selector)});
+                if (!sel) return null;
+                const opt = Array.from(sel.options || []).find(o => o.value === ${JSON.stringify(fillValue)});
+                return opt ? opt.textContent.trim() : null;
+              }`,
+            });
+            const label = unwrapEval(rawLabel);
+            if (label) fillValue = label;
+          }
+          await mcp.fill({ uid: selectUid, value: fillValue });
           break;
         }
 

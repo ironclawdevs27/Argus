@@ -12,7 +12,7 @@ Argus is an AI-driven automated QA harness that audits web pages against 53 dete
 **Entry points**
 - `src/argus.js` — single-page audit (CLI)
 - `src/batch-runner.js` — multi-page batch audit
-- `test-harness/validate.js` — 77-block correctness harness (319 hard assertions)
+- `test-harness/validate.js` — 77-block correctness harness (323 hard assertions)
 - `test-harness/harness-config.js` — fixture page routing table
 
 ---
@@ -84,10 +84,29 @@ function unwrapFence(raw) {
 }
 ```
 
-The `[Upload]` accessibility role identifies `<input type="file">` elements:
+File inputs appear in the snapshot as `button "Choose file:"` (new format, `uid=N_M`). Use `extractFileInputUid` from `flow-runner.js` which tries five patterns in order:
 ```javascript
-const m = snapText.match(/\[Upload\]\s+([A-Za-z0-9_-]+)/);
-const uid = m ? m[1] : null;
+// 1. Primary — new format: uid=N_M button "Choose file:" value="No file chosen"
+const p1 = text.match(/uid=([^\s]+)[^\n]*value="No file chosen"/);
+if (p1) return p1[1];
+// 2. Fallback — "Choose file" keyword anywhere on the uid line
+const p2 = text.match(/uid=([^\s]+)[^\n]*[Cc]hoose file/);
+if (p2) return p2[1];
+// 3. Legacy text-tree — "- input [Upload] e4" role (pre-v8 snapshot format)
+const p3 = text.match(/\[Upload\]\s+([A-Za-z0-9_-]+)/);
+if (p3) return p3[1];
+// 4. Legacy JSON tree — uid near "inputType":"file" marker (either order)
+const jsonA = text.match(/"inputType"\s*:\s*"file"[^}]{0,200}"uid"\s*:\s*"([^"]+)"/);
+if (jsonA) return jsonA[1];
+const jsonB = text.match(/"uid"\s*:\s*"([^"]+)"[^}]{0,200}"inputType"\s*:\s*"file"/);
+if (jsonB) return jsonB[1];
+// 5. Line-scan — any snapshot line with uid= near upload/file keywords
+for (const line of text.split('\n')) {
+  if (/upload|file.input|Choose file/i.test(line)) {
+    const m = line.match(/uid=([^\s]+)/);
+    if (m) return m[1];
+  }
+}
 ```
 
 ### Interaction Tools (require uid from snapshot)
@@ -96,15 +115,26 @@ const uid = m ? m[1] : null;
 | `click` | `{ uid }` | `click` |
 | `fill` | `{ uid, value }` | `fill` |
 | `fill_form` | `{ fields: [{uid, value}, ...] }` | — (multi-field at once) |
-| `type_text` | `{ uid, text }` | `type_text` |
+| `type_text` | `{ text }` | *(no uid — types at the currently focused element)* |
 | `hover` | `{ uid }` | `hover` |
-| `drag` | `{ startUid, endUid }` | `drag` |
+| `drag` | `{ from_uid, to_uid }` | `drag` |
 | `upload_file` | `{ uid, filePath }` or `{ uid, paths: ['/a', '/b'] }` | `upload_file` |
 | `press_key` | `{ key }` | `press_key` |
 | `handle_dialog` | `{ action: 'accept'|'dismiss' }` | `handle_dialog` |
-| `select_option` | `{ uid, value }` | `select_option` |
+
+> **`select_option` is a DSL action only** — it is not an MCP tool. In `flow-runner.js` the `select_option` case resolves a uid via `resolveUidForSelector` then calls `mcp.fill({ uid, value })`. Never call `mcp.select_option(...)` — the MCP server has no such tool.
 
 **uid contract**: Every interaction tool requires a `uid` from the current page snapshot. If the page changes (navigation, SPA route), the uid changes — always re-snapshot after transitions.
+
+**Focus before `type_text`**: `type_text` types into whichever element currently has focus. The `fill` step with `typing: true` (inside `runFlow`) handles focus by calling `mcp.click({ uid })` before typing — this works correctly within a flow. When writing **direct test code outside `runFlow`** (e.g., in `validate.js`), `mcp.click({ uid })` may not reliably set `document.activeElement` for text inputs in headless Chrome. Use `evaluate_script` to focus explicitly in that context:
+```javascript
+// In direct test code outside runFlow — use evaluate_script:
+await mcp.evaluate_script({ function: `() => document.querySelector('#my-input').focus()` });
+await mcp.type_text({ text: 'hello' });
+
+// Inside a flow — use fill with typing: true (handles focus internally via mcp.click):
+{ action: 'fill', selector: '#my-input', value: 'hello', typing: true }
+```
 
 **fill_form** — prefer over multiple `fill` calls when filling several fields at once:
 ```javascript
@@ -373,15 +403,17 @@ Defined in `src/utils/flow-runner.js`. Steps are objects with an `action` field.
 > — For script execution or screenshots, call `mcp.evaluate_script` / `mcp.take_screenshot` directly in test code.
 
 ### Selector Resolution
-`flow-runner.js` resolves CSS selectors to uid via `resolveUidForSelector` before calling interaction tools that require a uid (`type_text`, `drag`, `upload_file`, `select_option`). `click` and `fill` accept `selector` directly via the MCP API. Never pass a raw CSS selector to tools that only accept `uid`.
+`flow-runner.js` resolves CSS selectors to uid via `resolveUidForSelector` before every interaction tool call — including `click` and `fill`. **All MCP interaction tools require a `uid`; none accept a raw CSS selector.** Passing `{ selector: '...' }` to `mcp.click` or `mcp.fill` silently does nothing — always resolve to uid first.
 
 > **waitFor vs wait_for**: The DSL action is `waitFor` (camelCase) — it uses a polling loop via `evaluate_script`, not the MCP `wait_for` tool (which is unreliable in headless mode for missing elements). For network-idle waits, call `mcp.wait_for({ state: 'networkidle' })` directly in test code after navigation.
 
 ### upload_file uid Resolution (extractFileInputUid)
-Three fallback strategies in order:
-1. `[Upload] e4` — text-tree accessibility role (primary)
-2. `"inputType":"file"` near `"uid"` in JSON tree
-3. Line-scan near "upload" / "file.input" keywords
+Five fallback strategies in order (v8 — new snapshot format `uid=N_M`):
+1. `uid=N_M … value="No file chosen"` — primary; file inputs appear as `button "Choose file:"` in the accessibility tree
+2. `uid=N_M … Choose file` — broader keyword fallback on the same uid line
+3. `[Upload] eN` — legacy text-tree role format (pre-v8 snapshot format)
+4. `"inputType":"file"` adjacent to `"uid":"…"` in JSON tree — either field order
+5. Line-scan: any snapshot line containing `uid=` near upload/file keywords
 
 ---
 
@@ -408,7 +440,7 @@ All findings share: `{ type, severity, url, message? }`
 { type: 'flow_step_failed',   flowName, action, selector, message, severity: 'critical', url }
 { type: 'flow_assert_failed', flowName, assertType, message, severity, url }
 
-// ── Chrome DevTools Issues panel (GAP-093) ────────────────────────────────
+// ── Chrome DevTools Issues panel ────────────────────
 { type: 'csp_violation',               message, url, severity: 'critical' }
 { type: 'cors_violation',              message, url, severity: 'critical'|'warning' }
 { type: 'mixed_content',               message, url, severity: 'warning' }
@@ -417,22 +449,22 @@ All findings share: `{ type, severity, url, message? }`
 { type: 'low_contrast_native',         message, url, severity: 'warning' }
 { type: 'permission_policy_violation', message, url, severity: 'info' }
 
-// ── Network timing (GAP-094) ───────────────────────────────────────────────
+// ── Network timing ────────────────────
 { type: 'slow_third_party_blocking', requestUrl, waitMs, message, severity: 'warning', url }
 
-// ── Heading structure (GAP-096) ────────────────────────────────────────────
+// ── Heading structure ────────────────────
 { type: 'heading_level_skip', from, to, text, message, severity: 'warning', url }
 //   from/to are heading level numbers (e.g. from:1, to:3)
 
-// ── Keyboard accessibility (GAP-097) ──────────────────────────────────────
+// ── Keyboard accessibility ────────────────────
 { type: 'focus_visible_missing', tag, id, snippet, message, severity: 'warning', url }
-{ type: 'focus_lost',            steps, message, severity: 'warning', url }  // steps = array of tab-step numbers; no fixture yet (GAP-105)
+{ type: 'focus_lost',            steps, message, severity: 'warning', url }  // steps = array of tab-step numbers; no fixture yet (v6.105)
 
-// ── ARIA state (GAP-098) ───────────────────────────────────────────────────
+// ── ARIA state ────────────────────
 { type: 'aria_expanded_no_controls', tag, id, snippet, message, severity: 'warning', url }
 //   when aria-controls references a missing id, detail is folded into message
 
-// ── Security (GAP-101, GAP-102) ────────────────────────────────────────────
+// ── Security (v6.101, v6.102) ────────────────────────────────────────────
 { type: 'security_no_https',          severity: 'warning', url }
 { type: 'security_iframe_no_sandbox', src, severity: 'warning', url }
 ```
@@ -564,7 +596,7 @@ const slowest = parsed
 | `[Dialog]` | `role=dialog` or `<dialog>` |
 | `[heading]` level=N | `<h1>`–`<h6>` |
 
-Uid format: alphanumeric, typically 1–3 chars (`e4`, `r12`, `a7`). Re-snapshot after any DOM mutation.
+Uid format (current): `N_M` numeric pairs — e.g., `3_4`, `5_2`, `12_1`. The old alphanumeric format (`e4`, `r12`) was used before v8 and may still appear in cached snapshots. Always extract uid from the current snapshot; never reuse across page transitions.
 
 ### ARIA Snapshot YAML Notation
 Some environments emit the accessibility tree as YAML:
@@ -689,10 +721,10 @@ Automated tools catch ~30% of a11y bugs. Use this matrix for manual SR decisions
 { type: 'accessibility_violation', rule: 'target-size',    severity: 'serious',  selector }
 
 // Native Argus detectors (production code — see §14d for implementation details)
-{ type: 'heading_level_skip',        from, to, text, message, severity: 'warning', url }  // GAP-096 — 'from'/'to' are int levels
-{ type: 'focus_visible_missing',     tag, id, snippet, message, severity: 'warning', url }  // GAP-097
-{ type: 'aria_expanded_no_controls', tag, id, snippet, message, severity: 'warning', url }  // GAP-098
-{ type: 'low_contrast_native',       message,            severity: 'warning', url }        // GAP-093 (Chrome Issues)
+{ type: 'heading_level_skip',        from, to, text, message, severity: 'warning', url }
+{ type: 'focus_visible_missing',     tag, id, snippet, message, severity: 'warning', url }
+{ type: 'aria_expanded_no_controls', tag, id, snippet, message, severity: 'warning', url }
+{ type: 'low_contrast_native',       message,            severity: 'warning', url }
 ```
 
 ---
@@ -921,6 +953,28 @@ When a step fails with a vague error, walk backwards:
 
 Always walk at least 3 levels back — the proximate cause is almost never the root cause.
 
+### Known MCP Behavioral Limitations
+
+These are chrome-devtools-mcp restrictions that **cannot be worked around in Argus code**. They cause 3 permanent failures in the correctness harness (320/323 pass).
+
+> **Note on `type_text` and DOM `input` events**: `type_text` DOES fire DOM `input` events when the target element is properly focused. Harness block [48b] failed due to two successive test code bugs — not an MCP limitation:
+> 1. `mcp.click({ selector: '...' })` silently does nothing (requires a uid, not a CSS selector) — element was never focused.
+> 2. After switching to `mcp.click({ uid })`: the call executed but still did not transfer `document.activeElement` to text inputs in headless Chrome from direct test code — element was clicked but not focused.
+>
+> Correct fix: `evaluate_script(() => el.focus())` before `type_text` in direct test code (see "Focus before `type_text`" in §3). The `fill` step with `typing: true` via `runFlow` uses `mcp.click({ uid })` and works correctly in that context.
+
+| # | Tool | Limitation | Harness block |
+|---|------|-----------|---------------|
+| 1 | `drag` | Uses mouse-event simulation (`mousedown → mousemove → mouseup`), **not** the HTML5 DnD API. Native `dragstart`, `dragover`, `drop`, and `dragend` events never fire. Drop-zone handlers listening for the `drop` event will never trigger. | [49b] |
+| 2 | `list_console_messages({ types: ['issue'] })` | The Chrome DevTools **Issues panel** returns an empty array in practice, even when real CSP violations and deprecated-API use are visible in Chrome. Detection via the Issues panel namespace is unreliable. | [67b, 68b] |
+
+**Workaround strategies:**
+
+| Limitation | Workaround |
+|-----------|-----------|
+| `drag` / no `drop` event | Assert that the drag step runs without error (`flow_step_failed` absent). Do not assert post-drop DOM state unless the drop zone uses `mouseup`-based detection. |
+| Issues panel empty | Detect CSP violations via `list_console_messages({ types: ['error'] })` text-matching for "Content-Security-Policy". Deprecated API use requires a headful Chrome session or manual review. |
+
 ---
 
 ## 11. Browser & Tab Management
@@ -1037,30 +1091,30 @@ for (const bp of breakpoints) {
 | Metric | Value |
 |--------|-------|
 | Test blocks | 77 |
-| Hard assertions | 319 |
+| Hard assertions | 323 |
 | Detection categories | 53 in production code; **46 positively verified** by harness fixtures |
 | Fixture pages | 53 |
 | Flow step actions | 11 (navigate, waitFor, sleep, fill, click, drag, upload_file, select_option, press_key, handle_dialog, assert) |
-| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 GAP-093–GAP-102 |
+| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases) |
 
-Expected harness output: `319/319 hard assertions passed`
+Expected harness output: `320/323 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
 
-> The 7-category gap (53 − 46): `cors_violation`, `mixed_content`, `cookie_attribute_missing`, `low_contrast_native`, `permission_policy_violation`, `focus_lost`, `heading_missing_h1` — no fixture triggers these yet. See GAP-103–GAP-110 in `argus-v6-strategy.md` §10.
+> The 7-category gap (53 − 46): `cors_violation`, `mixed_content`, `cookie_attribute_missing`, `low_contrast_native`, `permission_policy_violation`, `focus_lost`, `heading_missing_h1` — no fixture triggers these yet. See v6.103–v6.110 in `argus-v6-strategy.md` §10.
 
-### v6 additions (GAP-093–GAP-102)
+### v6 additions (v6.093–v6.102)
 
 | GAP | Detection types added | Blocks |
 |-----|----------------------|--------|
-| GAP-093 | `csp_violation`, `deprecated_api_use` (verified); `cors_violation`, `mixed_content`, `cookie_attribute_missing`, `low_contrast_native`, `permission_policy_violation` (classified when present, no fixture) | [66][67][68] |
-| GAP-094 | `slow_third_party_blocking` | [69] |
-| GAP-095 | CPU throttle (`emulate_cpu`) during mobile responsive analysis | [71] |
-| GAP-096 | `heading_level_skip` | [70] |
-| GAP-097 | `focus_visible_missing` (verified); `focus_lost` (implemented, no fixture — GAP-105) | [72] |
-| GAP-098 | `aria_expanded_no_controls` | [73] |
-| GAP-099 | `select_option` flow step added to flow-runner DSL | [74] |
-| GAP-100 | `origin` field on all network findings (`first-party`/`third-party`) | [75] |
-| GAP-101 | `security_no_https` | [76] |
-| GAP-102 | `security_iframe_no_sandbox` | [77] |
+| v6.093 | `csp_violation`, `deprecated_api_use` (verified); `cors_violation`, `mixed_content`, `cookie_attribute_missing`, `low_contrast_native`, `permission_policy_violation` (classified when present, no fixture) | [66][67][68] |
+| v6.094 | `slow_third_party_blocking` | [69] |
+| v6.095 | CPU throttle (`emulate_cpu`) during mobile responsive analysis | [71] |
+| v6.096 | `heading_level_skip` | [70] |
+| v6.097 | `focus_visible_missing` (verified); `focus_lost` (implemented, no fixture — v6.105) | [72] |
+| v6.098 | `aria_expanded_no_controls` | [73] |
+| v6.099 | `select_option` flow step added to flow-runner DSL | [74] |
+| v6.100 | `origin` field on all network findings (`first-party`/`third-party`) | [75] |
+| v6.101 | `security_no_https` | [76] |
+| v6.102 | `security_iframe_no_sandbox` | [77] |
 
 ---
 
@@ -1200,9 +1254,9 @@ npx argus init      # after publishing to npm
 
 ## 14d. v6 Analyzers — Reference
 
-Three new analyzers were added in v6 (GAP-093–GAP-102). Each is a pure-function module that can be called standalone or via `crawlRouteCheap`.
+Three new analyzers were added in v6 (v6.093–v6.102). Each is a pure-function module that can be called standalone or via `crawlRouteCheap`.
 
-### issues-analyzer.js (GAP-093) — Chrome DevTools Issues Panel
+### issues-analyzer.js (v6.093) — Chrome DevTools Issues Panel
 
 The Issues panel is a **completely separate namespace** from the console. It surfaces CSP violations, CORS blocks, mixed content, cookie misconfigs, deprecated API use, and native low-contrast. None of these appear in `list_console_messages({ types: ['error'] })`.
 
@@ -1253,7 +1307,7 @@ Apply the same pattern to `list_network_requests` and `list_console_messages({ t
 
 ---
 
-### network-timing-analyzer.js (GAP-094) — Third-Party TTFB
+### network-timing-analyzer.js (v6.094) — Third-Party TTFB
 
 `PerformanceResourceTiming` returns 0ms for cross-origin resources that omit `Timing-Allow-Origin`. Chrome DevTools HAR timing (`list_network_requests`) is always accurate. This module bridges that gap.
 
@@ -1274,7 +1328,7 @@ Thresholds / exclusions:
 
 ---
 
-### keyboard-analyzer.js (GAP-097) — Focus Walk
+### keyboard-analyzer.js (v6.097) — Focus Walk
 
 Tab-walks the page up to 20 steps, evaluating `document.activeElement` computed style after each `press_key({ key: 'Tab' })`.
 
@@ -1293,15 +1347,15 @@ Detection logic:
 - `focus_lost`: `document.activeElement === document.body` after Tab (focus escaped the tab order)
 - Walk short-circuits when the same element (by tag+id+outerHTML prefix) is seen twice (cycle complete)
 
-> `focus_lost` is implemented but has no harness fixture (GAP-105). `focus_visible_missing` is positively tested by `keyboard-issues.html`.
+> `focus_lost` is implemented but has no harness fixture (v6.105). `focus_visible_missing` is positively tested by `keyboard-issues.html`.
 
 ---
 
-### snapshot-analyzer.js — Heading & ARIA (GAP-096, GAP-098)
+### snapshot-analyzer.js — Heading & ARIA (v6.096, v6.098)
 
 New detections added to the existing snapshot analyzer:
 
-**Heading hierarchy** (GAP-096):
+**Heading hierarchy** (v6.096):
 ```javascript
 // HEADING_HIERARCHY_SCRIPT walks h1–h6 in DOM order.
 // Emits heading_level_skip when level jumps by more than 1 (e.g. h1 → h3).
@@ -1309,7 +1363,7 @@ New detections added to the existing snapshot analyzer:
 // 'from' and 'to' are integer heading levels, not 'fromLevel'/'toLevel'
 ```
 
-**ARIA expanded state** (GAP-098):
+**ARIA expanded state** (v6.098):
 ```javascript
 // ARIA_STATE_SCRIPT checks all [aria-expanded] elements.
 // Emits aria_expanded_no_controls when aria-controls is absent or references a missing id.

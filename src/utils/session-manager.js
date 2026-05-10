@@ -154,9 +154,9 @@ export async function saveSession(mcp, sessionFile) {
     sessionStorage: parsed.sessionStorage !== null && typeof parsed.sessionStorage === 'object' ? parsed.sessionStorage : {},
   };
 
-  // GAP-084: Write to a .tmp file first, then rename atomically. A direct writeFileSync
+  // Write to a .tmp file first, then rename atomically. A direct writeFileSync
   // to the session file can leave truncated JSON if the process crashes mid-write,
-  // triggering the GAP-07 corrupt-file crash on the next restoreSession call.
+  // triggering corrupt-file crash on the next restoreSession call.
   const tmpFile = `${sessionFile}.tmp`;
   fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), 'utf8');
   fs.renameSync(tmpFile, sessionFile);

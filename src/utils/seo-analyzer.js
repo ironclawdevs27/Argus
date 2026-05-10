@@ -43,7 +43,7 @@ export const SEO_ANALYSIS_SCRIPT = `() => {
 export function parseSeoAnalysisResult(rawResult, url) {
   if (rawResult == null) return [];
 
-  // GAP-081: Unwrap MCP { result: '...' } response shape before parsing — the same
+  // Unwrap MCP { result: '...' } response shape before parsing — the same
   // pattern used by security-analyzer and content-analyzer. Without this, when the MCP
   // client returns an object wrapper, JSON.stringify(rawResult) serialises the envelope
   // instead of the inner payload and all SEO fields are undefined → false positives.

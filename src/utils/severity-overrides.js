@@ -39,7 +39,7 @@ export function applyOverrides(report, severityOverrides) {
   let suppressedCount = 0;
 
   function processFindings(findings) {
-    // GAP-58: Guard against null/undefined — routeResult.errors may be absent if a route
+    // Guard against null/undefined — routeResult.errors may be absent if a route
     // had no findings array populated; iterating undefined throws a TypeError.
     if (!Array.isArray(findings)) return [];
     const kept = [];
@@ -63,7 +63,7 @@ export function applyOverrides(report, severityOverrides) {
         kept.push(finding);
         continue;
       }
-      // GAP-62: Log unknown override values — a typo in severityOverrides config silently
+      // Log unknown override values — a typo in severityOverrides config silently
       // does nothing; warn so developers can spot misconfiguration immediately.
       console.warn(`[ARGUS] severity-overrides: unrecognized value "${override}" for type "${finding.type}" — expected critical|warning|info|suppress`);
       kept.push(finding);
@@ -71,7 +71,7 @@ export function applyOverrides(report, severityOverrides) {
     return kept;
   }
 
-  // GAP-59: report.routes must be guarded — report.flows uses ?? [] safely but routes did not;
+  // report.routes must be guarded — report.flows uses ?? [] safely but routes did not;
   // if routes is undefined the for-of throws a TypeError before any findings are processed.
   for (const routeResult of (report.routes ?? [])) {
     routeResult.errors = processFindings(routeResult.errors);

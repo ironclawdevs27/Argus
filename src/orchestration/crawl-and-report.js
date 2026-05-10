@@ -158,7 +158,7 @@ function classifyNetworkRequest(req, routeIsCritical) {
   return null; // not a failure
 }
 
-// ── Origin classification (GAP-100) ───────────────────────────────────────────
+// ── Origin classification ─────────────────────────────────────────────────────
 /**
  * Returns 'first-party' if reqUrl shares origin with pageUrl, else 'third-party'.
  * Falls back to 'first-party' on parse error (conservative).
@@ -227,33 +227,48 @@ const EXTRACT_ERROR_LISTENER = `() => JSON.stringify(window.__argusErrors ?? [])
 
 // ── D6.2 — document.write / document.writeln detection ───────────────────────
 
-/** Patches document.write and document.writeln after navigation to record calls. */
-const INJECT_DOC_WRITE_LISTENER = `() => {
-  if (window.__argusDocWritePatched) return;
-  window.__argusDocWritePatched = true;
-  window.__argusDocWrites = [];
-  var _write   = document.write.bind(document);
-  var _writeln = document.writeln.bind(document);
-  document.write = function() {
-    window.__argusDocWrites.push({ method: 'write', content: String(arguments[0] ?? '').slice(0, 200) });
-    return _write.apply(document, arguments);
-  };
-  document.writeln = function() {
-    window.__argusDocWrites.push({ method: 'writeln', content: String(arguments[0] ?? '').slice(0, 200) });
-    return _writeln.apply(document, arguments);
-  };
+// Static analysis: scan inline + same-origin external scripts for document.write/writeln calls.
+// Runtime patching is unreliable — navigate_page returns after page load, so inline scripts
+// that call document.write during parse have already run. Post-load calls trigger document.open()
+// which resets the JS context, destroying any injected patches.
+const DETECT_DOC_WRITE_STATIC = `async () => {
+  var found = [];
+  var seen = new Set();
+  function checkSrc(src, label) {
+    if (/\\bdocument\\.write\\s*\\(/.test(src) && !seen.has('write:'+label)) {
+      found.push({ method: 'write', content: label }); seen.add('write:'+label);
+    }
+    if (/\\bdocument\\.writeln\\s*\\(/.test(src) && !seen.has('writeln:'+label)) {
+      found.push({ method: 'writeln', content: label }); seen.add('writeln:'+label);
+    }
+  }
+  function isJsType(el) {
+    var t = (el.type || '').toLowerCase().trim();
+    return t === '' || t === 'text/javascript' || t === 'application/javascript' || t === 'module';
+  }
+  var inlines = document.querySelectorAll('script:not([src])');
+  for (var i = 0; i < inlines.length; i++) {
+    if (isJsType(inlines[i])) checkSrc(inlines[i].textContent||'','(inline)');
+  }
+  var externals = document.querySelectorAll('script[src]');
+  var fetches = [];
+  for (var i = 0; i < externals.length; i++) {
+    if (!isJsType(externals[i])) continue;
+    var u = externals[i].src;
+    if (!u || !u.startsWith(location.origin)) continue;
+    fetches.push(fetch(u).then(function(r){return r.text();}).then(function(t){checkSrc(t,u);}).catch(function(){}));
+  }
+  await Promise.all(fetches);
+  return JSON.stringify(found);
 }`;
-
-/** Extracts the list of document.write calls recorded by the injected listener. */
-const EXTRACT_DOC_WRITE_LISTENER = `() => JSON.stringify(window.__argusDocWrites ?? [])`;
 
 // ── D6.5 — Service worker registration failure detection ─────────────────────
 
 /** Patches navigator.serviceWorker.register after navigation to intercept failures. */
 const INJECT_SW_LISTENER = `() => {
+  if (!window.__argusSwErrors) window.__argusSwErrors = []; // preserve any in-page direct capture
   if (window.__argusSwPatched) return;
   window.__argusSwPatched = true;
-  window.__argusSwErrors = [];
   if (!navigator.serviceWorker) return;
   var _register = navigator.serviceWorker.register.bind(navigator.serviceWorker);
   navigator.serviceWorker.register = function(scriptURL, options) {
@@ -277,8 +292,13 @@ const EXTRACT_SW_LISTENER = `() => JSON.stringify(window.__argusSwErrors ?? [])`
 // scripts to check for \bdebugger\s*; — always critical (debug code in production).
 const DEBUGGER_SCRIPT = `async () => {
   var found = [];
+  function isJsType(el) {
+    var t = (el.type || '').toLowerCase().trim();
+    return t === '' || t === 'text/javascript' || t === 'application/javascript' || t === 'module';
+  }
   var inline = document.querySelectorAll('script:not([src])');
   for (var i = 0; i < inline.length; i++) {
+    if (!isJsType(inline[i])) continue;
     var src = inline[i].textContent || '';
     var lines = src.split('\\n');
     for (var ln = 0; ln < lines.length; ln++) {
@@ -289,11 +309,15 @@ const DEBUGGER_SCRIPT = `async () => {
   }
   var origin = window.location.origin;
   var seen = {};
-  var extUrls = window.performance.getEntriesByType('resource')
-    .filter(function(e){ return e.initiatorType === 'script' && e.name.startsWith(origin); })
-    .map(function(e){ return e.name; })
-    .filter(function(u){ if (seen[u]) return false; seen[u] = true; return true; })
-    .slice(0, 20);
+  var extEls = document.querySelectorAll('script[src]');
+  var extUrls = [];
+  for (var i = 0; i < extEls.length && extUrls.length < 20; i++) {
+    if (!isJsType(extEls[i])) continue;
+    var u = extEls[i].src;
+    if (!u || !u.startsWith(origin) || seen[u]) continue;
+    seen[u] = true;
+    extUrls.push(u);
+  }
   await Promise.all(extUrls.map(async function(scriptUrl) {
     try {
       var r = await fetch(scriptUrl, { cache: 'force-cache', credentials: 'same-origin' });
@@ -332,9 +356,9 @@ const DUPLICATE_ID_SCRIPT = `() => {
 
 /** Registers a PerformanceObserver for 'longtask' entries after navigation. */
 const INJECT_LONG_TASK_LISTENER = `() => {
+  if (!window.__argusLongTasks) window.__argusLongTasks = []; // preserve any in-page direct measurement
   if (window.__argusLongTaskPatched) return;
   window.__argusLongTaskPatched = true;
-  window.__argusLongTasks = [];
   try {
     var obs = new PerformanceObserver(function(list) {
       var entries = list.getEntries();
@@ -396,7 +420,7 @@ async function checkPerformanceBudgets(mcp, url) {
     // Let the page render for 3 seconds to capture paint/layout metrics
     await new Promise(r => setTimeout(r, 3000));
     const trace = await mcp.performance_stop_trace();
-    // GAP-89: performance_analyze_insight takes { insightSetId }, not { trace }.
+    // performance_analyze_insight takes { insightSetId }, not { trace }.
     // The trace object returned by performance_stop_trace contains the set ID.
     const insights = await mcp.performance_analyze_insight({ insightSetId: trace?.insightSetId ?? trace?.id ?? trace });
 
@@ -523,7 +547,7 @@ function analyzeNetworkPerformance(perfEntries, pageUrl) {
  *       SEO, security, content, CSS, debugger statements, duplicate ids, screenshot.
  * Does NOT run: Lighthouse, perf budgets, network perf, redirect chain, broken links, cache headers.
  */
-// GAP-091: Exported so the test harness can exercise the production crawl path directly.
+// Exported so the test harness can exercise the production crawl path directly.
 export async function crawlRouteCheap(route, baseUrl, mcp) {
   const url = `${baseUrl}${route.path}`;
   const result = {
@@ -539,23 +563,23 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
   // 0. Snapshot session-wide console/network/issues counts BEFORE this route starts (D5).
   const consoleBaseline = normalizeArray(await mcp.list_console_messages().catch(() => [])).length;
   const networkBaseline = normalizeArray(await mcp.list_network_requests().catch(() => [])).length;
-  // GAP-093: Baseline the Issues panel count separately — issues accumulate like console messages.
+  // Baseline the Issues panel count separately — issues accumulate like console messages.
   const issuesBaseline  = normalizeArray(await mcp.list_console_messages({ types: ['issue'] }).catch(() => [])).length;
 
   // 1. Navigate to the URL first — injections must happen on the live page context
   await mcp.navigate_page({ url });
 
   // 2. Inject listeners IMMEDIATELY after navigation, BEFORE the settle wait.
-  // GAP-073: injecting after the settle window missed load-time violations (sync XHR,
-  // document.write, uncaught errors, long tasks) that fire during page initialization.
+  // injecting after the settle window missed load-time violations (sync XHR,
+  // uncaught errors, long tasks) that fire during page initialization.
+  // D6.2 (document.write) uses static analysis post-load — no injection needed.
   await mcp.evaluate_script({ function:INJECT_ERROR_LISTENER }).catch(() => {});
   await mcp.evaluate_script({ function:INJECT_SYNC_XHR_LISTENER }).catch(() => {});
-  await mcp.evaluate_script({ function:INJECT_DOC_WRITE_LISTENER }).catch(() => {});
   await mcp.evaluate_script({ function:INJECT_LONG_TASK_LISTENER }).catch(() => {});
   await mcp.evaluate_script({ function:INJECT_SW_LISTENER }).catch(() => {});
 
   // 3. Wait for page settle — events fired during this window are now captured by listeners.
-  // GAP-074: wait_for({ selector }) is unreliable in headless MCP mode — use polling instead.
+  // wait_for({ selector }) is unreliable in headless MCP mode — use polling instead.
   if (route.waitFor) {
     const found = await waitForSelector(mcp, route.waitFor, 10000);
     if (!found) {
@@ -635,7 +659,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
         requestUrl: req.url,
         status:     req.status,
         statusText: req.statusText ?? null,
-        origin:     classifyOrigin(req.url, url),    // GAP-100
+        origin:     classifyOrigin(req.url, url),
         message:    `HTTP ${req.status}${req.statusText ? ` ${req.statusText}` : ''} — ${req.method ?? 'GET'} ${req.url}`,
         severity,
         url,
@@ -647,7 +671,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
   const apiFrequencyBugs = analyzeApiFrequency(networkReqs, url);
   result.errors.push(...apiFrequencyBugs);
 
-  // 6d. Third-party blocking resource detection via HAR timing (GAP-094)
+  // 6d. Third-party blocking resource detection via HAR timing
   // Detects cross-origin resources with slow TTFB that PerformanceResourceTiming
   // misses when the server omits Timing-Allow-Origin headers.
   try {
@@ -707,9 +731,9 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
     // parse failure — listener may not have been active
   }
 
-  // 7c. document.write detection (D6.2)
+  // 7c. document.write detection — static analysis (D6.2)
   try {
-    const docWriteRaw = await mcp.evaluate_script({ function: EXTRACT_DOC_WRITE_LISTENER });
+    const docWriteRaw = await mcp.evaluate_script({ function: DETECT_DOC_WRITE_STATIC });
     const rawDocWrite = unwrapEval(docWriteRaw);
     const docWrites   = Array.isArray(rawDocWrite) ? rawDocWrite
       : JSON.parse(typeof rawDocWrite === 'string' ? rawDocWrite : '[]');
@@ -724,7 +748,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
       });
     }
   } catch {
-    // parse failure — listener may not have been active
+    // parse failure or fetch error during external script scan
   }
 
   // 7d. Long task detection (D6.3)
@@ -837,7 +861,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
     console.warn(`[ARGUS] Content analysis skipped for ${url}: ${err.message}`);
   }
 
-  // 9e. Chrome DevTools Issues panel (GAP-093)
+  // 9e. Chrome DevTools Issues panel
   // Surfaces CORS violations, CSP blocks, mixed content, cookie misconfig,
   // deprecated API use, and native contrast issues — not visible in console messages.
   try {
@@ -848,7 +872,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
     console.warn(`[ARGUS] Issues analysis skipped for ${url}: ${err.message}`);
   }
 
-  // 9f. HTTPS enforcement check (GAP-101)
+  // 9f. HTTPS enforcement check
   // Flag non-localhost HTTP pages — HTTPS should be enforced at the server level.
   try {
     const parsed = new URL(url);
@@ -903,7 +927,7 @@ async function crawlRouteExpensive(route, baseUrl, mcp) {
   // Navigate to a fresh page load so perf trace and redirect count are accurate
   try {
     await mcp.navigate_page({ url });
-    // GAP-074: wait_for({ selector }) is unreliable in headless MCP mode — use polling.
+    // wait_for({ selector }) is unreliable in headless MCP mode — use polling.
     if (route.waitFor) {
       await waitForSelector(mcp, route.waitFor, 10000);
     } else {
@@ -957,7 +981,7 @@ async function crawlRouteExpensive(route, baseUrl, mcp) {
     const linksRaw  = await mcp.evaluate_script({ function: INTERNAL_LINKS_SCRIPT });
     const rawLinks  = unwrapEval(linksRaw);
     const links     = [...new Set(Array.isArray(rawLinks) ? rawLinks.filter(Boolean) : [])];
-    // GAP-73: Named catch ensures every map callback always resolves — status 0 means
+    // Named catch ensures every map callback always resolves — status 0 means
     // the link was unreachable. The inner catch prevents Promise.all from rejecting on
     // any individual fetch failure (e.g. ECONNREFUSED, AbortError, TypeError on old runtimes).
     const headResults = await Promise.all(
@@ -1080,7 +1104,7 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
     console.warn(`[ARGUS] Snapshot analysis skipped for ${route.name}: ${err.message}`);
   }
 
-  // Keyboard navigation analysis (v6 GAP-097) — once
+  // Keyboard navigation analysis — once
   try {
     const keyboardFindings = await analyzeKeyboard(mcp, `${targetBaseUrl}${route.path}`);
     result.errors.push(...keyboardFindings);
@@ -1202,7 +1226,7 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
       }
     } finally {
       for (const client of extraClients) {
-        // GAP-90: await close() — if close() returns a Promise that rejects, the rejection
+        // await close() — if close() returns a Promise that rejects, the rejection
         // would be swallowed. Optional chaining guards against close() being undefined.
         try { await client?.close?.(); } catch {}
       }
@@ -1281,7 +1305,7 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
   }
   // Rebuild summary after overrides (suppressed findings change counts)
   report.summary = { total: 0, critical: 0, warning: 0, info: 0 };
-  // GAP-80: Only count known severities — an unrecognised value (e.g. from a remapping bug)
+  // Only count known severities — an unrecognised value (e.g. from a remapping bug)
   // would create a spurious key on summary (report.summary[undefined]) without incrementing
   // the correct bucket, producing misleading counts in Slack notifications.
   function countFinding(finding) {

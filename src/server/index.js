@@ -26,7 +26,7 @@ const PORT = process.env.PORT ?? 3001;
 // Uses Express body-parser verify callbacks so req.rawBody is populated without
 // consuming the stream separately (separate stream consumer would leave body parsers
 // with an already-exhausted stream and produce empty req.body on every request).
-// GAP-35: 512 KB limit matches Slack's max payload size.
+// 512 KB limit matches Slack's max payload size.
 const BODY_LIMIT = '512kb';
 
 function captureRawBody(req, _res, buf) {
@@ -61,7 +61,7 @@ app.post('/slack/interactions', handleInteraction);
 
 // ── Start ──────────────────────────────────────────────────────────────────────
 
-// GAP-41: Capture server instance so we can attach an error listener.
+// Capture server instance so we can attach an error listener.
 const server = app.listen(PORT, () => {
   console.log(`[ARGUS] Server running on port ${PORT}`);
   console.log(`[ARGUS] Slash commands:  POST http://localhost:${PORT}/slack/commands`);
@@ -71,13 +71,13 @@ const server = app.listen(PORT, () => {
   console.log('[ARGUS] For local testing, expose with: cloudflared tunnel --url http://localhost:' + PORT);
 });
 
-// GAP-83: requestTimeout is assigned synchronously here — before the Node.js event loop
+// requestTimeout is assigned synchronously here — before the Node.js event loop
 // processes any incoming connection — so every request inherits the 10 s limit.
 // Must remain after app.listen() (the server object doesn't exist before that call)
 // but must remain synchronous (not inside the listen callback) to close the startup race.
 server.requestTimeout = 10_000;
 
-// GAP-41: Without this, a port conflict emits an unhandled 'error' event and terminates
+// Without this, a port conflict emits an unhandled 'error' event and terminates
 // the process with a cryptic EADDRINUSE message and no guidance.
 server.on('error', err => {
   if (err.code === 'EADDRINUSE') {

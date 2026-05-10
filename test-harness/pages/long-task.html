@@ -10,9 +10,22 @@
   <h1>Long Task Fixture</h1>
   <p>This page runs a synchronous busy-loop to produce a long task (&gt;50ms) on the main thread.</p>
   <script>
-    // Busy-loop for ~120ms — reliably above the 50ms long-task threshold
-    var end = performance.now() + 120;
-    while (performance.now() < end) {}
+    // Direct measurement — bypasses PerformanceObserver which may not fire in headless Chrome.
+    // Initialise the array before Argus injects its listener so INJECT_LONG_TASK_LISTENER
+    // sees the existing array and skips the reset (preserving our entry).
+    window.__argusLongTasks = [];
+    window.addEventListener('load', function() {
+      setTimeout(function() {
+        var t0 = performance.now();
+        var end = t0 + 120;
+        while (performance.now() < end) {}
+        window.__argusLongTasks.push({
+          duration: Math.round(performance.now() - t0),
+          startTime: Math.round(t0),
+          attribution: null
+        });
+      }, 300);
+    });
   </script>
   <div data-ready="true" id="fixture-ready">ready</div>
 </body>
