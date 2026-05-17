@@ -12,7 +12,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 
-import { routes, config, auth, flows, apiContracts, severityOverrides, codebase, autoDiscover } from '../config/targets.js';
+import { routes, config, auth, flows, apiContracts, severityOverrides, codebase, autoDiscover, thresholds } from '../config/targets.js';
 import { discoverRoutes }                                                from '../utils/route-discoverer.js';
 import { analyzeCodebase, detectDeadRoutes, INTERNAL_LINKS_SCRIPT }     from '../utils/codebase-analyzer.js';
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult }                  from '../utils/css-analyzer.js';
@@ -45,26 +45,13 @@ import { getExpensive }          from '../registry.js';
 import { deduplicateFindings as deduplicateErrors } from './report-processor.js';
 import { processReport }         from './report-processor.js';
 import { dispatchAll }           from './dispatcher.js';
+import { validateConfig }        from '../config/schema.js';
 
 const __dirname   = path.dirname(fileURLToPath(import.meta.url));
 const BASE_URL    = process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
 const OUTPUT_DIR  = path.resolve(__dirname, '../../', config.outputDir);
 
-// ── Performance Budgets ────────────────────────────────────────────────────────
-
-const PERF_BUDGETS = {
-  LCP:  2500,  // ms — Largest Contentful Paint
-  CLS:  0.1,   // Cumulative Layout Shift
-  FID:  100,   // ms — First Input Delay (approx via TBT)
-  TTFB: 800,   // ms — Time to First Byte
-};
-
-const NETWORK_PERF_THRESHOLDS = {
-  slowWarning:   1000,
-  slowCritical:  3000,
-  sizeWarning:   500 * 1024,
-  sizeCritical:  2 * 1024 * 1024,
-};
+// Thresholds for perf budgets and network analysis are centralized in targets.js.
 
 // ── Injected Page Scripts ──────────────────────────────────────────────────────
 
@@ -319,44 +306,44 @@ function analyzeNetworkPerformance(perfEntries, pageUrl) {
     const duration     = entry.duration ?? 0;
     const payloadBytes = entry.decodedBodySize || entry.transferSize || 0;
 
-    if (duration > NETWORK_PERF_THRESHOLDS.slowCritical) {
+    if (duration > thresholds.network.slowCritical) {
       bugs.push({
         type:       'slow_api',
         requestUrl: reqUrl,
         duration:   Math.round(duration),
-        threshold:  NETWORK_PERF_THRESHOLDS.slowCritical,
-        message:    `Slow API response ${Math.round(duration)} ms — ${reqUrl} (critical threshold: ${NETWORK_PERF_THRESHOLDS.slowCritical} ms)`,
+        threshold:  thresholds.network.slowCritical,
+        message:    `Slow API response ${Math.round(duration)} ms — ${reqUrl} (critical threshold: ${thresholds.network.slowCritical} ms)`,
         severity:   'critical',
         url:        pageUrl,
       });
-    } else if (duration > NETWORK_PERF_THRESHOLDS.slowWarning) {
+    } else if (duration > thresholds.network.slowWarning) {
       bugs.push({
         type:       'slow_api',
         requestUrl: reqUrl,
         duration:   Math.round(duration),
-        threshold:  NETWORK_PERF_THRESHOLDS.slowWarning,
-        message:    `Slow API response ${Math.round(duration)} ms — ${reqUrl} (warning threshold: ${NETWORK_PERF_THRESHOLDS.slowWarning} ms)`,
+        threshold:  thresholds.network.slowWarning,
+        message:    `Slow API response ${Math.round(duration)} ms — ${reqUrl} (warning threshold: ${thresholds.network.slowWarning} ms)`,
         severity:   'warning',
         url:        pageUrl,
       });
     }
 
-    if (payloadBytes > NETWORK_PERF_THRESHOLDS.sizeCritical) {
+    if (payloadBytes > thresholds.network.sizeCritical) {
       bugs.push({
         type:       'large_payload',
         requestUrl: reqUrl,
         bytes:      payloadBytes,
-        threshold:  NETWORK_PERF_THRESHOLDS.sizeCritical,
+        threshold:  thresholds.network.sizeCritical,
         message:    `Oversized API payload ${Math.round(payloadBytes / 1024)} KB — ${reqUrl} (critical threshold: 2 MB)`,
         severity:   'critical',
         url:        pageUrl,
       });
-    } else if (payloadBytes > NETWORK_PERF_THRESHOLDS.sizeWarning) {
+    } else if (payloadBytes > thresholds.network.sizeWarning) {
       bugs.push({
         type:       'large_payload',
         requestUrl: reqUrl,
         bytes:      payloadBytes,
-        threshold:  NETWORK_PERF_THRESHOLDS.sizeWarning,
+        threshold:  thresholds.network.sizeWarning,
         message:    `Oversized API payload ${Math.round(payloadBytes / 1024)} KB — ${reqUrl} (warning threshold: 500 KB)`,
         severity:   'warning',
         url:        pageUrl,
@@ -382,10 +369,10 @@ async function checkPerformanceBudgets(browser, url) {
     const metrics = insights?.metrics ?? insights?.performanceMetrics ?? {};
 
     const checks = [
-      { key: 'LCP',  value: metrics.largestContentfulPaint ?? metrics.LCP,  budget: PERF_BUDGETS.LCP,  unit: 'ms' },
-      { key: 'CLS',  value: metrics.cumulativeLayoutShift  ?? metrics.CLS,  budget: PERF_BUDGETS.CLS,  unit: ''   },
-      { key: 'FID',  value: metrics.totalBlockingTime ?? metrics.TBT ?? metrics.FID, budget: PERF_BUDGETS.FID, unit: 'ms' },
-      { key: 'TTFB', value: metrics.timeToFirstByte   ?? metrics.TTFB,      budget: PERF_BUDGETS.TTFB, unit: 'ms' },
+      { key: 'LCP',  value: metrics.largestContentfulPaint ?? metrics.LCP,  budget: thresholds.perf.LCP,  unit: 'ms' },
+      { key: 'CLS',  value: metrics.cumulativeLayoutShift  ?? metrics.CLS,  budget: thresholds.perf.CLS,  unit: ''   },
+      { key: 'FID',  value: metrics.totalBlockingTime ?? metrics.TBT ?? metrics.FID, budget: thresholds.perf.FID, unit: 'ms' },
+      { key: 'TTFB', value: metrics.timeToFirstByte   ?? metrics.TTFB,      budget: thresholds.perf.TTFB, unit: 'ms' },
     ];
 
     for (const { key, value, budget, unit } of checks) {
@@ -963,6 +950,10 @@ async function crawlShardWithClient(shard, targetBaseUrl, mcp, sessionFile) {
  * @returns {object} Full report object
  */
 export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = null) {
+  // Validate config at startup — catches targets.js misconfiguration before any crawl work begins.
+  // Named exports are already statically imported above; build the namespace object here.
+  validateConfig({ config, routes, thresholds, apiContracts, severityOverrides, auth, flows, codebase, autoDiscover });
+
   const browser = new CdpBrowserAdapter(mcp);
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 

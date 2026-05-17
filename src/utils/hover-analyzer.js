@@ -20,6 +20,7 @@
 
 import { resolveUidForSelector } from './flow-runner.js';
 import { registerExpensive }    from '../registry.js';
+import { thresholds }           from '../config/targets.js';
 
 // ── Discovery script ──────────────────────────────────────────────────────────
 // Runs in the live page to find hover-testable candidates.
@@ -44,7 +45,7 @@ const HOVER_CANDIDATE_SCRIPT = `() => {
     return tag + ':nth-of-type(' + idx + ')';
   }
   var popupEls = document.querySelectorAll('[aria-haspopup]');
-  for (var i = 0; i < Math.min(popupEls.length, 8); i++) {
+  for (var i = 0; i < Math.min(popupEls.length, ${thresholds.hover.maxDropdowns}); i++) {
     var el = popupEls[i];
     var r = el.getBoundingClientRect();
     if (r.width === 0 && r.height === 0) continue;
@@ -56,7 +57,7 @@ const HOVER_CANDIDATE_SCRIPT = `() => {
     });
   }
   var tipEls = document.querySelectorAll('[data-tooltip]');
-  for (var j = 0; j < Math.min(tipEls.length, 5); j++) {
+  for (var j = 0; j < Math.min(tipEls.length, ${thresholds.hover.maxTooltips}); j++) {
     var tel = tipEls[j];
     var tr = tel.getBoundingClientRect();
     if (tr.width === 0 && tr.height === 0) continue;
@@ -167,7 +168,7 @@ export async function analyzeHover(browser, url, isCritical = false) {
       const hoverUid = await resolveUidForSelector(browser, candidate.selector);
       if (!hoverUid) continue; // element not found in snapshot — skip
       await browser.hover(hoverUid);
-      await new Promise(r => setTimeout(r, 350));
+      await new Promise(r => setTimeout(r, thresholds.hover.waitMs));
 
       if (candidate.kind === 'haspopup') {
         const raw   = await browser.evaluate(popupCheckScript(candidate.controls));

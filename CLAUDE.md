@@ -11,7 +11,7 @@ Argus is an AI-driven automated QA harness that audits web pages using Chrome De
 - Flow Runner DSL step actions
 - Assertion patterns for `test-harness/validate.js`
 - Common failure modes and fixes
-- Harness statistics (78 blocks, 330 hard assertions, 53 detection categories)
+- Harness statistics (79 blocks, 334 hard assertions, 53 detection categories)
 
 ## Project Structure
 
@@ -46,7 +46,8 @@ src/
     snapshot-analyzer.js      — D8.2: accessibility tree analysis
     mcp-client.js             — headless JSON-RPC MCP client
   config/
-    targets.js                — URL targets + auth steps
+    targets.js                — URL targets + auth steps + centralized thresholds (v9 Sprint 3)
+    schema.js                 — Zod validation schema for targets.js; validateConfig() called inside runCrawl() (v9.1.6)
 test-harness/
   validate.js                 — 78-block correctness harness
   harness-config.js           — fixture page routing table
@@ -66,7 +67,7 @@ Chrome must be running with remote debugging before starting the harness:
 
 # Then run the harness:
 npm run test:harness
-# Expected: 327/330 (3 permanent MCP-limited failures)
+# Expected: 331/334 (3 permanent MCP-limited failures)
 ```
 
 Soft assertions (Lighthouse, perf traces) require non-headless Chrome — they are expected to be skipped in headless CI.
@@ -105,4 +106,4 @@ TARGET_STAGING_URL=
 
 ## Phases Complete
 
-D1–D8.5 (all code phases complete). Watch mode (passive browser monitoring — `npm run watch`). **v9 Sprint 1 complete** — `CdpBrowserAdapter` (`src/adapters/browser.js`), `createFinding()` factory (`src/domain/finding.js`), `mcp-parsers.js`, and all 13 analyzer/orchestration/harness files migrated from `mcp.*` to `browser.*`. **v9 Sprint 2 complete** — plugin registry (`src/registry.js`), god object split (`orchestrator.js` + `report-processor.js` + `dispatcher.js`), `crawl-and-report.js` reduced to 20-line re-export shell, 6 analyzers self-register. Harness: 327/330. See `SKILL.md` §14 for the full feature list.
+D1–D8.5 (all code phases complete). Watch mode (passive browser monitoring — `npm run watch`). **v9 Sprint 1 complete** — `CdpBrowserAdapter` (`src/adapters/browser.js`), `createFinding()` factory (`src/domain/finding.js`), `mcp-parsers.js`, and all 13 analyzer/orchestration/harness files migrated from `mcp.*` to `browser.*`. **v9 Sprint 2 complete** — plugin registry (`src/registry.js`), god object split (`orchestrator.js` + `report-processor.js` + `dispatcher.js`), `crawl-and-report.js` reduced to 20-line re-export shell, 6 analyzers self-register. **v9 Sprint 3 complete** — all magic-number thresholds centralized in `src/config/targets.js`; `src/config/schema.js` (Zod) validates targets.js at startup. Harness: 331/334. See `SKILL.md` §14 for the full feature list.

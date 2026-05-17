@@ -6,13 +6,7 @@
  */
 
 import { registerExpensive } from '../registry.js';
-
-export const LIGHTHOUSE_THRESHOLDS = {
-  accessibility:    { critical: 50, warning: 90 },
-  performance:      { critical: 50, warning: 90 },
-  seo:              { critical: 50, warning: 90 },
-  'best-practices': { critical: 50, warning: 90 },
-};
+import { thresholds }        from '../config/targets.js';
 
 const LIGHTHOUSE_LABELS = {
   accessibility:    'Accessibility',
@@ -53,7 +47,7 @@ export async function checkLighthouse(browser, url) {
     const categories = result?.categories ?? {};
     const audits     = result?.audits     ?? {};
 
-    for (const [catKey, thresholds] of Object.entries(LIGHTHOUSE_THRESHOLDS)) {
+    for (const [catKey, catThresholds] of Object.entries(thresholds.lighthouse)) {
       const catData = categories[catKey]
         ?? categories[catKey.replace('-', '_')]
         ?? categories[catKey.replace(/-([a-z])/g, (_, c) => c.toUpperCase())];
@@ -63,23 +57,23 @@ export async function checkLighthouse(browser, url) {
       const pct   = Math.round(score * 100);
       const label = LIGHTHOUSE_LABELS[catKey];
 
-      if (pct < thresholds.critical) {
+      if (pct < catThresholds.critical) {
         violations.push({
           type:      'lighthouse_score',
           category:  catKey,
           score:     pct,
-          threshold: thresholds.critical,
-          message:   `Lighthouse ${label} score ${pct}/100 — critical (threshold: ${thresholds.critical})`,
+          threshold: catThresholds.critical,
+          message:   `Lighthouse ${label} score ${pct}/100 — critical (threshold: ${catThresholds.critical})`,
           severity:  'critical',
           url,
         });
-      } else if (pct < thresholds.warning) {
+      } else if (pct < catThresholds.warning) {
         violations.push({
           type:      'lighthouse_score',
           category:  catKey,
           score:     pct,
-          threshold: thresholds.warning,
-          message:   `Lighthouse ${label} score ${pct}/100 — needs improvement (threshold: ${thresholds.warning})`,
+          threshold: catThresholds.warning,
+          message:   `Lighthouse ${label} score ${pct}/100 — needs improvement (threshold: ${catThresholds.warning})`,
           severity:  'warning',
           url,
         });

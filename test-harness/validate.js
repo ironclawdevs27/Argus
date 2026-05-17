@@ -70,6 +70,8 @@ import { analyzeIssues } from '../src/utils/issues-analyzer.js';
 import { parseNetworkTiming } from '../src/utils/network-timing-analyzer.js';
 import { analyzeKeyboard } from '../src/utils/keyboard-analyzer.js';
 import { WatchSession } from '../src/orchestration/watch-mode.js';
+import { validateConfig } from '../src/config/schema.js';
+import * as argusTargets from '../src/config/targets.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -3278,6 +3280,52 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
     );
     assert(validShape78,
       `[78g] All findings have required fields: type, severity, message (checked ${allFinal78.length})`);
+  }
+
+  // ── [79] Zod config validation (v9.1.6) ──────────────────────────────────────
+  console.log('\n[79] Zod config validation — validateConfig guards targets.js shape');
+  {
+    // [79a] actual targets.js exports pass schema validation without throwing
+    let threw79a = false;
+    try { validateConfig(argusTargets); } catch { threw79a = true; }
+    assert(!threw79a,
+      '[79a] validateConfig(targets) passes on real targets.js without throwing');
+
+    // [79b] route missing required path field → throws
+    let threw79b = false;
+    try {
+      validateConfig({
+        ...argusTargets,
+        routes: [{ name: 'NoPath', critical: false }],
+      });
+    } catch { threw79b = true; }
+    assert(threw79b,
+      '[79b] validateConfig throws when a route is missing the required path field');
+
+    // [79c] route path not starting with / → throws
+    let threw79c = false;
+    try {
+      validateConfig({
+        ...argusTargets,
+        routes: [{ path: 'no-slash', name: 'Bad', critical: false }],
+      });
+    } catch { threw79c = true; }
+    assert(threw79c,
+      '[79c] validateConfig throws when route.path does not start with "/"');
+
+    // [79d] threshold with non-number value → throws
+    let threw79d = false;
+    try {
+      validateConfig({
+        ...argusTargets,
+        thresholds: {
+          ...argusTargets.thresholds,
+          perf: { ...argusTargets.thresholds.perf, LCP: 'not-a-number' },
+        },
+      });
+    } catch { threw79d = true; }
+    assert(threw79d,
+      '[79d] validateConfig throws when thresholds.perf.LCP is a string instead of a number');
   }
 }
 

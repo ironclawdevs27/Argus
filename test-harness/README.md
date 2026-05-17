@@ -2,7 +2,7 @@
 
 Validates that every Argus detection category fires correctly by running the full crawl pipeline against deliberately broken fixture pages hosted on a local Express server.
 
-> **v4 Quality Audit complete** — all 30 gaps resolved. **v5 Correctness Hardening complete** (20 gaps). **v6 Detection Expansion complete** (10 new detection categories). **v7 Final Production Hardening complete** (2026-05-05) — 50+ security and robustness fixes across 17 source files. **v8 Harness Correctness** (2026-05-10) — uid regex rewrite, sync-xhr timing fix, select_option label resolution. **Watch Mode** (2026-05-17) — passive browser monitoring; block [78] added. **v9 Sprint 1** (2026-05-17) — CdpBrowserAdapter migration complete; all 13 files migrated from `mcp.*` → `browser.*`; 327/330. **v9 Sprint 2** (2026-05-18) — Plugin registry + god object split; `crawl-and-report.js` reduced to 20-line re-export shell; 6 analyzers self-register; harness gate: 327/330.
+> **v4 Quality Audit complete** — all 30 gaps resolved. **v5 Correctness Hardening complete** (20 gaps). **v6 Detection Expansion complete** (10 new detection categories). **v7 Final Production Hardening complete** (2026-05-05) — 50+ security and robustness fixes across 17 source files. **v8 Harness Correctness** (2026-05-10) — uid regex rewrite, sync-xhr timing fix, select_option label resolution. **Watch Mode** (2026-05-17) — passive browser monitoring; block [78] added. **v9 Sprint 1** (2026-05-17) — CdpBrowserAdapter migration complete; all 13 files migrated from `mcp.*` → `browser.*`; 327/330. **v9 Sprint 2** (2026-05-18) — Plugin registry + god object split; `crawl-and-report.js` reduced to 20-line re-export shell; 6 analyzers self-register; harness gate: 327/330. **v9 Sprint 3** (2026-05-18) — Threshold centralization + Zod config validation; block [79] added; harness gate: 331/334.
 
 <br/>
 
@@ -17,7 +17,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-78 test blocks · 330 hard assertions · 47 verified detection categories · 54 fixture pages
+79 test blocks · 334 hard assertions · 47 verified detection categories · 54 fixture pages
 
 > **Coverage note**: 54 detection categories exist in production code. 47 are positively exercised by the harness. The remaining 7 have no fixture trigger yet — see [argus-v6-strategy.md §10](../argus-v6-strategy.md) for details and planned fixtures.
 

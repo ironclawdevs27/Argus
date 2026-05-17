@@ -18,10 +18,13 @@
  *      • HTTP resource on HTTPS page (D6.9) — skips loopback; only fires on real HTTPS origins
  */
 
+import { thresholds } from '../config/targets.js';
+
 /**
  * Async arrow function injected into the page via mcp.evaluate_script.
  * Uses a fetch HEAD request to check response headers on the same origin.
  * Returns a JSON string consumed by parseSecurityAnalysisResult().
+ * Timeout value is interpolated from thresholds.security.headTimeoutMs at module load.
  */
 export const SECURITY_ANALYSIS_SCRIPT = `async () => {
   // 1. localStorage — token-shaped key names or JWT-shaped values
@@ -64,7 +67,7 @@ export const SECURITY_ANALYSIS_SCRIPT = `async () => {
   var hasCSP = null, hasXFrame = null;
   try {
     var ctrl    = new AbortController();
-    var timeout = (typeof ARGUS_SECURITY_TIMEOUT !== 'undefined' ? ARGUS_SECURITY_TIMEOUT : 3000);
+    var timeout = (typeof ARGUS_SECURITY_TIMEOUT !== 'undefined' ? ARGUS_SECURITY_TIMEOUT : ${thresholds.security.headTimeoutMs});
     var tid     = setTimeout(function() { ctrl.abort(); }, timeout);
     try {
       // clearTimeout must run even if fetch rejects — use inner try/finally.

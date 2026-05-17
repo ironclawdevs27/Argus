@@ -14,7 +14,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 | 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
 |:---:|:---:|:---:|:---:|
-| **114 distinct issue types detected** | **24 analysis engines** | **330 test assertions** | **78 test blocks** |
+| **114 distinct issue types detected** | **24 analysis engines** | **334 test assertions** | **79 test blocks** |
 
 </div>
 

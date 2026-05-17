@@ -12,7 +12,7 @@ Argus is an AI-driven automated QA harness that audits web pages against 53 dete
 **Entry points**
 - `src/argus.js` — single-page audit (CLI)
 - `src/batch-runner.js` — multi-page batch audit
-- `test-harness/validate.js` — 78-block correctness harness (330 hard assertions)
+- `test-harness/validate.js` — 79-block correctness harness (334 hard assertions)
 - `test-harness/harness-config.js` — fixture page routing table
 
 ---
@@ -1094,14 +1094,30 @@ for (const bp of breakpoints) {
 
 | Metric | Value |
 |--------|-------|
-| Test blocks | 78 |
-| Hard assertions | 330 |
+| Test blocks | 79 |
+| Hard assertions | 334 |
 | Detection categories | 53 in production code; **46 positively verified** by harness fixtures |
 | Fixture pages | 54 |
 | Flow step actions | 11 (navigate, waitFor, sleep, fill, click, drag, upload_file, select_option, press_key, handle_dialog, assert) |
-| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring), **v9 Sprint 1 (adapter layer)**, **v9 Sprint 2 (plugin registry + god object split)** |
+| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring), **v9 Sprint 1 (adapter layer)**, **v9 Sprint 2 (plugin registry + god object split)**, **v9 Sprint 3 (threshold centralization + Zod validation)** |
 
-Expected harness output: `327/330 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
+Expected harness output: `331/334 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
+
+### v9 Sprint 3 additions (2026-05-18)
+
+Threshold centralization + Zod config validation.
+
+| Change | Details |
+|--------|---------|
+| `src/config/targets.js` | New `export const thresholds = { perf, network, memory, hover, security, apiFrequency, lighthouse }` — all magic-number limits centralized here |
+| `src/config/schema.js` | New Zod schema (`ConfigSchema`) + `validateConfig(targets)` — called at the START of `runCrawl()` in `orchestrator.js` (fires on every crawl, regardless of entry point) |
+| `src/utils/memory-analyzer.js` | Replaced local `DETACHED_NODE_THRESHOLDS` / `HEAP_GROWTH_THRESHOLDS` with `thresholds.memory.*` |
+| `src/utils/hover-analyzer.js` | Replaced inline `8`, `5`, `350` with `thresholds.hover.maxDropdowns`, `maxTooltips`, `waitMs` |
+| `src/utils/security-analyzer.js` | Replaced hardcoded `3000` fallback in injected script with `${thresholds.security.headTimeoutMs}` (interpolated at module load) |
+| `src/utils/api-frequency.js` | Replaced `count >= 5` / `count >= 3` with `thresholds.apiFrequency.criticalCount` / `warningCount` |
+| `src/utils/lighthouse-checker.js` | Removed `LIGHTHOUSE_THRESHOLDS` export; uses `thresholds.lighthouse.*` |
+| `src/orchestration/orchestrator.js` | Removed `PERF_BUDGETS` / `NETWORK_PERF_THRESHOLDS` constants; uses `thresholds.perf.*` / `thresholds.network.*` |
+| `test-harness/validate.js` | Block [79]: 4 assertions — valid config passes, route missing path throws, path without `/` throws, non-number threshold throws |
 
 ### v9 Sprint 2 additions (2026-05-18)
 

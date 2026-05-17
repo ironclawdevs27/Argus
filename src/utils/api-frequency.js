@@ -5,6 +5,8 @@
  * Single source of truth — import from here in both orchestrators.
  */
 
+import { thresholds } from '../config/targets.js';
+
 /**
  * Detect API endpoints called more than once in a single page load.
  * Groups by normalized URL + method. Flags duplicates with severity based
@@ -59,11 +61,11 @@ export function analyzeApiFrequency(networkReqs, pageUrl) {
 
     // Severity ladder:
     //   2 calls  → info    (might be intentional: prefetch + actual)
-    //   3–4 calls → warning (likely a bug: double render, missing dependency array)
-    //   5+ calls  → critical (runaway loop, missing cleanup)
+    //   ≥ warningCount  → warning (likely a bug: double render, missing dependency array)
+    //   ≥ criticalCount → critical (runaway loop, missing cleanup)
     let severity = 'info';
-    if (count >= 5) severity = 'critical';
-    else if (count >= 3) severity = 'warning';
+    if (count >= thresholds.apiFrequency.criticalCount) severity = 'critical';
+    else if (count >= thresholds.apiFrequency.warningCount) severity = 'warning';
 
     const durations = group.calls
       .map(c => c.duration)

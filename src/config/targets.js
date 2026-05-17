@@ -20,6 +20,50 @@ export const config = {
 };
 
 /**
+ * Centralized detection thresholds (v9.1.5).
+ * All magic-number limits across analyzers live here — change once, apply everywhere.
+ * Override individual values in your fork; never edit analyzer source files for tuning.
+ */
+export const thresholds = {
+  perf: {
+    LCP:  2500,  // ms — Largest Contentful Paint
+    CLS:  0.1,   // Cumulative Layout Shift
+    FID:  100,   // ms — First Input Delay (approx via TBT)
+    TTFB: 800,   // ms — Time to First Byte
+  },
+  network: {
+    slowWarning:   1000,            // ms — API response time warning
+    slowCritical:  3000,            // ms — API response time critical
+    sizeWarning:   500 * 1024,      // bytes — payload size warning  (500 KB)
+    sizeCritical:  2 * 1024 * 1024, // bytes — payload size critical (2 MB)
+  },
+  memory: {
+    detachedWarning:    10,              // detached DOM nodes → warning
+    detachedCritical:   100,             // detached DOM nodes → critical
+    heapGrowthWarning:  2 * 1024 * 1024,  // bytes heap growth → warning  (2 MB)
+    heapGrowthCritical: 10 * 1024 * 1024, // bytes heap growth → critical (10 MB)
+  },
+  hover: {
+    waitMs:       350,  // ms to wait after hover before checking DOM state
+    maxDropdowns: 8,    // max [aria-haspopup] elements to test per page
+    maxTooltips:  5,    // max [data-tooltip] elements to test per page
+  },
+  security: {
+    headTimeoutMs: 3000, // ms — HEAD fetch timeout for CSP/XFrame header check
+  },
+  apiFrequency: {
+    warningCount:  3,  // API called ≥ this many times → warning
+    criticalCount: 5,  // API called ≥ this many times → critical
+  },
+  lighthouse: {
+    accessibility:    { critical: 50, warning: 90 },
+    performance:      { critical: 50, warning: 90 },
+    seo:              { critical: 50, warning: 90 },
+    'best-practices': { critical: 50, warning: 90 },
+  },
+};
+
+/**
  * Routes to test in crawl-and-report.js (error detection).
  * Add every key page your application serves.
  *

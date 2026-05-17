@@ -18,20 +18,9 @@
 import fs   from 'fs';
 import os   from 'os';
 import path from 'path';
-import { unwrapEval }       from './mcp-client.js';
+import { unwrapEval }        from './mcp-client.js';
 import { registerExpensive } from '../registry.js';
-
-// ── Thresholds ─────────────────────────────────────────────────────────────────
-
-const DETACHED_NODE_THRESHOLDS = {
-  warning:  10,    // > 10 detached nodes → warning
-  critical: 100,   // > 100 detached nodes → critical
-};
-
-const HEAP_GROWTH_THRESHOLDS = {
-  warning:  2 * 1024 * 1024,   // > 2 MB growth → warning
-  critical: 10 * 1024 * 1024,  // > 10 MB growth → critical
-};
+import { thresholds }        from '../config/targets.js';
 
 // ── Scripts ────────────────────────────────────────────────────────────────────
 
@@ -196,21 +185,21 @@ export async function analyzeMemory(browser, url, awayUrl = 'about:blank') {
     if (parsed !== null) {
       const { detachedNodeCount: count, totalNodeCount } = parsed;
 
-      if (count > DETACHED_NODE_THRESHOLDS.critical) {
+      if (count > thresholds.memory.detachedCritical) {
         findings.push({
           type:       'memory_detached_dom_nodes',
           count,
           totalNodes: totalNodeCount,
-          message:    `${count} detached DOM node(s) in heap — severe leak (threshold: >${DETACHED_NODE_THRESHOLDS.critical})`,
+          message:    `${count} detached DOM node(s) in heap — severe leak (threshold: >${thresholds.memory.detachedCritical})`,
           severity:   'critical',
           url,
         });
-      } else if (count > DETACHED_NODE_THRESHOLDS.warning) {
+      } else if (count > thresholds.memory.detachedWarning) {
         findings.push({
           type:       'memory_detached_dom_nodes',
           count,
           totalNodes: totalNodeCount,
-          message:    `${count} detached DOM node(s) in heap — probable leak (threshold: >${DETACHED_NODE_THRESHOLDS.warning})`,
+          message:    `${count} detached DOM node(s) in heap — probable leak (threshold: >${thresholds.memory.detachedWarning})`,
           severity:   'warning',
           url,
         });
@@ -237,7 +226,7 @@ export async function analyzeMemory(browser, url, awayUrl = 'about:blank') {
       if (post !== null) {
         const growth = post - baseline;
 
-        if (growth > HEAP_GROWTH_THRESHOLDS.critical) {
+        if (growth > thresholds.memory.heapGrowthCritical) {
           findings.push({
             type:          'memory_heap_growth',
             baselineBytes: baseline,
@@ -248,7 +237,7 @@ export async function analyzeMemory(browser, url, awayUrl = 'about:blank') {
             soft:          true,
             url,
           });
-        } else if (growth > HEAP_GROWTH_THRESHOLDS.warning) {
+        } else if (growth > thresholds.memory.heapGrowthWarning) {
           findings.push({
             type:          'memory_heap_growth',
             baselineBytes: baseline,
