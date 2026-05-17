@@ -1,8 +1,8 @@
 /**
  * ARGUS Accessibility Snapshot Analyzer (v3 Phase D8.2)
  *
- * Calls mcp.take_snapshot() to satisfy the D8.2 tool-coverage requirement, then
- * uses evaluate_script for reliable ARIA property queries (take_snapshot format
+ * Calls browser.snapshot() to satisfy the D8.2 tool-coverage requirement, then
+ * uses browser.evaluate() for reliable ARIA property queries (take_snapshot format
  * is implementation-dependent in chrome-devtools-mcp; evaluate_script is stable).
  *
  * Detections:
@@ -189,11 +189,11 @@ function parseJson(raw) {
  * @param {string}  url        - Fully-qualified URL to analyse
  * @returns {Promise<object[]>} Array of a11y finding objects
  */
-export async function analyzeSnapshot(mcp, url) {
+export async function analyzeSnapshot(browser, url) {
   const findings = [];
 
   try {
-    await mcp.navigate_page({ url });
+    await browser.navigate(url);
     await new Promise(r => setTimeout(r, 800));
   } catch {
     return findings;
@@ -202,14 +202,14 @@ export async function analyzeSnapshot(mcp, url) {
   // Satisfy D8.2 tool requirement — snapshot captures current DOM/AX state.
   // We store but don't parse its format (implementation-dependent).
   try {
-    await mcp.take_snapshot();
+    await browser.snapshot();
   } catch {
     // Non-fatal: evaluation-based checks proceed regardless
   }
 
   // ── Missing accessible name ───────────────────────────────────────────────
   try {
-    const raw    = await mcp.evaluate_script({ function: MISSING_NAME_SCRIPT });
+    const raw    = await browser.evaluate(MISSING_NAME_SCRIPT);
     const items  = parseJson(raw);
     if (Array.isArray(items)) {
       for (const item of items) {
@@ -230,7 +230,7 @@ export async function analyzeSnapshot(mcp, url) {
 
   // ── Missing form label ────────────────────────────────────────────────────
   try {
-    const raw    = await mcp.evaluate_script({ function: MISSING_LABEL_SCRIPT });
+    const raw    = await browser.evaluate(MISSING_LABEL_SCRIPT);
     const items  = parseJson(raw);
     if (Array.isArray(items)) {
       for (const item of items) {
@@ -252,7 +252,7 @@ export async function analyzeSnapshot(mcp, url) {
 
   // ── Duplicate landmarks ───────────────────────────────────────────────────
   try {
-    const raw    = await mcp.evaluate_script({ function: DUPLICATE_LANDMARK_SCRIPT });
+    const raw    = await browser.evaluate(DUPLICATE_LANDMARK_SCRIPT);
     const items  = parseJson(raw);
     if (Array.isArray(items)) {
       for (const item of items) {
@@ -272,7 +272,7 @@ export async function analyzeSnapshot(mcp, url) {
 
   // ── ARIA state checks ────────────────────────────────────────────────────
   try {
-    const raw   = await mcp.evaluate_script({ function: ARIA_STATE_SCRIPT });
+    const raw   = await browser.evaluate(ARIA_STATE_SCRIPT);
     const items = parseJson(raw);
     if (Array.isArray(items)) {
       for (const item of items) {
@@ -297,7 +297,7 @@ export async function analyzeSnapshot(mcp, url) {
 
   // ── Heading hierarchy ─────────────────────────────────────────────────────
   try {
-    const raw   = await mcp.evaluate_script({ function: HEADING_HIERARCHY_SCRIPT });
+    const raw   = await browser.evaluate(HEADING_HIERARCHY_SCRIPT);
     const items = parseJson(raw);
     if (Array.isArray(items)) {
       for (const item of items) {

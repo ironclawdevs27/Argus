@@ -53,25 +53,25 @@ function parseJson(raw) {
 /**
  * Walk focus via Tab key and detect visibility and order issues.
  *
- * @param {object} mcp - MCP tool interface (navigate_page, take_snapshot, press_key, evaluate_script)
+ * @param {object} browser - CdpBrowserAdapter
  * @param {string} url - Fully-qualified URL to analyse
  * @returns {Promise<object[]>} Array of finding objects
  */
-export async function analyzeKeyboard(mcp, url) {
+export async function analyzeKeyboard(browser, url) {
   const findings = [];
 
   try {
-    await mcp.navigate_page({ url });
+    await browser.navigate(url);
     await new Promise(r => setTimeout(r, 800));
   } catch {
     return findings;
   }
 
   // Satisfy D8 tool-coverage requirement.
-  try { await mcp.take_snapshot(); } catch {}
+  try { await browser.snapshot(); } catch {}
 
   // Reset focus to body for consistent Tab-walk start state across all pages
-  await mcp.evaluate_script({ function: '() => { document.body.click(); document.body.focus(); }' }).catch(() => {});
+  await browser.evaluate('() => { document.body.click(); document.body.focus(); }').catch(() => {});
 
   const seen         = new Set();
   const focusLostAt  = [];
@@ -79,10 +79,10 @@ export async function analyzeKeyboard(mcp, url) {
 
   for (let step = 0; step < MAX_TAB_STEPS; step++) {
     try {
-      await mcp.press_key({ key: 'Tab' });
+      await browser.pressKey('Tab');
       await new Promise(r => setTimeout(r, 80));
 
-      const raw  = await mcp.evaluate_script({ function: FOCUS_INFO_SCRIPT });
+      const raw  = await browser.evaluate(FOCUS_INFO_SCRIPT);
       const info = parseJson(raw);
       if (!info) continue;
 

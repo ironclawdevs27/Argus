@@ -19,6 +19,7 @@ import { fileURLToPath } from 'url';
 import 'dotenv/config';
 import { unwrapEval } from '../utils/mcp-client.js';
 import { normalizeArray } from '../utils/flow-runner.js';
+import { CdpBrowserAdapter } from '../adapters/browser.js';
 
 import { comparisonRoutes, config } from '../config/targets.js';
 import { compareScreenshots, diffDomSnapshots, diffNetworkRequests, diffConsoleMessages } from '../utils/diff.js';
@@ -54,18 +55,18 @@ const SCREENSHOT_THRESHOLD = config.screenshotDiffThreshold; // %
  * @param {string} url - Full URL to capture
  * @param {string} label - Label for file naming (e.g., 'dev', 'staging')
  * @param {string} routeName - Human-readable route name
- * @param {object} mcp - Chrome DevTools MCP tools
+ * @param {object} browser - CdpBrowserAdapter
  * @returns {object} Captured page state
  */
-async function capturePage(url, label, routeName, mcp) {
+async function capturePage(url, label, routeName, browser) {
   console.log(`[ARGUS] Capturing ${label}: ${url}`);
 
   // Snapshot buffer counts BEFORE navigation so staging capture does not
   // include dev's accumulated console messages and network requests from the prior capture.
-  const consoleBaseline = normalizeArray(await mcp.list_console_messages().catch(() => [])).length;
-  const networkBaseline = normalizeArray(await mcp.list_network_requests().catch(() => [])).length;
+  const consoleBaseline = (await browser.listConsole().catch(() => [])).length;
+  const networkBaseline = (await browser.listNetwork().catch(() => [])).length;
 
-  await mcp.navigate_page({ url });
+  await browser.navigate(url);
   await new Promise(r => setTimeout(r, config.pageSettleMs));
 
   // Screenshot
@@ -73,20 +74,20 @@ async function capturePage(url, label, routeName, mcp) {
     OUTPUT_DIR,
     `compare-${slugify(routeName)}-${label}-${Date.now()}.png`
   );
-  const screenshotData = await mcp.take_screenshot({ format: 'png' });
+  const screenshotData = await browser.screenshot({ format: 'png' });
   if (screenshotData?.data) {
     fs.writeFileSync(screenshotPath, Buffer.from(screenshotData.data, 'base64'));
   }
 
   // DOM snapshot
-  const domSnapshot = await mcp.take_snapshot();
+  const domSnapshot = await browser.snapshot();
   const domString = JSON.stringify(domSnapshot?.document ?? domSnapshot ?? '');
 
   // Console messages — sliced from per-capture baseline to exclude prior environment's messages
-  const consoleMsgs = normalizeArray(await mcp.list_console_messages().catch(() => [])).slice(consoleBaseline);
+  const consoleMsgs = (await browser.listConsole().catch(() => [])).slice(consoleBaseline);
 
   // Network requests — sliced from per-capture baseline to exclude prior environment's requests
-  const networkReqs = normalizeArray(await mcp.list_network_requests().catch(() => [])).slice(networkBaseline);
+  const networkReqs = (await browser.listNetwork().catch(() => [])).slice(networkBaseline);
 
   return {
     url,
@@ -104,21 +105,21 @@ async function capturePage(url, label, routeName, mcp) {
  * Compare dev and staging for a single route.
  *
  * @param {object} route - Route definition from targets.js
- * @param {object} mcp - Chrome DevTools MCP tools
+ * @param {object} browser - CdpBrowserAdapter
  * @returns {object} Comparison result with all diffs
  */
-async function compareRoute(route, mcp) {
+async function compareRoute(route, browser) {
   const devUrl = `${DEV_URL}${route.path}`;
   const stagingUrl = `${STAGING_URL}${route.path}`;
 
   let devData, stagingData;
   try {
-    devData = await capturePage(devUrl, 'dev', route.name, mcp);
+    devData = await capturePage(devUrl, 'dev', route.name, browser);
   } catch (err) {
     return { route: route.name, devUrl, stagingUrl, error: `dev capture failed: ${err.message}`, diffs: [] };
   }
   try {
-    stagingData = await capturePage(stagingUrl, 'staging', route.name, mcp);
+    stagingData = await capturePage(stagingUrl, 'staging', route.name, browser);
   } catch (err) {
     return { route: route.name, devUrl, stagingUrl, error: `staging capture failed: ${err.message}`, diffs: [] };
   }
@@ -243,11 +244,12 @@ async function compareRoute(route, mcp) {
  * @returns {object} Full comparison or CSS-analysis report
  */
 export async function runComparison(mcp) {
+  const browser = new CdpBrowserAdapter(mcp);
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
   if (!STAGING_URL_SET) {
     console.log('[ARGUS] No staging URL configured — running CSS & API analysis mode on dev environment');
-    return runCssAnalysisMode(mcp);
+    return runCssAnalysisMode(browser);
   }
 
   const report = {
@@ -261,7 +263,7 @@ export async function runComparison(mcp) {
 
   for (const route of comparisonRoutes) {
     console.log(`[ARGUS] Comparing route: ${route.name} (${route.path})`);
-    const result = await compareRoute(route, mcp);
+    const result = await compareRoute(route, browser);
     report.routes.push(result);
 
     report.summary.total += result.summary?.total ?? 0;
@@ -295,10 +297,10 @@ export async function runComparison(mcp) {
  *   - Unused CSS rules (declared but no element matches)
  *   - API endpoints called more than once per page load
  *
- * @param {object} mcp
+ * @param {object} browser - CdpBrowserAdapter
  * @returns {object} CSS analysis report
  */
-async function runCssAnalysisMode(mcp) {
+async function runCssAnalysisMode(browser) {
   const report = {
     mode: 'css-analysis',
     generatedAt: new Date().toISOString(),
@@ -323,14 +325,14 @@ async function runCssAnalysisMode(mcp) {
     try {
       // Snapshot network count BEFORE navigation so API frequency analysis for
       // this route does not include requests accumulated from previous CSS-analysis routes.
-      const networkBaseline = normalizeArray(await mcp.list_network_requests().catch(() => [])).length;
+      const networkBaseline = (await browser.listNetwork().catch(() => [])).length;
 
       // Navigate and settle
-      await mcp.navigate_page({ url });
+      await browser.navigate(url);
       await new Promise(r => setTimeout(r, config.pageSettleMs));
 
       // CSS analysis
-      const cssRaw = await mcp.evaluate_script({ function:CSS_ANALYSIS_SCRIPT });
+      const cssRaw = await browser.evaluate(CSS_ANALYSIS_SCRIPT);
       const cssResult = unwrapEval(cssRaw);
       // Type-check before parse — unwrapEval may return null/string on MCP error;
       // parseCssAnalysisResult iterating a non-object would throw and drop all findings.
@@ -342,13 +344,13 @@ async function runCssAnalysisMode(mcp) {
       }
 
       // API frequency analysis — sliced from per-route baseline
-      const networkReqs = normalizeArray(await mcp.list_network_requests().catch(() => [])).slice(networkBaseline);
+      const networkReqs = (await browser.listNetwork().catch(() => [])).slice(networkBaseline);
       const apiFindings = analyzeApiFrequency(networkReqs, url);
       routeResult.findings.push(...apiFindings);
 
       // Screenshot
       const screenshotPath = path.join(OUTPUT_DIR, `css-analysis-${slugify(route.name)}-${Date.now()}.png`);
-      const screenshotData = await mcp.take_screenshot({ format: 'png' });
+      const screenshotData = await browser.screenshot({ format: 'png' });
       if (screenshotData?.data) {
         fs.writeFileSync(screenshotPath, Buffer.from(screenshotData.data, 'base64'));
         routeResult.screenshot = screenshotPath;

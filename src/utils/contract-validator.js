@@ -124,17 +124,17 @@ function loadSchema(contract) {
 /**
  * Validate captured network requests against apiContracts[].
  * For each request that matches a contract, fetches the response body via
- * mcp.get_network_request and validates the parsed JSON against the schema.
+ * browser.getNetworkRequest and validates the parsed JSON against the schema.
  *
  * Gracefully skips requests whose body cannot be fetched or parsed.
  *
  * @param {object[]} networkReqs - Route-sliced requests from list_network_requests()
- * @param {object}   mcp         - MCP client with get_network_request()
+ * @param {object}   browser     - CdpBrowserAdapter
  * @param {object[]} contracts   - apiContracts[] from targets.js
  * @param {string}   pageUrl     - Current page URL (stored on each finding)
  * @returns {Promise<object[]>}  api_contract_violation findings
  */
-export async function validateApiContracts(networkReqs, mcp, contracts, pageUrl) {
+export async function validateApiContracts(networkReqs, browser, contracts, pageUrl) {
   if (!contracts?.length) return [];
   const findings = [];
 
@@ -148,7 +148,7 @@ export async function validateApiContracts(networkReqs, mcp, contracts, pageUrl)
       // Fetch response body — graceful: skip if unavailable or not JSON
       let body = null;
       try {
-        const raw = await mcp.get_network_request({ requestId: req.id ?? req.requestId });
+        const raw = await browser.getNetworkRequest(req.id ?? req.requestId);
         const text = raw?.responseBody ?? raw?.body ?? null;
         if (text) body = JSON.parse(text);
       } catch {

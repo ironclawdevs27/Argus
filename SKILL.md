@@ -1099,9 +1099,50 @@ for (const bp of breakpoints) {
 | Detection categories | 53 in production code; **46 positively verified** by harness fixtures |
 | Fixture pages | 54 |
 | Flow step actions | 11 (navigate, waitFor, sleep, fill, click, drag, upload_file, select_option, press_key, handle_dialog, assert) |
-| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring) |
+| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring), **v9 Sprint 1 (adapter layer)** |
 
 Expected harness output: `327/330 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
+
+### v9 Sprint 1 additions (2026-05-17)
+
+All 13 analyzer/orchestration/harness files migrated from `mcp.*` → `browser.*` via `CdpBrowserAdapter`.
+
+| New file | Purpose |
+|----------|---------|
+| `src/adapters/browser.js` | `CdpBrowserAdapter` — single facade for all `chrome-devtools-mcp` calls |
+| `src/domain/finding.js` | `createFinding()` factory — validates type/severity/message at construction |
+| `src/utils/mcp-parsers.js` | `parseConsoleMsgResponse` + `parseNetworkReqResponse` (promoted from watch-mode.js) |
+
+**Adapter method reference** (all analyzers use these):
+
+| `browser.method(args)` | Underlying MCP tool |
+|---|---|
+| `browser.navigate(url)` | `navigate_page({ url })` |
+| `browser.evaluate(fn)` | `evaluate_script({ function: fn })` |
+| `browser.snapshot()` | `take_snapshot()` |
+| `browser.screenshot(opts)` | `take_screenshot(opts)` |
+| `browser.heapSnapshot(opts)` | `take_memory_snapshot(opts)` |
+| `browser.click(uid)` | `click({ uid })` |
+| `browser.fill(uid, value)` | `fill({ uid, value })` |
+| `browser.type(text)` | `type_text({ text })` |
+| `browser.pressKey(key)` | `press_key({ key })` |
+| `browser.hover(uid)` | `hover({ uid })` |
+| `browser.drag(src, tgt)` | `drag({ from_uid: src, to_uid: tgt })` |
+| `browser.uploadFile(uid, path)` | `upload_file({ uid, filePath })` |
+| `browser.handleDialog(accept, text)` | `handle_dialog({ accept, promptText })` |
+| `browser.waitFor(opts)` | `wait_for(opts)` |
+| `browser.emulate(viewport)` | `emulate({ viewport })` |
+| `browser.emulateCpu(rate)` | `emulate_cpu({ throttlingRate: rate })` |
+| `browser.resize(w, h)` | `resize_page({ width: w, height: h })` |
+| `browser.getNetworkRequest(id)` | `get_network_request({ requestId: id })` |
+| `browser.lighthouse(url, opts)` | `lighthouse_audit({ url, ...opts })` |
+| `browser.startTrace()` | `performance_start_trace({})` |
+| `browser.stopTrace()` | `performance_stop_trace({})` |
+| `browser.analyzeInsight(opts)` | `performance_analyze_insight(opts)` |
+| `browser.listConsole()` | `list_console_messages({})` → parsed array |
+| `browser.listNetwork()` | `list_network_requests({})` → parsed array |
+| `browser.listConsoleRaw(args)` | `list_console_messages(args)` → raw (for issues panel) |
+| `browser.close()` | `close()` |
 
 > The 7-category gap (53 − 46): `cors_violation`, `mixed_content`, `cookie_attribute_missing`, `low_contrast_native`, `permission_policy_violation`, `focus_lost`, `heading_missing_h1` — no fixture triggers these yet. See v6.103–v6.110 in `argus-v6-strategy.md` §10.
 

@@ -111,12 +111,12 @@ function buildRestoreScript(state) {
  * Use explicit `sleep` steps or `waitFor` steps for timing between actions —
  * the automatic 300ms inter-step delay from the old implementation is removed.
  *
- * @param {object} mcp      - MCP tool interface
+ * @param {object} browser  - CdpBrowserAdapter
  * @param {string} baseUrl  - Base URL prepended to path-relative navigate steps
  * @param {object[]} steps  - Step definitions (same DSL as flows[] in targets.js)
  */
-export async function runLoginFlow(mcp, baseUrl, steps) {
-  await runFlow({ name: 'login', steps }, baseUrl, mcp);
+export async function runLoginFlow(browser, baseUrl, steps) {
+  await runFlow({ name: 'login', steps }, baseUrl, browser);
 }
 
 // ── Session Save ───────────────────────────────────────────────────────────────
@@ -125,14 +125,14 @@ export async function runLoginFlow(mcp, baseUrl, steps) {
  * Capture session state from the currently-loaded page and write to a JSON file.
  * Must be called while the browser is on the authenticated origin.
  *
- * @param {object} mcp         - MCP tool interface (evaluate_script)
+ * @param {object} browser     - CdpBrowserAdapter
  * @param {string} sessionFile - Path to write the session JSON
  * @returns {Promise<object>}  The session state object (also written to disk)
  */
-export async function saveSession(mcp, sessionFile) {
+export async function saveSession(browser, sessionFile) {
   let raw;
   try {
-    raw = await mcp.evaluate_script({ function: SESSION_CAPTURE_SCRIPT });
+    raw = await browser.evaluate(SESSION_CAPTURE_SCRIPT);
   } catch (err) {
     throw new Error(`[ARGUS] saveSession: evaluate_script failed — Chrome may not be running: ${err.message}`);
   }
@@ -181,12 +181,12 @@ export async function saveSession(mcp, sessionFile) {
  * localStorage are set for the correct domain. After restore, the browser
  * remains on `baseUrl` — the caller should then navigate to the target route.
  *
- * @param {object} mcp         - MCP tool interface (navigate_page, evaluate_script)
+ * @param {object} browser     - CdpBrowserAdapter
  * @param {string} baseUrl     - Must match the origin the session was captured from
  * @param {string} sessionFile - Path to the session JSON file
  * @returns {Promise<boolean>} true if session was restored, false if no session file
  */
-export async function restoreSession(mcp, baseUrl, sessionFile) {
+export async function restoreSession(browser, baseUrl, sessionFile) {
   if (!fs.existsSync(sessionFile)) {
     console.warn(`[ARGUS] No session file at ${sessionFile} — skipping restore`);
     return false;
@@ -217,11 +217,11 @@ export async function restoreSession(mcp, baseUrl, sessionFile) {
   }
 
   // Navigate to the origin so cookies land on the right domain
-  await mcp.navigate_page({ url: baseUrl });
+  await browser.navigate(baseUrl);
   await new Promise(r => setTimeout(r, 400));
 
   const restoreScript = buildRestoreScript(state);
-  await mcp.evaluate_script({ function: restoreScript });
+  await browser.evaluate(restoreScript);
 
   console.log(`[ARGUS] Session restored from ${sessionFile} (saved at ${state.savedAt})`);
   return true;
@@ -278,13 +278,13 @@ export function clearSession(sessionFile) {
  * Concurrent refreshes are harmless — both logins succeed — but may produce two
  * sequential login flows. The last saveSession write wins (valid credentials).
  *
- * @param {object} mcp     - MCP tool interface (navigate_page, evaluate_script)
+ * @param {object} browser - CdpBrowserAdapter
  * @param {object|null} auth - Auth config from targets.js (steps, sessionFile,
  *                             sessionMaxAgeMs, sessionRefreshWindowMs)
  * @param {string} baseUrl - Base URL used for the login navigate step
  * @returns {Promise<{ refreshed: boolean }>}
  */
-export async function refreshSession(mcp, auth, baseUrl) {
+export async function refreshSession(browser, auth, baseUrl) {
   if (!auth?.steps?.length) return { refreshed: false };
 
   const sessionFile      = auth.sessionFile         ?? '.argus-session.json';
@@ -323,8 +323,8 @@ export async function refreshSession(mcp, auth, baseUrl) {
     throw err;
   }
   try {
-    await runLoginFlow(mcp, baseUrl, auth.steps);
-    await saveSession(mcp, sessionFile);
+    await runLoginFlow(browser, baseUrl, auth.steps);
+    await saveSession(browser, sessionFile);
     return { refreshed: true };
   } finally {
     if (lockFd !== null) { try { fs.closeSync(lockFd); } catch {} }

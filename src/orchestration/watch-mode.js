@@ -22,6 +22,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 import { createMcpClient } from '../utils/mcp-client.js';
+import { CdpBrowserAdapter } from '../adapters/browser.js';
 import {
   analyzeSecurityConsole,
   analyzeSecurityNetwork,
@@ -29,59 +30,13 @@ import {
 import { postBugReport }      from './slack-notifier.js';
 import { isSlackConfigured }  from '../utils/slack-guard.js';
 import { generateHtmlReport } from '../utils/html-reporter.js';
-import { normalizeArray }     from '../utils/flow-runner.js';
+import {
+  parseConsoleMsgResponse,
+  parseNetworkReqResponse,
+} from '../utils/mcp-parsers.js';
 
 const __dirname   = path.dirname(fileURLToPath(import.meta.url));
 const REPORTS_DIR = path.resolve(__dirname, '../../reports');
-
-// ── Text-format parsers ─────────────────────────────────────────────────────────
-// chrome-devtools-mcp@latest returns list_console_messages / list_network_requests
-// as human-readable markdown text rather than JSON.  These parsers extract
-// structured objects so the rest of the pipeline can work normally.
-
-/**
- * Parse the text response from list_console_messages.
- * Format: "msgid=N [level] text (N args)\n..."
- * @param {any} raw - Raw value returned by the MCP tool
- * @returns {object[]}
- */
-function parseConsoleMsgResponse(raw) {
-  if (!raw) return [];
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw === 'object') return normalizeArray(raw);
-  if (typeof raw !== 'string') return [];
-  const msgs = [];
-  const re = /msgid=(\d+)\s+\[(\w+)\]\s+(.*?)(?:\s+\(\d+\s+args?\))?$/gm;
-  let m;
-  while ((m = re.exec(raw)) !== null) {
-    const [, msgid, rawLevel, text] = m;
-    const level = rawLevel === 'warn' ? 'warning' : rawLevel.toLowerCase();
-    msgs.push({ _msgid: Number(msgid), level, text, message: text });
-  }
-  return msgs;
-}
-
-/**
- * Parse the text response from list_network_requests.
- * Format: "reqid=N METHOD URL [STATUS]\n..."
- * @param {any} raw - Raw value returned by the MCP tool
- * @returns {object[]}
- */
-function parseNetworkReqResponse(raw) {
-  if (!raw) return [];
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw === 'object') return normalizeArray(raw);
-  if (typeof raw !== 'string') return [];
-  const reqs = [];
-  const re = /reqid=(\d+)\s+(\w+)\s+(\S+)\s+\[(\d+)\]/gm;
-  let m;
-  while ((m = re.exec(raw)) !== null) {
-    const [, reqid, method, url, statusStr] = m;
-    const status = parseInt(statusStr, 10);
-    reqs.push({ _reqid: Number(reqid), method, url, status, statusCode: status });
-  }
-  return reqs;
-}
 
 // ── Deduplication key generators ───────────────────────────────────────────────
 // Two messages/requests are considered "the same" if their keys match. This
@@ -95,7 +50,7 @@ const consoleKey = (m) =>
   `${(m.level ?? m.type ?? 'log').toLowerCase()}::${(m.text ?? m.message ?? '').slice(0, 200)}`;
 
 const networkKey = (r) =>
-  r.requestId ?? `${r.method ?? 'GET'}::${r.url ?? ''}::${r.status ?? r.statusCode ?? 0}`;
+  `${r.method ?? 'GET'}::${r.url ?? ''}::${r.status ?? r.statusCode ?? 0}`;
 
 // ── Classifiers ────────────────────────────────────────────────────────────────
 
@@ -187,9 +142,9 @@ function classifyNetworkReq(req, url) {
  * the interval-based runWatchMode() entry point.
  */
 export class WatchSession {
-  constructor(mcp, baseUrl) {
-    this._mcp        = mcp;
-    this._baseUrl    = baseUrl;
+  constructor(browser, baseUrl) {
+    this._browser     = browser;
+    this._baseUrl     = baseUrl;
     this._seenConsole = new Set();
     this._seenNetwork = new Set();
     this._allFindings = [];
@@ -207,7 +162,7 @@ export class WatchSession {
     const findings = [];
 
     // ── Console ──────────────────────────────────────────────────────────────
-    const allConsole = parseConsoleMsgResponse(await this._mcp.list_console_messages({}));
+    const allConsole = await this._browser.listConsole();
     const newConsole = allConsole.filter(m => {
       const k = consoleKey(m);
       if (this._seenConsole.has(k)) return false;
@@ -221,7 +176,7 @@ export class WatchSession {
     }
 
     // ── Network ──────────────────────────────────────────────────────────────
-    const allNetwork = parseNetworkReqResponse(await this._mcp.list_network_requests({}));
+    const allNetwork = await this._browser.listNetwork();
     const newNetwork = allNetwork.filter(r => {
       const k = networkKey(r);
       if (this._seenNetwork.has(k)) return false;
@@ -262,7 +217,8 @@ export async function runWatchMode(baseUrl) {
   const pollIntervalMs  = parseInt(process.env.ARGUS_WATCH_INTERVAL_MS ?? '3000', 10);
 
   const mcp     = await createMcpClient();
-  const session = new WatchSession(mcp, target);
+  const browser = new CdpBrowserAdapter(mcp);
+  const session = new WatchSession(browser, target);
 
   console.log('\n[ARGUS WATCH] ─────────────────────────────────────────────────');
   console.log(`[ARGUS WATCH] Passive monitoring — ${target}`);
@@ -341,7 +297,7 @@ export async function runWatchMode(baseUrl) {
       console.log('[ARGUS WATCH] No issues detected during this session. ✓');
     }
 
-    try { await mcp.close(); } catch { /* ignore */ }
+    try { await browser.close(); } catch { /* ignore */ }
     process.exit(0);
   });
 }

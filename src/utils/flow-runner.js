@@ -6,22 +6,22 @@
  *
  * Supported step actions:
  *   navigate        — navigate_page to step.url or baseUrl + step.path
- *   fill            — mcp.fill (fires one consolidated input event with full value,
+ *   fill            — browser.fill (fires one consolidated input event with full value,
  *                     no per-keystroke keydown/keyup events)
- *                     Add typing: true to use mcp.type_text instead, which
+ *                     Add typing: true to use browser.typeText instead, which
  *                     dispatches real per-keystroke keydown/keyup/input events (D8.3)
- *   click           — mcp.click on step.selector
- *   press_key       — mcp.press_key with step.key
- *   drag            — mcp.drag from step.selector to step.target (D8.4)
- *   upload_file     — mcp.upload_file via uid from page snapshot; finds the
+ *   click           — browser.click on step.selector
+ *   press_key       — browser.pressKey with step.key
+ *   drag            — browser.drag from step.selector to step.target (D8.4)
+ *   upload_file     — browser.uploadFile via uid from page snapshot; finds the
  *                     file input by its [Upload] accessibility role (D8.5)
  *                     DSL: { action: 'upload_file', selector: 'input[type=file]',
  *                            filePath: '/path/to/file' }
  *                     Pass uid directly to skip snapshot lookup:
  *                            { action: 'upload_file', uid: 'e4', filePath: '...' }
- *   waitFor         — mcp.wait_for until step.selector appears
+ *   waitFor         — browser.waitFor until step.selector appears
  *   sleep           — pause step.ms milliseconds
- *   handle_dialog   — mcp.handle_dialog (accept/dismiss + optional promptText)
+ *   handle_dialog   — browser.handleDialog (accept/dismiss + optional promptText)
  *   assert          — run an inline assertion (see assert types below)
  *
  * Assert types:
@@ -64,11 +64,10 @@ const DEFAULT_TIMEOUT = 10_000;
  *
  * Added to support type_text and drag which require uids.
  */
-export async function resolveUidForSelector(mcp, selector) {
+export async function resolveUidForSelector(browser, selector) {
   // Collect multiple candidate identifiers — CDP snapshots use accessible names
   // (button text, label text), not HTML id attributes, so we try several sources.
-  const rawAttr = await mcp.evaluate_script({
-    function: `() => {
+  const rawAttr = await browser.evaluate(`() => {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return null;
       const idents = [];
@@ -88,14 +87,13 @@ export async function resolveUidForSelector(mcp, selector) {
       const placeholder = el.getAttribute('placeholder');
       if (placeholder) idents.push(placeholder);
       return [...new Set(idents)].filter(Boolean).join('\\n') || null;
-    }`,
-  });
+    }`);
   const combined = unwrapEval(rawAttr);
   if (!combined) return null;
   const identifiers = combined.split('\n').filter(Boolean);
   if (!identifiers.length) return null;
 
-  const snap = await mcp.take_snapshot();
+  const snap = await browser.snapshot();
   let text = typeof snap === 'string' ? snap : JSON.stringify(snap ?? '');
   const fence = text.match(/```(?:json|text)?\s*([\s\S]*?)\s*```/);
   if (fence) text = fence[1];
@@ -176,12 +174,12 @@ export function normalizeArray(val) {
   return [];
 }
 
-async function runAssert(step, mcp, flowName, baseUrl, baselines) {
+async function runAssert(step, browser, flowName, baseUrl, baselines) {
   const findings = [];
 
   switch (step.type) {
     case 'no_console_errors': {
-      const msgs = normalizeArray(await mcp.list_console_messages());
+      const msgs = await browser.listConsole();
       // Only consider messages produced during this flow — filter out pre-existing session noise.
       const recent = msgs.slice(baselines?.consoleMsgCount ?? 0);
       const errors = recent.filter(m => (m.level ?? '').toLowerCase() === 'error');
@@ -199,7 +197,7 @@ async function runAssert(step, mcp, flowName, baseUrl, baselines) {
     }
 
     case 'no_network_errors': {
-      const reqs = normalizeArray(await mcp.list_network_requests());
+      const reqs = await browser.listNetwork();
       const recent = reqs.slice(baselines?.networkReqCount ?? 0);
       const failures = recent.filter(r => (r.status ?? 0) >= 400);
       if (failures.length > 0) {
@@ -221,9 +219,7 @@ async function runAssert(step, mcp, flowName, baseUrl, baselines) {
       const start = Date.now();
       let present = false;
       do {
-        const raw = await mcp.evaluate_script({
-          function: `() => !!document.querySelector(${JSON.stringify(step.selector)})`,
-        });
+        const raw = await browser.evaluate(`() => !!document.querySelector(${JSON.stringify(step.selector)})`);
         present = !!unwrapEval(raw);
         if (present) break;
         await new Promise(r => setTimeout(r, 200));
@@ -244,9 +240,7 @@ async function runAssert(step, mcp, flowName, baseUrl, baselines) {
     }
 
     case 'element_not_visible': {
-      const raw = await mcp.evaluate_script({
-        function: `() => !document.querySelector(${JSON.stringify(step.selector)})`,
-      });
+      const raw = await browser.evaluate(`() => !document.querySelector(${JSON.stringify(step.selector)})`);
       const absent = unwrapEval(raw);
       if (!absent) {
         findings.push({
@@ -263,9 +257,7 @@ async function runAssert(step, mcp, flowName, baseUrl, baselines) {
     }
 
     case 'url_contains': {
-      const raw = await mcp.evaluate_script({
-        function: `() => window.location.href.includes(${JSON.stringify(step.value)})`,
-      });
+      const raw = await browser.evaluate(`() => window.location.href.includes(${JSON.stringify(step.value)})`);
       const matches = unwrapEval(raw);
       if (!matches) {
         findings.push({
@@ -282,9 +274,7 @@ async function runAssert(step, mcp, flowName, baseUrl, baselines) {
     }
 
     case 'no_js_errors': {
-      const raw = await mcp.evaluate_script({
-        function: `() => JSON.stringify(window.__argusErrors ?? [])`,
-      });
+      const raw = await browser.evaluate(`() => JSON.stringify(window.__argusErrors ?? [])`);
       let errors = [];
       try {
         const val = unwrapEval(raw);
@@ -316,7 +306,7 @@ async function runAssert(step, mcp, flowName, baseUrl, baselines) {
  * Stops on the first step that throws (page state is unknown after a hard failure).
  * Critical assert failures also stop execution immediately unless step.failFast is false.
  */
-export async function runFlow(flow, baseUrl, mcp) {
+export async function runFlow(flow, baseUrl, browser) {
   const result = {
     flowName: flow.name,
     ranAt: new Date().toISOString(),
@@ -331,8 +321,8 @@ export async function runFlow(flow, baseUrl, mcp) {
   // Snapshot console/network buffer lengths before the flow runs so assertions
   // in this flow don't flag noise carried over from earlier work.
   const baselines = {
-    consoleMsgCount: normalizeArray(await mcp.list_console_messages().catch(() => [])).length,
-    networkReqCount: normalizeArray(await mcp.list_network_requests().catch(() => [])).length,
+    consoleMsgCount: (await browser.listConsole().catch(() => [])).length,
+    networkReqCount: (await browser.listNetwork().catch(() => [])).length,
   };
 
   for (const step of flow.steps) {
@@ -340,45 +330,45 @@ export async function runFlow(flow, baseUrl, mcp) {
       switch (step.action) {
         case 'navigate':
           // step.url = absolute URL override; step.path = relative to baseUrl
-          await mcp.navigate_page({ url: step.url ?? (`${baseUrl.replace(/\/$/, '')}/${(step.path ?? '').replace(/^\//, '')}`) });
+          await browser.navigate(step.url ?? (`${baseUrl.replace(/\/$/, '')}/${(step.path ?? '').replace(/^\//, '')}`));
           // Re-inject error listener — navigation destroys the previous page context
-          await mcp.evaluate_script({ function: INJECT_ERROR_LISTENER }).catch(err => console.warn('[ARGUS] flow-runner: INJECT_ERROR_LISTENER failed:', err.message));
+          await browser.evaluate(INJECT_ERROR_LISTENER).catch(err => console.warn('[ARGUS] flow-runner: INJECT_ERROR_LISTENER failed:', err.message));
           break;
 
         case 'fill': {
           // MCP fill/click require uid (not CSS selector) — resolve via snapshot.
-          // typing: true uses mcp.type_text (dispatches real per-keystroke keyboard events)
-          // instead of mcp.fill (which fires one consolidated input event with the full value,
+          // typing: true uses browser.type (dispatches real per-keystroke keyboard events)
+          // instead of browser.fill (which fires one consolidated input event with the full value,
           // but not keydown/keypress/keyup per character).
           // Use typing: true when the target input needs per-keystroke event handling (D8.3).
-          const fillUid = await resolveUidForSelector(mcp, step.selector);
+          const fillUid = await resolveUidForSelector(browser, step.selector);
           if (!fillUid) throw new Error(`fill: no uid found for selector "${step.selector}"`);
           if (step.typing) {
-            await mcp.click({ uid: fillUid });
-            await mcp.type_text({ text: step.value ?? '' });
+            await browser.click(fillUid);
+            await browser.type(step.value ?? '');
           } else {
-            await mcp.fill({ uid: fillUid, value: step.value ?? '' });
+            await browser.fill(fillUid, step.value ?? '');
           }
           break;
         }
 
         case 'click': {
           // MCP click requires uid — resolve CSS selector to uid via snapshot.
-          const clickUid = await resolveUidForSelector(mcp, step.selector);
+          const clickUid = await resolveUidForSelector(browser, step.selector);
           if (!clickUid) throw new Error(`click: no uid found for selector "${step.selector}"`);
-          await mcp.click({ uid: clickUid });
+          await browser.click(clickUid);
           break;
         }
 
         case 'press_key':
           if (!step.key) throw new Error('press_key: step.key is required');
-          await mcp.press_key({ key: step.key });
+          await browser.pressKey(step.key);
           break;
 
         case 'waitFor': {
           // wait_for({ selector }) is unreliable in headless MCP mode — it can
           // early-exit without actually polling. Use evaluate_script polling instead.
-          const wfFound = await waitForSelector(mcp, step.selector, step.timeout ?? DEFAULT_TIMEOUT);
+          const wfFound = await waitForSelector(browser, step.selector, step.timeout ?? DEFAULT_TIMEOUT);
           if (!wfFound) throw new Error(`waitFor: selector "${step.selector}" not found within ${step.timeout ?? DEFAULT_TIMEOUT}ms`);
           break;
         }
@@ -395,11 +385,11 @@ export async function runFlow(flow, baseUrl, mcp) {
           // target's dragover handler calls event.preventDefault() (D8.4).
           const srcSelector = step.sourceSelector ?? step.selector;
           const tgtSelector = step.targetSelector ?? step.target;
-          const startUid = await resolveUidForSelector(mcp, srcSelector);
-          const endUid   = await resolveUidForSelector(mcp, tgtSelector);
+          const startUid = await resolveUidForSelector(browser, srcSelector);
+          const endUid   = await resolveUidForSelector(browser, tgtSelector);
           if (!startUid) throw new Error(`drag: no uid found for source "${srcSelector}"`);
           if (!endUid)   throw new Error(`drag: no uid found for target "${tgtSelector}"`);
-          await mcp.drag({ from_uid: startUid, to_uid: endUid });
+          await browser.drag(startUid, endUid);
           break;
         }
 
@@ -411,10 +401,10 @@ export async function runFlow(flow, baseUrl, mcp) {
             if (step.selector) {
               // When a selector is provided, resolve it to the matching uid so
               // pages with multiple file inputs upload to the intended field, not just the first.
-              uploadUid = await resolveUidForSelector(mcp, step.selector);
+              uploadUid = await resolveUidForSelector(browser, step.selector);
               if (!uploadUid) {
                 // File inputs appear as [Upload] in the CDP snapshot, not by id — fall back.
-                const snap = await mcp.take_snapshot();
+                const snap = await browser.snapshot();
                 uploadUid = extractFileInputUid(snap);
               }
               if (!uploadUid) {
@@ -425,7 +415,7 @@ export async function runFlow(flow, baseUrl, mcp) {
                 );
               }
             } else {
-              const snap = await mcp.take_snapshot();
+              const snap = await browser.snapshot();
               uploadUid = extractFileInputUid(snap);
               if (!uploadUid) {
                 throw new Error(
@@ -439,12 +429,12 @@ export async function runFlow(flow, baseUrl, mcp) {
           if (!step.filePath) throw new Error('upload_file: step.filePath is required');
           if (!fs.existsSync(step.filePath))
             throw new Error(`upload_file: file not found: "${step.filePath}"`);
-          await mcp.upload_file({ uid: uploadUid, filePath: step.filePath });
+          await browser.uploadFile(uploadUid, step.filePath);
           break;
         }
 
         case 'handle_dialog':
-          await mcp.handle_dialog({ accept: step.accept ?? true, promptText: step.text ?? '' });
+          await browser.handleDialog(step.accept ?? true, step.text ?? '');
           break;
 
         case 'select_option': {
@@ -455,7 +445,7 @@ export async function runFlow(flow, baseUrl, mcp) {
             if (!step.selector) {
               throw new Error('select_option: requires either uid or selector');
             }
-            selectUid = await resolveUidForSelector(mcp, step.selector);
+            selectUid = await resolveUidForSelector(browser, step.selector);
             if (!selectUid) {
               throw new Error(
                 `select_option: no uid found for selector "${step.selector}" — ` +
@@ -464,27 +454,25 @@ export async function runFlow(flow, baseUrl, mcp) {
               );
             }
           }
-          // mcp.fill on a combobox requires the option LABEL text, not the HTML value
+          // browser.fill on a combobox requires the option LABEL text, not the HTML value
           // attribute. Resolve value → label via in-page evaluation when selector is known.
           let fillValue = step.value ?? '';
           if (step.selector && fillValue) {
-            const rawLabel = await mcp.evaluate_script({
-              function: `() => {
+            const rawLabel = await browser.evaluate(`() => {
                 const sel = document.querySelector(${JSON.stringify(step.selector)});
                 if (!sel) return null;
                 const opt = Array.from(sel.options || []).find(o => o.value === ${JSON.stringify(fillValue)});
                 return opt ? opt.textContent.trim() : null;
-              }`,
-            });
+              }`);
             const label = unwrapEval(rawLabel);
             if (label) fillValue = label;
           }
-          await mcp.fill({ uid: selectUid, value: fillValue });
+          await browser.fill(selectUid, fillValue);
           break;
         }
 
         case 'assert': {
-          const assertFindings = await runAssert(step, mcp, flow.name, baseUrl, baselines);
+          const assertFindings = await runAssert(step, browser, flow.name, baseUrl, baselines);
           result.findings.push(...assertFindings);
           // Stop on critical assert failure — page state may be invalid for further steps
           if (assertFindings.some(f => f.severity === 'critical') && step.failFast !== false) {
@@ -505,7 +493,7 @@ export async function runFlow(flow, baseUrl, mcp) {
       try {
         const ts = Date.now();
         screenshotPath = path.join(os.tmpdir(), `argus-flow-fail-${flow.name.replace(/[^a-z0-9]/gi, '_')}-${ts}.png`);
-        await mcp.take_screenshot({ filePath: screenshotPath });
+        await browser.screenshot({ filePath: screenshotPath });
       } catch { screenshotPath = null; }
 
       result.findings.push({
@@ -533,19 +521,17 @@ export async function runFlow(flow, baseUrl, mcp) {
 
 /**
  * Poll for a CSS selector to appear in the DOM using evaluate_script.
- * More reliable than mcp.wait_for({ selector }) which can early-exit in headless mode.
+ * More reliable than browser.waitFor({ selector }) which can early-exit in headless mode.
  *
- * @param {object} mcp
+ * @param {object} browser - CdpBrowserAdapter
  * @param {string} selector - CSS selector to wait for
  * @param {number} timeoutMs - Total wait budget in ms (default 10 000)
  * @returns {Promise<boolean>} true if found within budget, false on timeout
  */
-export async function waitForSelector(mcp, selector, timeoutMs = 10_000) {
+export async function waitForSelector(browser, selector, timeoutMs = 10_000) {
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) {
-    const raw = await mcp.evaluate_script({
-      function: `() => !!document.querySelector(${JSON.stringify(selector)})`,
-    }).catch(() => null);
+    const raw = await browser.evaluate(`() => !!document.querySelector(${JSON.stringify(selector)})`).catch(() => null);
     const found = unwrapEval(raw);
     if (found === true || String(found) === 'true') return true;
     if (Date.now() < end) await new Promise(r => setTimeout(r, 300));
@@ -556,7 +542,7 @@ export async function waitForSelector(mcp, selector, timeoutMs = 10_000) {
 /**
  * Run all flows defined in targets.js and return aggregated results.
  */
-export async function runAllFlows(flows, baseUrl, mcp) {
+export async function runAllFlows(flows, baseUrl, browser) {
   if (!flows?.length) return { results: [], findings: [] };
 
   const results = [];
@@ -564,7 +550,7 @@ export async function runAllFlows(flows, baseUrl, mcp) {
 
   for (const flow of flows) {
     console.log(`[ARGUS] Running flow: ${flow.name}`);
-    const result = await runFlow(flow, baseUrl, mcp);
+    const result = await runFlow(flow, baseUrl, browser);
     results.push(result);
     allFindings.push(...result.findings);
     console.log(`[ARGUS] Flow "${flow.name}": ${result.status} (${result.stepsCompleted}/${result.totalSteps} steps, ${result.findings.length} finding(s))`);

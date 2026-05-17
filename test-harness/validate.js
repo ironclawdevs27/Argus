@@ -34,6 +34,7 @@ import { PNG } from 'pngjs';
 import pixelmatch from 'pixelmatch';
 
 import { createMcpClient, unwrapEval } from '../src/utils/mcp-client.js';
+import { CdpBrowserAdapter } from '../src/adapters/browser.js';
 import { checkLighthouse } from '../src/utils/lighthouse-checker.js';
 import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult } from '../src/utils/css-analyzer.js';
 import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult } from '../src/utils/seo-analyzer.js';
@@ -839,6 +840,7 @@ function visualDiff(devShot, stagingShot) {
 // ── Test suite ────────────────────────────────────────────────────────────────
 
 async function runTests(mcp, stagingProc, devPort, stagingPort) {
+  const browser = new CdpBrowserAdapter(mcp);
   const B = `http://localhost:${devPort}`;
   const BS = `http://localhost:${stagingPort}`;
 
@@ -1232,7 +1234,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   // Called directly (not via crawlFixture) — viewport changes must stay isolated.
   console.log('\n[21] Responsive Layout — overflow at mobile/tablet, small touch targets at 375px');
   {
-    const { findings } = await analyzeResponsive(mcp, `${B}/responsive-issues.html`);
+    const { findings } = await analyzeResponsive(browser, `${B}/responsive-issues.html`);
 
     // Horizontal overflow at ≤768 px → severity "critical"
     const mobileOverflow = findings.filter(f =>
@@ -1284,7 +1286,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   // Called directly like analyzeResponsive — it navigates on its own.
   console.log('\n[23] Memory Leak — detached DOM nodes detected via heap snapshot');
   {
-    const findings = await analyzeMemory(mcp, `${B}/memory-leak.html`);
+    const findings = await analyzeMemory(browser, `${B}/memory-leak.html`);
 
     const detachedFindings = findings.filter(f => f.type === 'memory_detached_dom_nodes');
     assert(
@@ -1369,7 +1371,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
     );
 
     // 3. Save session — must have localStorage keys (authToken, userId, userEmail)
-    const session = await saveSession(mcp, sessionFile);
+    const session = await saveSession(browser, sessionFile);
     assert(
       Object.keys(session.localStorage).length > 0,
       `Session saved with localStorage keys (found: ${Object.keys(session.localStorage).join(', ') || 'none'})`,
@@ -1390,7 +1392,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
     });
 
     // 5. Restore session from file → navigate to protected page → should show content
-    const restored = await restoreSession(mcp, B, sessionFile);
+    const restored = await restoreSession(browser, B, sessionFile);
     assert(restored === true, 'restoreSession returned true — session file found and injected');
 
     await mcp.navigate_page({ url: `${B}/auth-protected.html` });
@@ -1701,7 +1703,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   console.log('\n[27] Flow Runner (B5) — runFlow assertions');
   {
     // [27a] Empty flow → pass, no findings (pure function — no Chrome needed)
-    const emptyResult = await runFlow({ name: 'empty', steps: [] }, B, mcp);
+    const emptyResult = await runFlow({ name: 'empty', steps: [] }, B, browser);
     assert(emptyResult.status === 'pass', 'Empty flow: status pass');
     assert(emptyResult.findings.length === 0, 'Empty flow: 0 findings');
 
@@ -1716,7 +1718,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
         { action: 'sleep', ms: 200 },
         { action: 'assert', type: 'element_visible', selector: '#form-success' },
       ],
-    }, B, mcp);
+    }, B, browser);
     assert(successResult.status === 'pass',
       `Successful flow: status pass (steps: ${successResult.stepsCompleted}/${successResult.totalSteps})`);
     assert(successResult.findings.length === 0,
@@ -1729,7 +1731,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
         { action: 'navigate', path: '/flow-form.html' },
         { action: 'assert', type: 'element_visible', selector: '#does-not-exist', severity: 'warning' },
       ],
-    }, B, mcp);
+    }, B, browser);
     assert(failResult.findings.length >= 1,
       `Assert element_visible failure: finding detected (got ${failResult.findings.length})`);
     assert(failResult.findings[0]?.type === 'flow_assert_failed',
@@ -1742,7 +1744,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
         { action: 'navigate', path: '/flow-form.html' },
         { action: 'assert', type: 'no_console_errors' },
       ],
-    }, B, mcp);
+    }, B, browser);
     assert(noErrResult.findings.length === 0,
       `Assert no_console_errors on clean page: 0 findings (got ${noErrResult.findings.length})`);
 
@@ -1753,7 +1755,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
         { action: 'navigate', path: '/flow-form.html' },
         { action: 'assert', type: 'url_contains', value: 'flow-form' },
       ],
-    }, B, mcp);
+    }, B, browser);
     assert(urlMatchResult.findings.length === 0,
       `Assert url_contains (match): 0 findings`);
 
@@ -1764,7 +1766,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
         { action: 'navigate', path: '/flow-form.html' },
         { action: 'assert', type: 'url_contains', value: '/dashboard' },
       ],
-    }, B, mcp);
+    }, B, browser);
     assert(urlFailResult.findings.length >= 1,
       `Assert url_contains (no match): finding detected (got ${urlFailResult.findings.length})`);
     assert(urlFailResult.findings[0]?.type === 'flow_assert_failed',
@@ -1802,7 +1804,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   // ── [30] checkLighthouse direct test — D2.5 ──────────────────────────────
   console.log('\n[30] checkLighthouse (D2.5) — production function returns array with required field shapes');
   {
-    const violations = await checkLighthouse(mcp, `${B}/a11y-critical.html`);
+    const violations = await checkLighthouse(browser, `${B}/a11y-critical.html`);
     assert(Array.isArray(violations),
       `checkLighthouse returns an array (got ${typeof violations})`);
     if (violations.length > 0) {
@@ -2201,7 +2203,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   // ── [46] Hover-state bug detection — D8.1 ────────────────────────────────────
   console.log('\n[46] Hover-state bug detection — D8.1 (analyzeHover)');
   {
-    const findings = await analyzeHover(mcp, `${B}/hover-issues.html`, false);
+    const findings = await analyzeHover(browser, `${B}/hover-issues.html`, false);
 
     const dropdownBroken = findings.filter(f => f.type === 'hover_dropdown_broken');
     assert(
@@ -2229,7 +2231,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   // ── [47] Accessibility snapshot analysis — D8.2 ───────────────────────────────
   console.log('\n[47] Accessibility snapshot analysis — D8.2 (analyzeSnapshot)');
   {
-    const findings = await analyzeSnapshot(mcp, `${B}/snapshot-issues.html`);
+    const findings = await analyzeSnapshot(browser, `${B}/snapshot-issues.html`);
 
     const missingName = findings.filter(f => f.type === 'a11y_missing_name');
     assert(
@@ -2263,7 +2265,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
     await mcp.navigate_page({ url: `${B}/typetext-issues.html` });
     await new Promise(r => setTimeout(r, 300));
     const FILL_VALUE = 'hello world';
-    const fillUid = await resolveUidForSelector(mcp, '#fill-input');
+    const fillUid = await resolveUidForSelector(browser, '#fill-input');
     if (fillUid) await mcp.fill({ uid: fillUid, value: FILL_VALUE });
     const rawA = await mcp.evaluate_script({
       function: `() => document.getElementById('fill-counter').getAttribute('data-count')`,
@@ -2304,7 +2306,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
         { action: 'fill', selector: '#type-input', value: 'abc', typing: true },
       ],
     };
-    const typingResult = await runFlow(typingFlow, B, mcp);
+    const typingResult = await runFlow(typingFlow, B, browser);
     assert(
       typingResult.findings.length === 0,
       `[48c] flow with typing: true completes without error (type_text wired in fill step)`
@@ -2334,7 +2336,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
         { action: 'drag', selector: '#drag-source', target: '#drop-zone' },
       ],
     };
-    const dragResult = await runFlow(dragFlow, B, mcp);
+    const dragResult = await runFlow(dragFlow, B, browser);
     const unexpectedFail = dragResult.findings.filter(f => f.type === 'flow_step_failed' && f.action === 'drag');
     assert(
       unexpectedFail.length === 0,
@@ -2359,7 +2361,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
         { action: 'drag', selector: '#does-not-exist', target: '#drop-zone' },
       ],
     };
-    const badDragResult = await runFlow(badDragFlow, B, mcp);
+    const badDragResult = await runFlow(badDragFlow, B, browser);
     const dragFailed = badDragResult.findings.filter(
       f => f.type === 'flow_step_failed' && f.action === 'drag'
     );
@@ -2383,7 +2385,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
         { action: 'upload_file', selector: 'input[type=file]', filePath: uploadFilePath },
       ],
     };
-    const uploadResult = await runFlow(uploadFlow, B, mcp);
+    const uploadResult = await runFlow(uploadFlow, B, browser);
     const unexpectedFail = uploadResult.findings.filter(
       f => f.type === 'flow_step_failed' && f.action === 'upload_file'
     );
@@ -2411,7 +2413,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
         { action: 'upload_file', selector: 'input[type=file]', filePath: '/nonexistent/argus-does-not-exist.txt' },
       ],
     };
-    const badUploadResult = await runFlow(badUploadFlow, B, mcp);
+    const badUploadResult = await runFlow(badUploadFlow, B, browser);
     const uploadFailed = badUploadResult.findings.filter(
       f => f.type === 'flow_step_failed' && f.action === 'upload_file'
     );
@@ -2973,7 +2975,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   // ── [66] Chrome Issues panel — clean page ────────────────────────────────
   console.log('\n[66] Chrome DevTools Issues panel — clean fixture produces no issue findings');
   {
-    const findings66 = await analyzeIssues(mcp, `${B}/clean.html`);
+    const findings66 = await analyzeIssues(browser, `${B}/clean.html`);
     assert(Array.isArray(findings66),
       '[66a] analyzeIssues returns an array');
     const critical66 = findings66.filter(f => f.severity === 'critical');
@@ -2986,7 +2988,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   // ── [67] Chrome Issues panel — CSP violation fixture ─────────────────────
   console.log('\n[67] Chrome DevTools Issues panel — CSP violation fixture');
   {
-    const findings67 = await analyzeIssues(mcp, `${B}/issues-csp.html`);
+    const findings67 = await analyzeIssues(browser, `${B}/issues-csp.html`);
     assert(Array.isArray(findings67),
       '[67a] analyzeIssues returns an array for CSP fixture');
     const csp67 = findings67.filter(f => f.type === 'csp_violation');
@@ -2999,7 +3001,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   // ── [68] Chrome Issues panel — deprecated API fixture ────────────────────
   console.log('\n[68] Chrome DevTools Issues panel — deprecated API fixture');
   {
-    const findings68 = await analyzeIssues(mcp, `${B}/issues-deprecated.html`);
+    const findings68 = await analyzeIssues(browser, `${B}/issues-deprecated.html`);
     assert(Array.isArray(findings68),
       '[68a] analyzeIssues returns an array for deprecated API fixture');
     const deprecated68 = findings68.filter(f => f.type === 'deprecated_api_use');
@@ -3066,7 +3068,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   // ── [70] Heading hierarchy — analyzeSnapshot extension ───────────────────
   console.log('\n[70] Heading hierarchy validation — heading-issues.html fixture');
   {
-    const findings70 = await analyzeSnapshot(mcp, `${B}/heading-issues.html`);
+    const findings70 = await analyzeSnapshot(browser, `${B}/heading-issues.html`);
     assert(Array.isArray(findings70),
       '[70a] analyzeSnapshot returns an array for heading-issues fixture');
     const skips70 = findings70.filter(f => f.type === 'heading_level_skip');
@@ -3083,7 +3085,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   {
     // analyzeResponsive now calls emulate_cpu({ throttlingRate: 4 }) at ≤768px.
     // The fixture findings must still be correct — throttle must not suppress detections.
-    const { findings: findings71 } = await analyzeResponsive(mcp, `${B}/responsive-issues.html`);
+    const { findings: findings71 } = await analyzeResponsive(browser, `${B}/responsive-issues.html`);
     assert(Array.isArray(findings71),
       '[71a] analyzeResponsive returns findings array with CPU throttle enabled');
     const overflow71 = findings71.filter(f => f.type === 'responsive_overflow' && f.viewport <= 768);
@@ -3096,7 +3098,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   // ── [72] Keyboard navigation — focus_visible_missing ─────────────────────
   console.log('\n[72] Keyboard navigation analysis — keyboard-issues.html fixture');
   {
-    const findings72 = await analyzeKeyboard(mcp, `${B}/keyboard-issues.html`);
+    const findings72 = await analyzeKeyboard(browser, `${B}/keyboard-issues.html`);
     assert(Array.isArray(findings72),
       '[72a] analyzeKeyboard returns an array');
     const noFocus72 = findings72.filter(f => f.type === 'focus_visible_missing');
@@ -3111,7 +3113,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   // ── [73] ARIA state checks — aria_expanded_no_controls ───────────────────
   console.log('\n[73] ARIA state checks — aria-state-issues.html fixture');
   {
-    const findings73 = await analyzeSnapshot(mcp, `${B}/aria-state-issues.html`);
+    const findings73 = await analyzeSnapshot(browser, `${B}/aria-state-issues.html`);
     assert(Array.isArray(findings73),
       '[73a] analyzeSnapshot returns an array for aria-state-issues fixture');
     const broken73 = findings73.filter(f => f.type === 'aria_expanded_no_controls');
@@ -3138,7 +3140,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
         { action: 'assert', type: 'element_visible', selector: '#form-result[data-ready]' },
       ],
     };
-    const result74 = await runFlow(flow74, B, mcp);
+    const result74 = await runFlow(flow74, B, browser);
     assert(result74.status === 'pass',
       `[74a] select_option flow passes (status=${result74.status}, steps=${result74.stepsCompleted}/${result74.totalSteps})`);
     assert(result74.findings.filter(f => f.type === 'flow_step_failed').length === 0,
@@ -3222,7 +3224,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
     await mcp.navigate_page({ url: `${B}/watch-issues.html` });
     await new Promise(r => setTimeout(r, 800));
 
-    const session78 = new WatchSession(mcp, B);
+    const session78 = new WatchSession(browser, B);
 
     // ── First poll ──────────────────────────────────────────────────────────
     const { findings: poll1_78 } = await session78.poll();

@@ -634,6 +634,10 @@ argus/
 ├── .vscode/
 │   └── mcp.json                      # Chrome DevTools MCP config for VS Code
 ├── src/
+│   ├── adapters/
+│   │   └── browser.js                # CdpBrowserAdapter — facade over all chrome-devtools-mcp calls (v9 Sprint 1)
+│   ├── domain/
+│   │   └── finding.js                # createFinding() factory — canonical finding shape (v9 Sprint 1)
 │   ├── config/
 │   │   └── targets.js                # Routes to test, thresholds, config
 │   ├── orchestration/
@@ -670,6 +674,7 @@ argus/
 │       ├── github-reporter.js        # GitHub PR comment + commit status integration (C2)
 │       ├── route-discoverer.js       # Auto route discovery — sitemap + Next.js + React Router (C3)
 │       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
+│       ├── mcp-parsers.js            # Text-format parsers for list_console_messages + list_network_requests (v9)
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
 │   └── cli/
 │       └── init.js                   # argus init setup wizard — detect framework, discover routes, write .env + targets.js (C4)

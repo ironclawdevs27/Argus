@@ -134,18 +134,18 @@ function viewportString(width, height) {
 /**
  * Analyse a URL at four responsive breakpoints.
  *
- * Uses mcp.emulate({ viewport }) rather than resize_page because resize_page only
+ * Uses browser.emulate({ viewport }) rather than resize_page because resize_page only
  * resizes the browser window — it does not update the CSS viewport that JS reads
  * via window.innerWidth. emulate() calls Emulation.setDeviceMetricsOverride which
  * properly sets both the layout viewport and window.innerWidth.
  *
- * @param {object} mcp - MCP tool interface (emulate, navigate_page, evaluate_script, take_screenshot)
+ * @param {object} browser - CdpBrowserAdapter
  * @param {string} url - Page URL to analyse
  * @returns {Promise<{ findings: object[], screenshots: object }>}
  *   findings — array of responsive bug entries (same shape as crawlRoute errors)
  *   screenshots — map of "WIDTHxHEIGHT" → base64 PNG data
  */
-export async function analyzeResponsive(mcp, url) {
+export async function analyzeResponsive(browser, url) {
   const findings    = [];
   const screenshots = {};
 
@@ -155,17 +155,17 @@ export async function analyzeResponsive(mcp, url) {
       // layout issues that only manifest under realistic mobile device load.
       // Reset to 1× for desktop breakpoints to avoid slowing subsequent analyses.
       try {
-        await mcp.emulate_cpu({ throttlingRate: bp.width <= 768 ? 4 : 1 });
-      } catch { /* emulate_cpu is best-effort — proceed without throttle if unavailable */ }
+        await browser.emulateCpu(bp.width <= 768 ? 4 : 1);
+      } catch { /* emulateCpu is best-effort — proceed without throttle if unavailable */ }
 
       try {
-        await mcp.emulate({ viewport: viewportString(bp.width, bp.height) });
-        await mcp.navigate_page({ url });
+        await browser.emulate(viewportString(bp.width, bp.height));
+        await browser.navigate(url);
         await new Promise(r => setTimeout(r, 1000));
 
         // ── Overflow check ──────────────────────────────────────────────────
         try {
-          const raw         = await mcp.evaluate_script({ function: OVERFLOW_CHECK_SCRIPT });
+          const raw         = await browser.evaluate(OVERFLOW_CHECK_SCRIPT);
           const overflowData = parseEvalObject(raw);
 
           if (overflowData?.overflows) {
@@ -188,7 +188,7 @@ export async function analyzeResponsive(mcp, url) {
         // ── Touch target check — at 375 px (mobile) and 768 px (tablet) ──────
         if (bp.width === 375 || bp.width === 768) {
           try {
-            const raw         = await mcp.evaluate_script({ function: TOUCH_TARGET_SCRIPT });
+            const raw         = await browser.evaluate(TOUCH_TARGET_SCRIPT);
             const smallTargets = parseEvalArray(raw);
 
             if (smallTargets.length > 0) {
@@ -212,7 +212,7 @@ export async function analyzeResponsive(mcp, url) {
 
         // ── Screenshot ──────────────────────────────────────────────────────
         try {
-          const shot = await mcp.take_screenshot({ format: 'png' });
+          const shot = await browser.screenshot({ format: 'png' });
           // Cap at 5 MB base64 — a 1440×900 PNG can exceed this on complex pages;
           // storing unbounded data across 4 breakpoints × N routes risks OOM.
           if (shot?.data && shot.data.length < 5_000_000) {
@@ -230,9 +230,9 @@ export async function analyzeResponsive(mcp, url) {
     }
   } finally {
     // ── Always restore viewport and CPU throttle ─────────────────────────
-    try { await mcp.emulate_cpu({ throttlingRate: 1 }); } catch { /* best-effort */ }
+    try { await browser.emulateCpu(1); } catch { /* best-effort */ }
     try {
-      await mcp.emulate({ viewport: viewportString(RESTORE_VIEWPORT.width, RESTORE_VIEWPORT.height) });
+      await browser.emulate(viewportString(RESTORE_VIEWPORT.width, RESTORE_VIEWPORT.height));
     } catch { /* best-effort restore */ }
   }
 

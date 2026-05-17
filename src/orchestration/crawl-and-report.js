@@ -48,6 +48,7 @@ import { runAllFlows, normalizeArray, waitForSelector } from '../utils/flow-runn
 import { analyzeApiFrequency } from '../utils/api-frequency.js';
 import { slugify } from '../utils/slug.js';
 import { unwrapEval, createMcpClient } from '../utils/mcp-client.js';
+import { CdpBrowserAdapter } from '../adapters/browser.js';
 import { chunkArray } from '../utils/parallel-crawler.js';
 import { validateApiContracts } from '../utils/contract-validator.js';
 import { applyOverrides } from '../utils/severity-overrides.js';
@@ -408,21 +409,21 @@ const EXTRACT_SYNC_XHR_LISTENER = `() => JSON.stringify(window.__argusSyncXhrs ?
  * Run a performance trace on the current page and check against budgets.
  * Returns an array of budget violation error objects.
  *
- * @param {object} mcp - MCP tool interface
+ * @param {object} browser - CdpBrowserAdapter
  * @param {string} url - URL being tested (for error reporting)
  * @returns {object[]} Budget violation errors
  */
-async function checkPerformanceBudgets(mcp, url) {
+async function checkPerformanceBudgets(browser, url) {
   const violations = [];
 
   try {
-    await mcp.performance_start_trace();
+    await browser.startTrace();
     // Let the page render for 3 seconds to capture paint/layout metrics
     await new Promise(r => setTimeout(r, 3000));
-    const trace = await mcp.performance_stop_trace();
+    const trace = await browser.stopTrace();
     // performance_analyze_insight takes { insightSetId }, not { trace }.
     // The trace object returned by performance_stop_trace contains the set ID.
-    const insights = await mcp.performance_analyze_insight({ insightSetId: trace?.insightSetId ?? trace?.id ?? trace });
+    const insights = await browser.analyzeInsight({ insightSetId: trace?.insightSetId ?? trace?.id ?? trace });
 
     // Extract metrics — structure varies by chrome-devtools-mcp version
     const metrics = insights?.metrics ?? insights?.performanceMetrics ?? {};
@@ -549,6 +550,7 @@ function analyzeNetworkPerformance(perfEntries, pageUrl) {
  */
 // Exported so the test harness can exercise the production crawl path directly.
 export async function crawlRouteCheap(route, baseUrl, mcp) {
+  const browser = new CdpBrowserAdapter(mcp);
   const url = `${baseUrl}${route.path}`;
   const result = {
     route: route.name,
@@ -561,27 +563,29 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
   };
 
   // 0. Snapshot session-wide console/network/issues counts BEFORE this route starts (D5).
-  const consoleBaseline = normalizeArray(await mcp.list_console_messages().catch(() => [])).length;
-  const networkBaseline = normalizeArray(await mcp.list_network_requests().catch(() => [])).length;
+  const consoleBaseline = (await browser.listConsole().catch(() => [])).length;
+  const networkBaseline = (await browser.listNetwork().catch(() => [])).length;
   // Baseline the Issues panel count separately — issues accumulate like console messages.
-  const issuesBaseline  = normalizeArray(await mcp.list_console_messages({ types: ['issue'] }).catch(() => [])).length;
+  // listConsoleRaw returns a raw MCP response (object/string), not an array — normalizeArray first.
+  const issuesBaselineRaw = await browser.listConsoleRaw({ types: ['issue'] }).catch(() => null);
+  const issuesBaseline    = normalizeArray(issuesBaselineRaw).length;
 
   // 1. Navigate to the URL first — injections must happen on the live page context
-  await mcp.navigate_page({ url });
+  await browser.navigate(url);
 
   // 2. Inject listeners IMMEDIATELY after navigation, BEFORE the settle wait.
   // injecting after the settle window missed load-time violations (sync XHR,
   // uncaught errors, long tasks) that fire during page initialization.
   // D6.2 (document.write) uses static analysis post-load — no injection needed.
-  await mcp.evaluate_script({ function:INJECT_ERROR_LISTENER }).catch(() => {});
-  await mcp.evaluate_script({ function:INJECT_SYNC_XHR_LISTENER }).catch(() => {});
-  await mcp.evaluate_script({ function:INJECT_LONG_TASK_LISTENER }).catch(() => {});
-  await mcp.evaluate_script({ function:INJECT_SW_LISTENER }).catch(() => {});
+  await browser.evaluate(INJECT_ERROR_LISTENER).catch(() => {});
+  await browser.evaluate(INJECT_SYNC_XHR_LISTENER).catch(() => {});
+  await browser.evaluate(INJECT_LONG_TASK_LISTENER).catch(() => {});
+  await browser.evaluate(INJECT_SW_LISTENER).catch(() => {});
 
   // 3. Wait for page settle — events fired during this window are now captured by listeners.
   // wait_for({ selector }) is unreliable in headless MCP mode — use polling instead.
   if (route.waitFor) {
-    const found = await waitForSelector(mcp, route.waitFor, 10000);
+    const found = await waitForSelector(browser, route.waitFor, 10000);
     if (!found) {
       result.errors.push({
         type: 'load_failure',
@@ -595,9 +599,9 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
   }
 
   // 4. Blank/error page check
-  const titleResult = await mcp.evaluate_script({ function:'() => document.title' });
+  const titleResult = await browser.evaluate('() => document.title');
   result.pageTitle = String(unwrapEval(titleResult) ?? '');
-  const bodyText = await mcp.evaluate_script({ function:'() => document.body?.innerText?.trim() ?? ""' });
+  const bodyText = await browser.evaluate('() => document.body?.innerText?.trim() ?? ""');
   const bodyTextVal = String(unwrapEval(bodyText) ?? '');
   result.isBlankPage = !bodyTextVal || bodyTextVal.length < 50;
   if (result.isBlankPage) {
@@ -610,7 +614,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
   }
 
   // 5. Console messages — sliced from per-route baseline (D5)
-  const consoleMsgs = normalizeArray(await mcp.list_console_messages().catch(() => [])).slice(consoleBaseline);
+  const consoleMsgs = (await browser.listConsole().catch(() => [])).slice(consoleBaseline);
   for (const msg of consoleMsgs) {
     const text = (msg.text ?? msg.message ?? '');
     // CORS messages are handled exclusively in step 5b (D6.4)
@@ -647,9 +651,8 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
   // A pageSize cap applied BEFORE slicing would make .slice(networkBaseline) return empty
   // whenever accumulated requests exceed the cap — all route requests silently dropped.
   // The 500-item cap is applied AFTER slicing to bound analysis on large SPAs.
-  const networkReqs = normalizeArray(
-    await mcp.list_network_requests()
-  ).slice(networkBaseline).slice(0, 500);
+  const networkReqs = (await browser.listNetwork())
+    .slice(networkBaseline).slice(0, 500);
   for (const req of networkReqs) {
     const severity = classifyNetworkRequest(req, route.critical);
     if (severity !== null) {
@@ -683,7 +686,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
   // 6c. API contract validation (D7.4) — skip when no contracts defined
   if (apiContracts?.length > 0) {
     try {
-      const contractFindings = await validateApiContracts(networkReqs, mcp, apiContracts, url);
+      const contractFindings = await validateApiContracts(networkReqs, browser, apiContracts, url);
       result.errors.push(...contractFindings);
     } catch (err) {
       console.warn(`[ARGUS] API contract validation skipped for ${url}: ${err.message}`);
@@ -691,7 +694,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
   }
 
   // 7. Extract injected uncaught exceptions
-  const injectedErrors = await mcp.evaluate_script({ function:EXTRACT_ERROR_LISTENER });
+  const injectedErrors = await browser.evaluate(EXTRACT_ERROR_LISTENER);
   try {
     const rawInjected = unwrapEval(injectedErrors);
     const parsed = Array.isArray(rawInjected) ? rawInjected
@@ -713,7 +716,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
 
   // 7b. Sync XHR detection (D6.1)
   try {
-    const syncXhrRaw = await mcp.evaluate_script({ function: EXTRACT_SYNC_XHR_LISTENER });
+    const syncXhrRaw = await browser.evaluate(EXTRACT_SYNC_XHR_LISTENER);
     const rawSyncXhr = unwrapEval(syncXhrRaw);
     const syncXhrs   = Array.isArray(rawSyncXhr) ? rawSyncXhr
       : JSON.parse(typeof rawSyncXhr === 'string' ? rawSyncXhr : '[]');
@@ -733,7 +736,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
 
   // 7c. document.write detection — static analysis (D6.2)
   try {
-    const docWriteRaw = await mcp.evaluate_script({ function: DETECT_DOC_WRITE_STATIC });
+    const docWriteRaw = await browser.evaluate(DETECT_DOC_WRITE_STATIC);
     const rawDocWrite = unwrapEval(docWriteRaw);
     const docWrites   = Array.isArray(rawDocWrite) ? rawDocWrite
       : JSON.parse(typeof rawDocWrite === 'string' ? rawDocWrite : '[]');
@@ -753,7 +756,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
 
   // 7d. Long task detection (D6.3)
   try {
-    const longTaskRaw = await mcp.evaluate_script({ function: EXTRACT_LONG_TASK_LISTENER });
+    const longTaskRaw = await browser.evaluate(EXTRACT_LONG_TASK_LISTENER);
     const rawLongTasks = unwrapEval(longTaskRaw);
     const longTasks    = Array.isArray(rawLongTasks) ? rawLongTasks
       : JSON.parse(typeof rawLongTasks === 'string' ? rawLongTasks : '[]');
@@ -774,7 +777,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
 
   // 7e. Service worker registration failure detection (D6.5)
   try {
-    const swRaw  = await mcp.evaluate_script({ function: EXTRACT_SW_LISTENER });
+    const swRaw  = await browser.evaluate(EXTRACT_SW_LISTENER);
     const rawSw  = unwrapEval(swRaw);
     const swErrs = Array.isArray(rawSw) ? rawSw
       : JSON.parse(typeof rawSw === 'string' ? rawSw : '[]');
@@ -793,7 +796,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
 
   // 7f. debugger; statement detection (D6.7)
   try {
-    const dbgRaw  = await mcp.evaluate_script({ function: DEBUGGER_SCRIPT });
+    const dbgRaw  = await browser.evaluate(DEBUGGER_SCRIPT);
     const rawDbg  = unwrapEval(dbgRaw);
     const dbgHits = Array.isArray(rawDbg) ? rawDbg
       : JSON.parse(typeof rawDbg === 'string' ? rawDbg : '[]');
@@ -814,7 +817,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
 
   // 7g. Duplicate id="" detection (D6.8)
   try {
-    const dupIdRaw  = await mcp.evaluate_script({ function: DUPLICATE_ID_SCRIPT });
+    const dupIdRaw  = await browser.evaluate(DUPLICATE_ID_SCRIPT);
     const rawDupIds = unwrapEval(dupIdRaw);
     const dupIds    = Array.isArray(rawDupIds) ? rawDupIds
       : JSON.parse(typeof rawDupIds === 'string' ? rawDupIds : '[]');
@@ -834,7 +837,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
 
   // 9b. SEO DOM checks (v3 Phase A3)
   try {
-    const seoRaw = await mcp.evaluate_script({ function: SEO_ANALYSIS_SCRIPT });
+    const seoRaw = await browser.evaluate(SEO_ANALYSIS_SCRIPT);
     const seoResult = unwrapEval(seoRaw);
     result.errors.push(...parseSeoAnalysisResult(seoResult, url));
   } catch (err) {
@@ -843,7 +846,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
 
   // 9c. Security checks (v3 Phase A4)
   try {
-    const secRaw = await mcp.evaluate_script({ function: SECURITY_ANALYSIS_SCRIPT });
+    const secRaw = await browser.evaluate(SECURITY_ANALYSIS_SCRIPT);
     const secResult = unwrapEval(secRaw);
     result.errors.push(...parseSecurityAnalysisResult(secResult, url));
   } catch (err) {
@@ -854,7 +857,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
 
   // 9d. Content quality checks (v3 Phase A5)
   try {
-    const contentRaw = await mcp.evaluate_script({ function: CONTENT_ANALYSIS_SCRIPT });
+    const contentRaw = await browser.evaluate(CONTENT_ANALYSIS_SCRIPT);
     const contentResult = unwrapEval(contentRaw);
     result.errors.push(...parseContentAnalysisResult(contentResult, url));
   } catch (err) {
@@ -865,7 +868,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
   // Surfaces CORS violations, CSP blocks, mixed content, cookie misconfig,
   // deprecated API use, and native contrast issues — not visible in console messages.
   try {
-    const issueRaw = await mcp.list_console_messages({ types: ['issue'] });
+    const issueRaw = await browser.listConsoleRaw({ types: ['issue'] });
     const issues   = normalizeArray(issueRaw).slice(issuesBaseline);
     result.errors.push(...parseIssues(issues, url, route.critical));
   } catch (err) {
@@ -889,7 +892,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
 
   // 10. CSS analysis
   try {
-    const cssRaw = await mcp.evaluate_script({ function:CSS_ANALYSIS_SCRIPT });
+    const cssRaw = await browser.evaluate(CSS_ANALYSIS_SCRIPT);
     const cssResult = unwrapEval(cssRaw);
     result.errors.push(...parseCssAnalysisResult(cssResult, url));
   } catch (err) {
@@ -902,7 +905,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
   // 12. Screenshot
   const screenshotPath = path.join(OUTPUT_DIR, `screenshot-${slugify(route.name)}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.png`);
   try {
-    const screenshotData = await mcp.take_screenshot({ format: 'png' });
+    const screenshotData = await browser.screenshot({ format: 'png' });
     if (screenshotData?.data) {
       fs.writeFileSync(screenshotPath, Buffer.from(screenshotData.data, 'base64'));
       result.screenshot = screenshotPath;
@@ -921,15 +924,16 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
  * Returns an array of finding objects (no result wrapper).
  */
 async function crawlRouteExpensive(route, baseUrl, mcp) {
+  const browser = new CdpBrowserAdapter(mcp);
   const url = `${baseUrl}${route.path}`;
   const errors = [];
 
   // Navigate to a fresh page load so perf trace and redirect count are accurate
   try {
-    await mcp.navigate_page({ url });
+    await browser.navigate(url);
     // wait_for({ selector }) is unreliable in headless MCP mode — use polling.
     if (route.waitFor) {
-      await waitForSelector(mcp, route.waitFor, 10000);
+      await waitForSelector(browser, route.waitFor, 10000);
     } else {
       await new Promise(r => setTimeout(r, config.pageSettleMs));
     }
@@ -940,7 +944,7 @@ async function crawlRouteExpensive(route, baseUrl, mcp) {
 
   // 6c. Network performance analysis — slow responses + oversized payloads (v3 Phase A2)
   try {
-    const perfRaw = await mcp.evaluate_script({ function: NETWORK_PERF_SCRIPT });
+    const perfRaw = await browser.evaluate(NETWORK_PERF_SCRIPT);
     const perfResult = unwrapEval(perfRaw);
     let perfEntries;
     if (Array.isArray(perfResult)) {
@@ -955,7 +959,7 @@ async function crawlRouteExpensive(route, baseUrl, mcp) {
 
   // 6d. Redirect chain detection (D2.1)
   try {
-    const rdRaw   = await mcp.evaluate_script({ function: REDIRECT_COUNT_SCRIPT });
+    const rdRaw   = await browser.evaluate(REDIRECT_COUNT_SCRIPT);
     const rdCount = Number(unwrapEval(rdRaw) ?? 0);
     if (rdCount > 2) {
       errors.push({
@@ -971,14 +975,14 @@ async function crawlRouteExpensive(route, baseUrl, mcp) {
   }
 
   // 8. Performance budget check
-  errors.push(...(await checkPerformanceBudgets(mcp, url)));
+  errors.push(...(await checkPerformanceBudgets(browser, url)));
 
   // 9. Full Lighthouse audit (accessibility + performance + SEO + best-practices)
-  errors.push(...(await checkLighthouse(mcp, url)));
+  errors.push(...(await checkLighthouse(browser, url)));
 
   // 10b. Broken internal link detection (D2.3)
   try {
-    const linksRaw  = await mcp.evaluate_script({ function: INTERNAL_LINKS_SCRIPT });
+    const linksRaw  = await browser.evaluate(INTERNAL_LINKS_SCRIPT);
     const rawLinks  = unwrapEval(linksRaw);
     const links     = [...new Set(Array.isArray(rawLinks) ? rawLinks.filter(Boolean) : [])];
     // Named catch ensures every map callback always resolves — status 0 means
@@ -1012,7 +1016,7 @@ async function crawlRouteExpensive(route, baseUrl, mcp) {
 
   // 10c. Cache header detection — static assets missing Cache-Control + ETag (D6.6)
   try {
-    const cacheRaw  = await mcp.evaluate_script({ function: CACHE_HEADER_SCRIPT });
+    const cacheRaw  = await browser.evaluate(CACHE_HEADER_SCRIPT);
     const rawCache  = unwrapEval(cacheRaw);
     const cacheItems = Array.isArray(rawCache) ? rawCache
       : JSON.parse(typeof rawCache === 'string' ? rawCache : '[]');
@@ -1036,11 +1040,12 @@ async function crawlRouteExpensive(route, baseUrl, mcp) {
 // ── Per-route crawl + analysis (D3: cheap×2 merge + expensive×1) ──────────────
 
 async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
+  const browser = new CdpBrowserAdapter(mcp);
   if (auth?.steps?.length > 0) {
     try {
       // D7.6: refresh before restoring so the injected session is always fresh
-      await refreshSession(mcp, auth, targetBaseUrl);
-      await restoreSession(mcp, targetBaseUrl, sessionFile);
+      await refreshSession(browser, auth, targetBaseUrl);
+      await restoreSession(browser, targetBaseUrl, sessionFile);
     } catch (err) {
       console.warn(`[ARGUS] Auth: session restore skipped for ${route.name}: ${err.message}`);
     }
@@ -1061,7 +1066,7 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
 
   // Responsive layout analysis (v3 Phase A6) — once, after crawl to avoid viewport pollution
   try {
-    const { findings: responsiveFindings, screenshots: responsiveShots } = await analyzeResponsive(mcp, `${targetBaseUrl}${route.path}`);
+    const { findings: responsiveFindings, screenshots: responsiveShots } = await analyzeResponsive(browser, `${targetBaseUrl}${route.path}`);
     result.errors.push(...responsiveFindings);
     const responsiveScreenshotPaths = {};
     for (const [viewport, data] of Object.entries(responsiveShots)) {
@@ -1082,7 +1087,7 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
 
   // Memory leak detection (v3 Phase B1) — once
   try {
-    const memoryFindings = await analyzeMemory(mcp, `${targetBaseUrl}${route.path}`);
+    const memoryFindings = await analyzeMemory(browser, `${targetBaseUrl}${route.path}`);
     result.errors.push(...memoryFindings);
   } catch (err) {
     console.warn(`[ARGUS] Memory analysis skipped for ${route.name}: ${err.message}`);
@@ -1090,7 +1095,7 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
 
   // Hover-state bug detection (v3 Phase D8.1) — once
   try {
-    const hoverFindings = await analyzeHover(mcp, `${targetBaseUrl}${route.path}`, !!route.critical);
+    const hoverFindings = await analyzeHover(browser, `${targetBaseUrl}${route.path}`, !!route.critical);
     result.errors.push(...hoverFindings);
   } catch (err) {
     console.warn(`[ARGUS] Hover analysis skipped for ${route.name}: ${err.message}`);
@@ -1098,7 +1103,7 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
 
   // Accessibility snapshot analysis (v3 Phase D8.2) — once
   try {
-    const snapshotFindings = await analyzeSnapshot(mcp, `${targetBaseUrl}${route.path}`);
+    const snapshotFindings = await analyzeSnapshot(browser, `${targetBaseUrl}${route.path}`);
     result.errors.push(...snapshotFindings);
   } catch (err) {
     console.warn(`[ARGUS] Snapshot analysis skipped for ${route.name}: ${err.message}`);
@@ -1106,7 +1111,7 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
 
   // Keyboard navigation analysis — once
   try {
-    const keyboardFindings = await analyzeKeyboard(mcp, `${targetBaseUrl}${route.path}`);
+    const keyboardFindings = await analyzeKeyboard(browser, `${targetBaseUrl}${route.path}`);
     result.errors.push(...keyboardFindings);
   } catch (err) {
     console.warn(`[ARGUS] Keyboard analysis skipped for ${route.name}: ${err.message}`);
@@ -1114,7 +1119,7 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
 
   // C1.4: collect internal navigation links for dead route detection
   try {
-    const linksRaw = await mcp.evaluate_script({ function: INTERNAL_LINKS_SCRIPT });
+    const linksRaw = await browser.evaluate(INTERNAL_LINKS_SCRIPT);
     const parsed   = unwrapEval(linksRaw);
     const _linksParsed = Array.isArray(parsed) ? parsed : (() => { try { const p = JSON.parse(String(parsed ?? '[]')); return Array.isArray(p) ? p : []; } catch { return []; } })();
     result.discoveredLinks = _linksParsed;
@@ -1155,6 +1160,7 @@ async function crawlShardWithClient(shard, targetBaseUrl, mcp, sessionFile) {
  * @param {object} mcp - Chrome DevTools MCP tool interface
  */
 export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = null) {
+  const browser = new CdpBrowserAdapter(mcp);
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
   const targetBaseUrl = baseUrlOverride ?? BASE_URL;
@@ -1187,8 +1193,8 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
     if (!hasSession(sessionFile, auth.sessionMaxAgeMs)) {
       console.log(`[ARGUS] Auth: running login flow (${auth.steps.length} steps)...`);
       try {
-        await runLoginFlow(mcp, targetBaseUrl, auth.steps);
-        await saveSession(mcp, sessionFile);
+        await runLoginFlow(browser, targetBaseUrl, auth.steps);
+        await saveSession(browser, sessionFile);
       } catch (err) {
         console.warn(`[ARGUS] Auth: login flow failed — crawl will proceed unauthenticated: ${err.message}`);
       }
@@ -1254,7 +1260,7 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
   // User flow testing (v3 Phase B5) — named interaction sequences from targets.js flows[]
   if (flows?.length > 0) {
     console.log(`[ARGUS] Running ${flows.length} user flow(s)...`);
-    const { results: flowResults, findings: flowFindings } = await runAllFlows(flows, targetBaseUrl, mcp);
+    const { results: flowResults, findings: flowFindings } = await runAllFlows(flows, targetBaseUrl, browser);
     report.flows = flowResults;
     for (const finding of flowFindings) {
       report.summary.total++;

@@ -28,11 +28,11 @@ const LIGHTHOUSE_LABELS = {
  *
  * Individual failing audit items (score === 0) are also surfaced.
  *
- * @param {object} mcp - MCP tool interface (lighthouse_audit)
- * @param {string} url - URL being tested
+ * @param {object} browser - CdpBrowserAdapter
+ * @param {string} url     - URL being tested
  * @returns {Promise<object[]>} Lighthouse violation findings
  */
-export async function checkLighthouse(mcp, url) {
+export async function checkLighthouse(browser, url) {
   const violations = [];
 
   // Lighthouse can hang indefinitely on heavy SPAs or when Chrome is under load.
@@ -40,9 +40,8 @@ export async function checkLighthouse(mcp, url) {
   const LIGHTHOUSE_TIMEOUT_MS = parseInt(process.env.ARGUS_LIGHTHOUSE_TIMEOUT ?? '120000', 10);
 
   try {
-    const auditPromise = mcp.lighthouse_audit({
+    const auditPromise = browser.lighthouse(url, {
       categories: ['accessibility', 'performance', 'seo', 'best-practices'],
-      url,
     });
     const timeoutPromise = new Promise((_, reject) =>
       setTimeout(() => reject(new Error(`Lighthouse timed out after ${LIGHTHOUSE_TIMEOUT_MS / 1000}s`)), LIGHTHOUSE_TIMEOUT_MS)

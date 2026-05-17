@@ -107,9 +107,9 @@ function parseV8Snapshot(snapshot) {
  * Read usedJSHeapSize from the currently-loaded page via evaluate_script.
  * Returns null if performance.memory is unavailable.
  */
-async function getHeapSize(mcp) {
+async function getHeapSize(browser) {
   try {
-    const raw    = await mcp.evaluate_script({ function: HEAP_SIZE_SCRIPT });
+    const raw    = await browser.evaluate(HEAP_SIZE_SCRIPT);
     const val    = unwrapEval(raw);
     const parsed = typeof val === 'string' ? JSON.parse(val) : val;
     return typeof parsed?.usedJSHeapSize === 'number' ? parsed.usedJSHeapSize : null;
@@ -124,15 +124,15 @@ async function getHeapSize(mcp) {
  * Take a V8 heap snapshot, save it to a temp file, parse it, and delete the file.
  * take_memory_snapshot writes the snapshot JSON to disk (filePath is required).
  *
- * @param {object} mcp
+ * @param {object} browser - CdpBrowserAdapter
  * @returns {Promise<{ detachedNodeCount: number, totalNodeCount: number|null } | null>}
  */
-async function captureAndParseSnapshot(mcp) {
+async function captureAndParseSnapshot(browser) {
   // Include PID + random suffix — Date.now() alone can collide when two parallel
   // shard workers both enter captureAndParseSnapshot within the same millisecond.
   const filePath = path.join(os.tmpdir(), `argus-heap-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.heapsnapshot`);
   try {
-    await mcp.take_memory_snapshot({ filePath });
+    await browser.heapSnapshot({ filePath });
 
     let raw;
     try {
@@ -171,17 +171,17 @@ async function captureAndParseSnapshot(mcp) {
  *
  * The function always ends with the browser on `url`.
  *
- * @param {object} mcp      - MCP tool interface (navigate_page, evaluate_script, take_memory_snapshot)
+ * @param {object} browser  - CdpBrowserAdapter
  * @param {string} url      - URL to analyse
  * @param {string} [awayUrl='about:blank'] - Neutral URL for the navigate-away step
  * @returns {Promise<object[]>} Memory findings (same shape as crawlRoute errors)
  */
-export async function analyzeMemory(mcp, url, awayUrl = 'about:blank') {
+export async function analyzeMemory(browser, url, awayUrl = 'about:blank') {
   const findings = [];
 
   // ── 1. Navigate to the target page ──────────────────────────────────────────
   try {
-    await mcp.navigate_page({ url });
+    await browser.navigate(url);
     await new Promise(r => setTimeout(r, 1500)); // let JS run, detached nodes accumulate
   } catch (err) {
     console.warn(`[ARGUS] Memory analysis navigation failed for ${url}: ${err.message}`);
@@ -190,7 +190,7 @@ export async function analyzeMemory(mcp, url, awayUrl = 'about:blank') {
 
   // ── 2. Detached DOM node detection via heap snapshot ─────────────────────────
   try {
-    const parsed = await captureAndParseSnapshot(mcp);
+    const parsed = await captureAndParseSnapshot(browser);
 
     if (parsed !== null) {
       const { detachedNodeCount: count, totalNodeCount } = parsed;
@@ -222,16 +222,16 @@ export async function analyzeMemory(mcp, url, awayUrl = 'about:blank') {
   // ── 3. Heap growth — navigate-away + navigate-back ────────────────────────────
   // GC timing makes this non-deterministic; findings are tagged soft:true.
   try {
-    const baseline = await getHeapSize(mcp);
+    const baseline = await getHeapSize(browser);
 
     if (baseline !== null) {
-      await mcp.navigate_page({ url: awayUrl });
+      await browser.navigate(awayUrl);
       await new Promise(r => setTimeout(r, 2000)); // allow GC pass
 
-      await mcp.navigate_page({ url });
+      await browser.navigate(url);
       await new Promise(r => setTimeout(r, 1500));
 
-      const post = await getHeapSize(mcp);
+      const post = await getHeapSize(browser);
 
       if (post !== null) {
         const growth = post - baseline;

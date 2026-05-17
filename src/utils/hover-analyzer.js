@@ -1,7 +1,7 @@
 /**
  * ARGUS Hover-State Analyzer (v3 Phase D8.1)
  *
- * Uses mcp.hover() to trigger hover state on interactive elements that declare
+ * Uses browser.hover() to trigger hover state on interactive elements that declare
  * dropdown or tooltip behaviour via ARIA attributes, then verifies the expected
  * DOM change occurred after the hover.
  *
@@ -140,12 +140,12 @@ function parseJson(raw) {
  * @param {boolean} isCritical - Whether the route is marked critical in targets.js
  * @returns {Promise<object[]>} Array of hover-bug finding objects
  */
-export async function analyzeHover(mcp, url, isCritical = false) {
+export async function analyzeHover(browser, url, isCritical = false) {
   const findings = [];
 
   try {
-    await mcp.navigate_page({ url });
-    await mcp.wait_for({ state: 'networkidle' }).catch(() => {});
+    await browser.navigate(url);
+    await browser.waitFor({ state: 'networkidle' }).catch(() => {});
     await new Promise(r => setTimeout(r, 1000));
   } catch {
     return findings;
@@ -153,7 +153,7 @@ export async function analyzeHover(mcp, url, isCritical = false) {
 
   let candidates = [];
   try {
-    const raw = await mcp.evaluate_script({ function: HOVER_CANDIDATE_SCRIPT });
+    const raw = await browser.evaluate(HOVER_CANDIDATE_SCRIPT);
     const parsed = parseJson(raw);
     candidates = Array.isArray(parsed) ? parsed : [];
   } catch {
@@ -162,14 +162,14 @@ export async function analyzeHover(mcp, url, isCritical = false) {
 
   for (const candidate of candidates) {
     try {
-      // MCP hover requires uid (not CSS selector) — resolve via snapshot
-      const hoverUid = await resolveUidForSelector(mcp, candidate.selector);
+      // Browser hover requires uid (not CSS selector) — resolve via snapshot
+      const hoverUid = await resolveUidForSelector(browser, candidate.selector);
       if (!hoverUid) continue; // element not found in snapshot — skip
-      await mcp.hover({ uid: hoverUid });
+      await browser.hover(hoverUid);
       await new Promise(r => setTimeout(r, 350));
 
       if (candidate.kind === 'haspopup') {
-        const raw   = await mcp.evaluate_script({ function: popupCheckScript(candidate.controls) });
+        const raw   = await browser.evaluate(popupCheckScript(candidate.controls));
         const state = parseJson(raw);
         if (state && !state.expanded && !state.popupVisible) {
           findings.push({
@@ -182,7 +182,7 @@ export async function analyzeHover(mcp, url, isCritical = false) {
           });
         }
       } else if (candidate.kind === 'tooltip') {
-        const raw   = await mcp.evaluate_script({ function: tooltipCheckScript(candidate.tooltipId) });
+        const raw   = await browser.evaluate(tooltipCheckScript(candidate.tooltipId));
         const state = parseJson(raw);
         if (state && !state.visible) {
           findings.push({

@@ -20,7 +20,7 @@
  * Two surfaces:
  *   parseIssues(issues, url, isCritical) — pure function for use in crawlRouteCheap
  *     after the D5 baseline-slice has already been applied.
- *   analyzeIssues(mcp, url, isCritical) — standalone navigator for direct harness use.
+ *   analyzeIssues(browser, url, isCritical) — standalone navigator for direct harness use.
  */
 
 import { normalizeArray } from './flow-runner.js';
@@ -133,31 +133,31 @@ export function parseIssues(issues, url, isCritical = false) {
  * Used by the test harness and any standalone caller. Baselines before
  * navigation (D5 pattern) so pre-existing issues from prior pages are excluded.
  *
- * @param {object}  mcp
+ * @param {object}  browser
  * @param {string}  url
  * @param {boolean} isCritical
  * @returns {Promise<object[]>}
  */
-export async function analyzeIssues(mcp, url, isCritical = false) {
+export async function analyzeIssues(browser, url, isCritical = false) {
   const findings = [];
 
   let baseline = 0;
   try {
-    const priorRaw = await mcp.list_console_messages({ types: ['issue'], includePreservedMessages: true });
+    const priorRaw = await browser.listConsoleRaw({ types: ['issue'], includePreservedMessages: true });
     baseline = normalizeArray(priorRaw).length;
   } catch {
     // Issues API may not be available — baseline stays 0
   }
 
   try {
-    await mcp.navigate_page({ url });
+    await browser.navigate(url);
     await new Promise(r => setTimeout(r, 1000));
   } catch {
     return findings;
   }
 
   try {
-    const raw    = await mcp.list_console_messages({
+    const raw    = await browser.listConsoleRaw({
       types: ['issue'],
       includePreservedMessages: true,
     });

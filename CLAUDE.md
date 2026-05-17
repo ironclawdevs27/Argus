@@ -19,11 +19,17 @@ Argus is an AI-driven automated QA harness that audits web pages using Chrome De
 src/
   argus.js                    — single-page audit entry point
   batch-runner.js             — multi-page batch audit
+  adapters/
+    browser.js                — CdpBrowserAdapter (v9.1.1) — wraps all mcp.* calls
+  domain/
+    finding.js                — createFinding() factory (v9.1.4)
   orchestration/
     crawl-and-report.js       — full crawl pipeline
     env-comparison.js         — dev vs staging diff
+    watch-mode.js             — passive browser monitoring (npm run watch)
   utils/
     flow-runner.js            — DSL step executor (D8 flow steps)
+    mcp-parsers.js            — text-format parsers for list_console_messages / list_network_requests
     seo-analyzer.js           — A3: SEO checks
     security-analyzer.js      — A4: security checks
     content-analyzer.js       — A5: content quality
@@ -69,6 +75,8 @@ Soft assertions (Lighthouse, perf traces) require non-headless Chrome — they a
 - **Fixture pages must be served via HTTP** (`npm run harness`), never via `file://`.
 - Security headers middleware: apply permissive CSP/XFrame to ALL fixture pages EXCEPT `security-issues.html`.
 - `clean.html` must have `og:image` — all three OG tags are `severity: warning`.
+- **All analyzers use `browser.*` (not `mcp.*` directly)** — every analyzer takes a `CdpBrowserAdapter` as its first argument. Import from `src/adapters/browser.js`. Public orchestration functions keep `mcp` in their signature and construct `new CdpBrowserAdapter(mcp)` internally.
+- **`list_network_requests` text format includes `requestId`** — `parseNetworkReqResponse` emits `{ requestId, method, url, status }`. Use `req.requestId` for `browser.getNetworkRequest()` lookups. Watch-mode dedup uses content-based keys (`method::url::status`), never `requestId` (resets after navigation).
 
 ## Adding a New Detection Phase
 
@@ -93,4 +101,4 @@ TARGET_STAGING_URL=
 
 ## Phases Complete
 
-D1–D8.5 (all code phases complete). Watch mode (passive browser monitoring — `npm run watch`). See `SKILL.md` §14 for the full feature list.
+D1–D8.5 (all code phases complete). Watch mode (passive browser monitoring — `npm run watch`). **v9 Sprint 1 complete** — `CdpBrowserAdapter` (`src/adapters/browser.js`), `createFinding()` factory (`src/domain/finding.js`), `mcp-parsers.js`, and all 13 analyzer/orchestration/harness files migrated from `mcp.*` to `browser.*`. Harness: 327/330. See `SKILL.md` §14 for the full feature list.
