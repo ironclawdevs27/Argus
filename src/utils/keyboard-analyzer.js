@@ -15,6 +15,8 @@
  * complete) short-circuit the walk early.
  */
 
+import { registerExpensive } from '../registry.js';
+
 const MAX_TAB_STEPS = 20;
 
 // Evaluate the currently focused element's visibility and position in tab order.
@@ -129,3 +131,11 @@ export async function analyzeKeyboard(browser, url) {
 
   return findings;
 }
+
+// ── Self-registration ─────────────────────────────────────────────────────────
+registerExpensive({
+  name: 'keyboard',
+  async analyze(browser, url) {
+    return analyzeKeyboard(browser, url);
+  },
+});

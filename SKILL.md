@@ -955,7 +955,7 @@ Always walk at least 3 levels back — the proximate cause is almost never the r
 
 ### Known MCP Behavioral Limitations
 
-These are chrome-devtools-mcp restrictions that **cannot be worked around in Argus code**. They cause 3 permanent failures in the correctness harness (320/323 pass).
+These are chrome-devtools-mcp restrictions that **cannot be worked around in Argus code**. They cause 3 permanent failures in the correctness harness (327/330 pass).
 
 > **Note on `fill` vs `type_text` and DOM events**: Both tools fire DOM `input` events, but differently:
 > - `mcp.fill({ uid, value })` fires **one consolidated `input` event** with the full value — counter shows `value.length`. It does NOT fire per-keystroke `keydown`/`keypress`/`keyup` events.
@@ -1099,9 +1099,24 @@ for (const bp of breakpoints) {
 | Detection categories | 53 in production code; **46 positively verified** by harness fixtures |
 | Fixture pages | 54 |
 | Flow step actions | 11 (navigate, waitFor, sleep, fill, click, drag, upload_file, select_option, press_key, handle_dialog, assert) |
-| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring), **v9 Sprint 1 (adapter layer)** |
+| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring), **v9 Sprint 1 (adapter layer)**, **v9 Sprint 2 (plugin registry + god object split)** |
 
 Expected harness output: `327/330 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
+
+### v9 Sprint 2 additions (2026-05-18)
+
+Plugin registry + god object split. `crawl-and-report.js` (1,615 lines) reduced to a 20-line backward-compat re-export shell.
+
+| New file | Purpose |
+|----------|---------|
+| `src/registry.js` | `registerExpensive(a)` / `getCheap()` / `getExpensive()` — analyzers self-register at module load |
+| `src/orchestration/orchestrator.js` | Crawl loop + `crawlRouteCheap` / `crawlRouteExpensive` / `runCrawl` |
+| `src/orchestration/report-processor.js` | `deduplicateFindings` + `rebuildSummary` + `processReport` (overrides → baseline → JSON write) |
+| `src/orchestration/dispatcher.js` | `dispatchAll` — Slack / GitHub / HTML routing |
+
+6 expensive analyzers now self-register at module load: `hover`, `snapshot`, `keyboard`, `responsive`, `memory`, `lighthouse`.
+
+Adding a new expensive analyzer = 1 file only — call `registerExpensive({ name, analyze(browser, url, route) })` at the bottom.
 
 ### v9 Sprint 1 additions (2026-05-17)
 

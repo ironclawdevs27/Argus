@@ -23,8 +23,12 @@ src/
     browser.js                — CdpBrowserAdapter (v9.1.1) — wraps all mcp.* calls
   domain/
     finding.js                — createFinding() factory (v9.1.4)
+  registry.js                 — analyzer plugin registry (registerExpensive/getCheap/getExpensive) (v9 Sprint 2)
   orchestration/
-    crawl-and-report.js       — full crawl pipeline
+    crawl-and-report.js       — backward-compat re-export shell (v9 Sprint 2)
+    orchestrator.js           — crawl loop + runCrawl (v9 Sprint 2)
+    report-processor.js       — dedup → baseline → JSON write (v9 Sprint 2)
+    dispatcher.js             — Slack / GitHub / HTML dispatch (v9 Sprint 2)
     env-comparison.js         — dev vs staging diff
     watch-mode.js             — passive browser monitoring (npm run watch)
   utils/
@@ -81,8 +85,8 @@ Soft assertions (Lighthouse, perf traces) require non-headless Chrome — they a
 ## Adding a New Detection Phase
 
 Follow the pattern in SKILL.md §9. Quick checklist:
-1. `src/utils/<name>-analyzer.js` — returns `findings[]` array
-2. Wire into `src/argus.js` / `flow-runner.js`
+1. `src/utils/<name>-analyzer.js` — returns `findings[]` array; call `registerExpensive({ name, analyze })` at the bottom
+2. Import the analyzer as a side-effect in `src/orchestration/orchestrator.js` (controls registration order)
 3. Add fixture page to `test-harness/pages/`
 4. Register in `test-harness/harness-config.js`
 5. Add test block to `test-harness/validate.js` (next sequential number, ≥3 hard assertions)
@@ -101,4 +105,4 @@ TARGET_STAGING_URL=
 
 ## Phases Complete
 
-D1–D8.5 (all code phases complete). Watch mode (passive browser monitoring — `npm run watch`). **v9 Sprint 1 complete** — `CdpBrowserAdapter` (`src/adapters/browser.js`), `createFinding()` factory (`src/domain/finding.js`), `mcp-parsers.js`, and all 13 analyzer/orchestration/harness files migrated from `mcp.*` to `browser.*`. Harness: 327/330. See `SKILL.md` §14 for the full feature list.
+D1–D8.5 (all code phases complete). Watch mode (passive browser monitoring — `npm run watch`). **v9 Sprint 1 complete** — `CdpBrowserAdapter` (`src/adapters/browser.js`), `createFinding()` factory (`src/domain/finding.js`), `mcp-parsers.js`, and all 13 analyzer/orchestration/harness files migrated from `mcp.*` to `browser.*`. **v9 Sprint 2 complete** — plugin registry (`src/registry.js`), god object split (`orchestrator.js` + `report-processor.js` + `dispatcher.js`), `crawl-and-report.js` reduced to 20-line re-export shell, 6 analyzers self-register. Harness: 327/330. See `SKILL.md` §14 for the full feature list.

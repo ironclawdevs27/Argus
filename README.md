@@ -638,10 +638,14 @@ argus/
 │   │   └── browser.js                # CdpBrowserAdapter — facade over all chrome-devtools-mcp calls (v9 Sprint 1)
 │   ├── domain/
 │   │   └── finding.js                # createFinding() factory — canonical finding shape (v9 Sprint 1)
+│   ├── registry.js                   # Analyzer plugin registry — registerExpensive/getCheap/getExpensive (v9 Sprint 2)
 │   ├── config/
 │   │   └── targets.js                # Routes to test, thresholds, config
 │   ├── orchestration/
-│   │   ├── crawl-and-report.js       # Error detection pipeline (calls all analysis engines)
+│   │   ├── crawl-and-report.js       # Backward-compat re-export shell → orchestrator + report-processor + dispatcher (v9 Sprint 2)
+│   │   ├── orchestrator.js           # Crawl loop, route/flow crawl, runCrawl() (v9 Sprint 2)
+│   │   ├── report-processor.js       # Dedup → severity overrides → baseline → JSON write (v9 Sprint 2)
+│   │   ├── dispatcher.js             # Slack / GitHub / HTML dispatch (v9 Sprint 2)
 │   │   ├── env-comparison.js         # Dev vs staging diff + CSS analysis mode
 │   │   ├── watch-mode.js             # Passive browser monitoring (WatchSession + runWatchMode)
 │   │   └── slack-notifier.js         # Slack Block Kit dispatcher

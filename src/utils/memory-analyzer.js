@@ -18,7 +18,8 @@
 import fs   from 'fs';
 import os   from 'os';
 import path from 'path';
-import { unwrapEval } from './mcp-client.js';
+import { unwrapEval }       from './mcp-client.js';
+import { registerExpensive } from '../registry.js';
 
 // ── Thresholds ─────────────────────────────────────────────────────────────────
 
@@ -267,3 +268,11 @@ export async function analyzeMemory(browser, url, awayUrl = 'about:blank') {
 
   return findings;
 }
+
+// ── Self-registration ─────────────────────────────────────────────────────────
+registerExpensive({
+  name: 'memory',
+  async analyze(browser, url) {
+    return analyzeMemory(browser, url);
+  },
+});

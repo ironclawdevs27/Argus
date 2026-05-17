@@ -21,6 +21,8 @@
  * All per-element errors are silently swallowed.
  */
 
+import { registerExpensive } from '../registry.js';
+
 // ── ARIA name check script ────────────────────────────────────────────────────
 // Returns JSON array of { tag, role, outerHTML } for unlabelled interactive elements.
 const MISSING_NAME_SCRIPT = `() => {
@@ -318,3 +320,11 @@ export async function analyzeSnapshot(browser, url) {
 
   return findings;
 }
+
+// ── Self-registration ─────────────────────────────────────────────────────────
+registerExpensive({
+  name: 'snapshot',
+  async analyze(browser, url) {
+    return analyzeSnapshot(browser, url);
+  },
+});

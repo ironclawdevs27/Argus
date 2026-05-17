@@ -5,6 +5,8 @@
  * checkLighthouse directly without pulling in the Slack-initialised orchestrator.
  */
 
+import { registerExpensive } from '../registry.js';
+
 export const LIGHTHOUSE_THRESHOLDS = {
   accessibility:    { critical: 50, warning: 90 },
   performance:      { critical: 50, warning: 90 },
@@ -111,3 +113,11 @@ export async function checkLighthouse(browser, url) {
 
   return violations;
 }
+
+// ── Self-registration ─────────────────────────────────────────────────────────
+registerExpensive({
+  name: 'lighthouse',
+  async analyze(browser, url) {
+    return checkLighthouse(browser, url);
+  },
+});

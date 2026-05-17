@@ -19,6 +19,7 @@
  */
 
 import { resolveUidForSelector } from './flow-runner.js';
+import { registerExpensive }    from '../registry.js';
 
 // ── Discovery script ──────────────────────────────────────────────────────────
 // Runs in the live page to find hover-testable candidates.
@@ -202,3 +203,11 @@ export async function analyzeHover(browser, url, isCritical = false) {
 
   return findings;
 }
+
+// ── Self-registration ─────────────────────────────────────────────────────────
+registerExpensive({
+  name: 'hover',
+  async analyze(browser, url, route) {
+    return analyzeHover(browser, url, route?.critical ?? false);
+  },
+});

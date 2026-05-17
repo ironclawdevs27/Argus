@@ -10,6 +10,8 @@
  * The function always restores the viewport to 1280×900 before returning.
  */
 
+import { registerExpensive } from '../registry.js';
+
 const BREAKPOINTS = [
   { width: 375,  height: 812,  label: 'mobile'  },
   { width: 768,  height: 1024, label: 'tablet'  },
@@ -238,3 +240,11 @@ export async function analyzeResponsive(browser, url) {
 
   return { findings, screenshots };
 }
+
+// ── Self-registration ─────────────────────────────────────────────────────────
+registerExpensive({
+  name: 'responsive',
+  async analyze(browser, url) {
+    return analyzeResponsive(browser, url);
+  },
+});
