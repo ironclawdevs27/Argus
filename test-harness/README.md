@@ -2,7 +2,7 @@
 
 Validates that every Argus detection category fires correctly by running the full crawl pipeline against deliberately broken fixture pages hosted on a local Express server.
 
-> **v4 Quality Audit complete** — all 30 gaps resolved. **v5 Correctness Hardening complete** (20 gaps). **v6 Detection Expansion complete** (10 new detection categories). **v7 Final Production Hardening complete** (2026-05-05) — 50+ security and robustness fixes across 17 source files. **v8 Harness Correctness** (2026-05-10) — uid regex rewrite, sync-xhr timing fix, select_option label resolution.
+> **v4 Quality Audit complete** — all 30 gaps resolved. **v5 Correctness Hardening complete** (20 gaps). **v6 Detection Expansion complete** (10 new detection categories). **v7 Final Production Hardening complete** (2026-05-05) — 50+ security and robustness fixes across 17 source files. **v8 Harness Correctness** (2026-05-10) — uid regex rewrite, sync-xhr timing fix, select_option label resolution. **Watch Mode** (2026-05-17) — passive browser monitoring; block [78] added.
 
 <br/>
 
@@ -17,9 +17,9 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-77 test blocks · 323 hard assertions · 46 verified detection categories · 53 fixture pages
+78 test blocks · 330 hard assertions · 47 verified detection categories · 54 fixture pages
 
-> **Coverage note**: 53 detection categories exist in production code. 46 are positively exercised by the harness. The remaining 7 have no fixture trigger yet — see [argus-v6-strategy.md §10](../argus-v6-strategy.md) for details and planned fixtures.
+> **Coverage note**: 54 detection categories exist in production code. 47 are positively exercised by the harness. The remaining 7 have no fixture trigger yet — see [argus-v6-strategy.md §10](../argus-v6-strategy.md) for details and planned fixtures.
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 
@@ -102,6 +102,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 75 | `clean.html` | Origin tagging — `crawlRouteCheap` returns errors array · all network-type findings carry `origin` field (100) | Hard |
 | 76 | `clean.html` (localhost exclusion) | HTTPS enforcement — `security_no_https` NOT emitted for localhost · URL parsing correctly classifies non-localhost as non-local · `http://example.com` protocol = `http:` (101) | Hard |
 | 77 | `iframe-sandbox.html` | `security_iframe_no_sandbox` warning ×2 (example.com + w3.org) · severity warning · sandboxed iframe NOT flagged (102) | Hard |
+| 78 | `watch-issues.html` | Watch Mode — `WatchSession.poll()` detects console errors/warnings + network 4xx/5xx on first poll · second poll returns 0 (dedup) · third poll after `argusWatchTriggerError()` finds new incremental finding · HTTP 500 classified as `network_server_error` critical · all findings have type/severity/message fields | Hard |
 
 ---
 
@@ -166,6 +167,7 @@ test-harness/
 │   ├── aria-state-issues.html     test 73 — aria-expanded toggle with no/broken aria-controls → aria_expanded_no_controls ×2
 │   ├── select-form.html           test 74 — #country + #size selects + submit → select_option flow step
 │   ├── iframe-sandbox.html        test 77 — 2 unsandboxed cross-origin iframes + 1 sandboxed → security_iframe_no_sandbox ×2
+│   ├── watch-issues.html          test 78 — console.error + console.warn on load; /api/always-500 + /api/missing fetch; window.argusWatchTriggerError()
 │   ├── test-upload.txt            test 50 — tiny text file used as the upload payload
 │   └── sitemap.xml                test 57 — 4 same-origin <loc> entries + 1 off-origin entry
 ├── nextjs-fixture/                C3 Next.js file-structure fixture (10 files)
@@ -251,7 +253,7 @@ The validator will:
 5. Print pass / fail for each assertion
 6. Shut down both fixture servers and exit
 
-**Expected output (320/323 — 3 permanent MCP-limited failures):**
+**Expected output (327/330 — 3 permanent MCP-limited failures):**
 
 ```
 ╔══════════════════════════════════════════════════════╗
@@ -305,7 +307,7 @@ The validator will:
   ✓ Flaky count: 2 (expected 2)
 
 ────────────────────────────────────────────────────────
-Results: 320/323 hard assertions passed, 3 failed
+Results: 327/330 hard assertions passed, 3 failed
 
 ✗ [49b] drag uses mouse simulation — HTML5 drop event never fires (MCP behavioral limit)
 ✗ [67b] Chrome DevTools Issues panel not returned by list_console_messages (MCP behavioral limit)

@@ -11,7 +11,7 @@ Argus is an AI-driven automated QA harness that audits web pages using Chrome De
 - Flow Runner DSL step actions
 - Assertion patterns for `test-harness/validate.js`
 - Common failure modes and fixes
-- Harness statistics (50 blocks, 210 hard assertions, 35 detection categories)
+- Harness statistics (78 blocks, 330 hard assertions, 53 detection categories)
 
 ## Project Structure
 
@@ -38,9 +38,9 @@ src/
   config/
     targets.js                — URL targets + auth steps
 test-harness/
-  validate.js                 — 50-block correctness harness
+  validate.js                 — 78-block correctness harness
   harness-config.js           — fixture page routing table
-  pages/                      — 44 fixture HTML pages
+  pages/                      — 54 fixture HTML pages
   server.js                   — fixture HTTP server
 reports/
   baselines/                  — baseline.json + trends.json (gitignored)
@@ -56,7 +56,7 @@ Chrome must be running with remote debugging before starting the harness:
 
 # Then run the harness:
 npm run test:harness
-# Expected: 320/323 (3 permanent MCP-limited failures)
+# Expected: 327/330 (3 permanent MCP-limited failures)
 ```
 
 Soft assertions (Lighthouse, perf traces) require non-headless Chrome — they are expected to be skipped in headless CI.
@@ -93,4 +93,4 @@ TARGET_STAGING_URL=
 
 ## Phases Complete
 
-D1–D8.5 (all code phases complete). See `SKILL.md` §14 for the full feature list.
+D1–D8.5 (all code phases complete). Watch mode (passive browser monitoring — `npm run watch`). See `SKILL.md` §14 for the full feature list.

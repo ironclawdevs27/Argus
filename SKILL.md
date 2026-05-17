@@ -12,7 +12,7 @@ Argus is an AI-driven automated QA harness that audits web pages against 53 dete
 **Entry points**
 - `src/argus.js` — single-page audit (CLI)
 - `src/batch-runner.js` — multi-page batch audit
-- `test-harness/validate.js` — 77-block correctness harness (323 hard assertions)
+- `test-harness/validate.js` — 78-block correctness harness (330 hard assertions)
 - `test-harness/harness-config.js` — fixture page routing table
 
 ---
@@ -1094,14 +1094,14 @@ for (const bp of breakpoints) {
 
 | Metric | Value |
 |--------|-------|
-| Test blocks | 77 |
-| Hard assertions | 323 |
+| Test blocks | 78 |
+| Hard assertions | 330 |
 | Detection categories | 53 in production code; **46 positively verified** by harness fixtures |
-| Fixture pages | 53 |
+| Fixture pages | 54 |
 | Flow step actions | 11 (navigate, waitFor, sleep, fill, click, drag, upload_file, select_option, press_key, handle_dialog, assert) |
-| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases) |
+| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring) |
 
-Expected harness output: `320/323 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
+Expected harness output: `327/330 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
 
 > The 7-category gap (53 − 46): `cors_violation`, `mixed_content`, `cookie_attribute_missing`, `low_contrast_native`, `permission_policy_violation`, `focus_lost`, `heading_missing_h1` — no fixture triggers these yet. See v6.103–v6.110 in `argus-v6-strategy.md` §10.
 

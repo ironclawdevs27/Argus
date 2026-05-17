@@ -404,6 +404,14 @@ export const harnessRoutes = [
     waitFor: '#iframe-checks-done[data-ready]',
     expected: 'security_iframe_no_sandbox warning ×2 (example.com + w3.org); sandboxed iframe not flagged',
   },
+  // watch mode: console.error + console.warn on load; /api/always-500 + /api/missing fetch; incremental trigger
+  {
+    path: '/watch-issues.html',
+    name: 'Watch Issues',
+    critical: false,
+    waitFor: null,
+    expected: 'WatchSession poll detects console errors, network 500/404 on first poll; dedup prevents re-reporting; incremental trigger fires new finding',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

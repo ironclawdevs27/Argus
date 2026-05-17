@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Watch Mode Issues Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; }
+    .section { margin-bottom: 1.5rem; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; }
+    code { background: #f4f4f4; padding: 0.2rem 0.4rem; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>Watch Mode Issues Fixture</h1>
+  <p>
+    Emits predictable console errors and failing network requests on page load.
+    Used by harness block [78] to validate <code>WatchSession</code> poll, dedup,
+    and incremental detection.
+  </p>
+
+  <div class="section">
+    <h2>On Load (first poll captures these)</h2>
+    <ul>
+      <li><code>console.error</code> — ARGUS_WATCH_TEST: console error alpha</li>
+      <li><code>console.warn</code>  — ARGUS_WATCH_TEST: console warning beta</li>
+      <li>Fetch <code>/api/always-500</code> → HTTP 500 (network_server_error)</li>
+      <li>Fetch <code>/api/missing</code>    → HTTP 404 (network_not_found)</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>Incremental triggers (called from test code)</h2>
+    <ul>
+      <li><code>window.argusWatchTriggerError(msg)</code> — fires a new console.error</li>
+      <li><code>window.argusWatchTrigger404()</code>      — fires a new 404 request</li>
+    </ul>
+  </div>
+
+  <script>
+    // ── Immediate console signals ───────────────────────────────────────────
+    // These fire on page load. First poll() in WatchSession must capture them.
+    console.error('ARGUS_WATCH_TEST: console error alpha');
+    console.warn('ARGUS_WATCH_TEST: console warning beta');
+
+    // ── Immediate network signals ───────────────────────────────────────────
+    // Reuses existing harness server endpoints so no new server code is needed.
+    fetch('/api/always-500').catch(() => {});   // → HTTP 500
+    fetch('/api/missing').catch(() => {});       // → HTTP 404
+
+    // ── Incremental triggers ────────────────────────────────────────────────
+    // Called from validate.js via evaluate_script after the first poll, so the
+    // harness can verify that WatchSession only returns NEW findings on re-poll.
+
+    window.argusWatchTriggerError = function (msg) {
+      console.error('ARGUS_WATCH_INC: ' + (msg || 'incremental error'));
+    };
+
+    // Each call uses a unique timestamp so the network dedup key is different.
+    window.argusWatchTrigger404 = function () {
+      fetch('/api/missing?t=' + Date.now()).catch(() => {});
+    };
+  </script>
+</body>
+</html>

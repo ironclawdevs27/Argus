@@ -14,7 +14,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 | 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
 |:---:|:---:|:---:|:---:|
-| **114 distinct issue types detected** | **24 analysis engines** | **323 test assertions** | **77 test blocks** |
+| **114 distinct issue types detected** | **24 analysis engines** | **330 test assertions** | **78 test blocks** |
 
 </div>
 
@@ -276,6 +276,7 @@ Argus watches your running application and automatically surfaces issues that te
 | **GitHub PR Integration** | Posts a structured Markdown findings table as a PR comment (updates in-place — one comment per PR, no spam); sets an `argus-qa` commit status check (`failure` when new criticals exist, `success` otherwise) — blocks merge via branch protection when regressions are introduced. Requires `GITHUB_TOKEN` + `GITHUB_REPOSITORY` env vars |
 | **Auto Route Discovery** | Augments manual `routes[]` with paths from three sources: fetches `/sitemap.xml` (follows one sitemap-index level, 10s timeout), scans Next.js `pages/` (Next 12) and `app/` (Next 13+) directories stripping route groups `(auth)`, and greps JS/TS source for React Router `<Route path>` declarations. Dynamic `[param]` segments are skipped — no concrete URL to crawl. Manual route config (`critical`, `waitFor`) always takes precedence. |
 | **`argus init` Setup Wizard** | `npm run init` (or `npx argus init`) guides first-time setup: collects target URLs, detects the app framework (Next.js / React Router / unknown) from the source directory's `package.json`, runs C3 route discovery against the dev URL, prompts for optional Slack tokens and GitHub credentials, then writes a populated `.env` and a pre-filled `src/config/targets.js` — zero manual config editing required. |
+| **Watch Mode** | `npm run watch` attaches to whatever Chrome tab is open and polls `list_console_messages` + `list_network_requests` every 3 s (configurable via `ARGUS_WATCH_INTERVAL_MS`). Reports new console errors, network failures (4xx/5xx), CORS blocks, and auth failures in real time — without navigating. On `Ctrl+C`, generates a final `reports/report.html`. No route config needed. |
 | **Full Lighthouse Suite** | All 4 Lighthouse categories (performance, SEO, best-practices, accessibility) with per-audit items |
 | **Performance Budgets** | Enforces LCP < 2500ms, CLS < 0.1, FID < 100ms, TTFB < 800ms per route |
 | **Slack Notifications** | Rich Block Kit reports with inline screenshots routed to `#bugs-critical`, `#bugs-warnings`, `#bugs-digest` |
@@ -425,6 +426,37 @@ npm run server
 ```
 
 Reports are saved to `reports/` as JSON files. Screenshots saved alongside. Run `npm run report:html` after any crawl to get a portable `reports/report.html` with all screenshots inlined — useful for sharing with designers, PMs, or reviewing offline.
+
+### Option D: Watch Mode (passive monitoring)
+
+Watch mode attaches to whatever page Chrome already has open and polls for new issues at a 3-second interval — without navigating anywhere. Use this for real-time reporting while you develop.
+
+**Requires 2 terminals:**
+
+| Terminal | Command | Purpose |
+|---|---|---|
+| 1 | `npm start` *(or your app's dev command)* | Your application |
+| 2 | `npm run watch` | Argus passive monitor |
+
+**Sequential steps:**
+1. Open Chrome and navigate to your app's local URL
+2. Terminal 1: start your application
+3. Terminal 2: `npm run watch` — Argus begins polling
+4. Develop normally — any new console errors, network failures (4xx/5xx), CORS blocks, or auth failures are printed in Terminal 2 in real time
+5. `Ctrl+C` in Terminal 2 — stops the monitor and writes `reports/report.html` if any issues were found
+
+**To target a specific URL:**
+```bash
+npm run watch http://localhost:4000
+```
+
+**Environment variables:**
+| Variable | Default | Description |
+|---|---|---|
+| `ARGUS_WATCH_INTERVAL_MS` | `3000` | Poll interval in milliseconds |
+| `TARGET_DEV_URL` | `http://localhost:3000` | URL attributed to findings when none passed as argument |
+
+Watch mode uses the same Slack integration as `npm run crawl` — if `SLACK_BOT_TOKEN` is configured, new findings are posted to Slack in real time. On `Ctrl+C`, the HTML report is generated from all accumulated findings for the session.
 
 ### Option C: From Slack (on-demand)
 
@@ -607,6 +639,7 @@ argus/
 │   ├── orchestration/
 │   │   ├── crawl-and-report.js       # Error detection pipeline (calls all analysis engines)
 │   │   ├── env-comparison.js         # Dev vs staging diff + CSS analysis mode
+│   │   ├── watch-mode.js             # Passive browser monitoring (WatchSession + runWatchMode)
 │   │   └── slack-notifier.js         # Slack Block Kit dispatcher
 │   ├── server/
 │   │   ├── index.js                  # Express server (port 3001)
@@ -640,12 +673,12 @@ argus/
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
 │   └── cli/
 │       └── init.js                   # argus init setup wizard — detect framework, discover routes, write .env + targets.js (C4)
-├── test-harness/                     # Fixture server + test runner (77 blocks, 323 hard assertions, 53 categories)
+├── test-harness/                     # Fixture server + test runner (78 blocks, 330 hard assertions, 54 categories)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner — 77 numbered blocks
-│   ├── pages/                        # 53 fixture pages (one per detection category)
+│   ├── validate.js                   # Test runner — 78 numbered blocks
+│   ├── pages/                        # 54 fixture pages (one per detection category)
 │   ├── nextjs-fixture/               # Next.js app structure for C3 discovery tests (10 files)
 │   └── static/
 │       └── button-styles.css         # BEM card selectors in button file → component leak
@@ -684,7 +717,7 @@ argus/
 
 ## Known MCP Tool Limitations
 
-The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`320/323` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code.
+The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`327/330` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code.
 
 > **`type_text` clarification**: `type_text` does fire DOM `input` events when the element is properly focused first with `mcp.click({ uid })`. Always use uid-based focus — passing `{ selector }` to `mcp.click` silently does nothing.
 

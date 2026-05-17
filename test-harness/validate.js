@@ -68,6 +68,7 @@ import { crawlRouteCheap } from '../src/orchestration/crawl-and-report.js';
 import { analyzeIssues } from '../src/utils/issues-analyzer.js';
 import { parseNetworkTiming } from '../src/utils/network-timing-analyzer.js';
 import { analyzeKeyboard } from '../src/utils/keyboard-analyzer.js';
+import { WatchSession } from '../src/orchestration/watch-mode.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -3212,6 +3213,69 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
     const sandboxedFlagged77 = sandbox77.filter(f => f.src && f.src.includes('example.com') && false);
     assert(sandbox77.filter(f => f.src?.includes('sandboxed')).length === 0,
       '[77d] iframe with sandbox attribute is NOT flagged');
+  }
+
+  // ── [78] Watch Mode — WatchSession passive monitoring ────────────────────
+  console.log('\n[78] Watch Mode — WatchSession poll, dedup, incremental detection');
+  {
+    // Navigate to the fixture page and allow on-load errors to settle before polling.
+    await mcp.navigate_page({ url: `${B}/watch-issues.html` });
+    await new Promise(r => setTimeout(r, 800));
+
+    const session78 = new WatchSession(mcp, B);
+
+    // ── First poll ──────────────────────────────────────────────────────────
+    const { findings: poll1_78 } = await session78.poll();
+
+    // [78a] console errors detected (the fixture fires console.error on load)
+    const consoleF78 = poll1_78.filter(f => f.type === 'console' || f.type === 'console_warning');
+    assert(consoleF78.length >= 1,
+      `[78a] First poll detects console errors/warnings from fixture (got ${consoleF78.length})`);
+
+    // [78b] network errors detected (fixture fetches /api/always-500 → 500, /api/missing → 404)
+    const netF78 = poll1_78.filter(f =>
+      f.type === 'network_server_error' || f.type === 'network_not_found'
+    );
+    assert(netF78.length >= 1,
+      `[78b] First poll detects network errors from fixture (got ${netF78.length})`);
+
+    // [78c] deduplication — second immediate poll returns zero new findings
+    const { findings: poll2_78 } = await session78.poll();
+    assert(poll2_78.length === 0,
+      `[78c] Second poll returns 0 new findings — dedup works (got ${poll2_78.length})`);
+
+    // [78d] getAllFindings accumulates correctly across polls
+    assert(session78.getAllFindings().length === poll1_78.length,
+      `[78d] getAllFindings() matches cumulative total (${session78.getAllFindings().length} === ${poll1_78.length})`);
+
+    // [78e] new console error fired after first poll → third poll detects only that one
+    await mcp.evaluate_script({
+      function: `() => { window.argusWatchTriggerError('probe-delta'); return true; }`,
+    });
+    await new Promise(r => setTimeout(r, 300));
+    const { findings: poll3_78 } = await session78.poll();
+    const incF78 = poll3_78.filter(f =>
+      f.type === 'console' && typeof f.message === 'string' && f.message.includes('ARGUS_WATCH_INC')
+    );
+    assert(incF78.length >= 1,
+      `[78e] Third poll detects new incremental error only (got ${poll3_78.length} total, ${incF78.length} incremental)`);
+
+    // [78f] HTTP 500 classified as network_server_error with severity critical
+    const crits78 = session78.getAllFindings().filter(f =>
+      f.type === 'network_server_error' && f.severity === 'critical'
+    );
+    assert(crits78.length >= 1,
+      `[78f] HTTP 500 classified as network_server_error severity critical (got ${crits78.length})`);
+
+    // [78g] every accumulated finding has the required fields: type, severity, message
+    const allFinal78 = session78.getAllFindings();
+    const validShape78 = allFinal78.every(f =>
+      typeof f.type === 'string' &&
+      typeof f.severity === 'string' &&
+      typeof f.message === 'string'
+    );
+    assert(validShape78,
+      `[78g] All findings have required fields: type, severity, message (checked ${allFinal78.length})`);
   }
 }
 
