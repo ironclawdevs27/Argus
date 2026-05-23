@@ -11,7 +11,7 @@ Argus is an AI-driven automated QA harness that audits web pages using Chrome De
 - Flow Runner DSL step actions
 - Assertion patterns for `test-harness/validate.js`
 - Common failure modes and fixes
-- Harness statistics (81 blocks, 342 hard assertions, 54 detection categories)
+- Harness statistics (82 blocks, 348 hard assertions, 54 detection categories)
 
 ## Project Structure
 
@@ -19,6 +19,7 @@ Argus is an AI-driven automated QA harness that audits web pages using Chrome De
 src/
   argus.js                    — single-page audit entry point
   batch-runner.js             — multi-page batch audit
+  mcp-server.js               — Argus MCP server; exposes argus_audit / argus_audit_full / argus_compare / argus_last_report (v9 Sprint 6)
   adapters/
     browser.js                — CdpBrowserAdapter (v9.1.1 + v9.1.9 retry) — wraps all mcp.* calls
   domain/
@@ -52,8 +53,9 @@ src/
   config/
     targets.js                — URL targets + auth steps + centralized thresholds (v9 Sprint 3)
     schema.js                 — Zod validation schema for targets.js; validateConfig() called inside runCrawl() (v9.1.6)
+.mcp.json                     — MCP server registration — argus server entry for Claude / MCP clients (v9 Sprint 6)
 test-harness/
-  validate.js                 — 81-block correctness harness (block [80] reserved for Sprint 6)
+  validate.js                 — 82-block correctness harness (block [80] = MCP server, Sprint 6)
   harness-config.js           — fixture page routing table
   pages/                      — 54 fixture HTML pages
   server.js                   — fixture HTTP server
@@ -71,7 +73,7 @@ Chrome must be running with remote debugging before starting the harness:
 
 # Then run the harness:
 npm run test:unit     # 61 Vitest unit tests — no Chrome required
-npm run test:harness  # Expected: 339/342 (3 permanent MCP-limited failures)
+npm run test:harness  # Expected: 345/348 (3 permanent MCP-limited failures)
 ```
 
 Soft assertions (Lighthouse, perf traces) require non-headless Chrome — they are expected to be skipped in headless CI.
@@ -108,6 +110,8 @@ TARGET_DEV_URL=http://localhost:3000
 TARGET_STAGING_URL=
 ```
 
+`TARGET_DEV_URL` and `TARGET_STAGING_URL` are also read by `argus_compare` when running via `npm run mcp-server` — they are the only configuration inputs for comparison targets (cannot be overridden per-call).
+
 ## Phases Complete
 
-D1–D8.5 (all code phases complete). Watch mode (passive browser monitoring — `npm run watch`). **v9 Sprint 1 complete** — `CdpBrowserAdapter` (`src/adapters/browser.js`), `createFinding()` factory (`src/domain/finding.js`), `mcp-parsers.js`, and all 13 analyzer/orchestration/harness files migrated from `mcp.*` to `browser.*`. **v9 Sprint 2 complete** — plugin registry (`src/registry.js`), god object split (`orchestrator.js` + `report-processor.js` + `dispatcher.js`), `crawl-and-report.js` reduced to 20-line re-export shell, 6 analyzers self-register. **v9 Sprint 3 complete** — all magic-number thresholds centralized in `src/config/targets.js`; `src/config/schema.js` (Zod) validates targets.js at startup. **v9 Sprint 4 complete** — `session-manager.js` split into `session-persistence.js` + `login-orchestrator.js` (v9.1.7); Pino structured logging across all `src/` files via `logger.js` (v9.1.8); `withRetry()` exponential backoff on `navigate` and `fill` in `CdpBrowserAdapter` — `click` is intentionally excluded (not idempotent) (v9.1.9). **v9 Sprint 5 complete** — Vitest unit test suite: 6 files, 61 tests, zero Chrome dependency (`npm run test:unit`); harness blocks [81] (createFinding) + [82] (withRetry) added. Harness: 339/342 (81 blocks; [80] reserved for Sprint 6). See `SKILL.md` §14 for the full feature list.
+D1–D8.5 (all code phases complete). Watch mode (passive browser monitoring — `npm run watch`). **v9 Sprint 1 complete** — `CdpBrowserAdapter` (`src/adapters/browser.js`), `createFinding()` factory (`src/domain/finding.js`), `mcp-parsers.js`, and all 13 analyzer/orchestration/harness files migrated from `mcp.*` to `browser.*`. **v9 Sprint 2 complete** — plugin registry (`src/registry.js`), god object split (`orchestrator.js` + `report-processor.js` + `dispatcher.js`), `crawl-and-report.js` reduced to 20-line re-export shell, 6 analyzers self-register. **v9 Sprint 3 complete** — all magic-number thresholds centralized in `src/config/targets.js`; `src/config/schema.js` (Zod) validates targets.js at startup. **v9 Sprint 4 complete** — `session-manager.js` split into `session-persistence.js` + `login-orchestrator.js` (v9.1.7); Pino structured logging across all `src/` files via `logger.js` (v9.1.8); `withRetry()` exponential backoff on `navigate` and `fill` in `CdpBrowserAdapter` — `click` is intentionally excluded (not idempotent) (v9.1.9). **v9 Sprint 5 complete** — Vitest unit test suite: 6 files, 61 tests, zero Chrome dependency (`npm run test:unit`); harness blocks [81] (createFinding) + [82] (withRetry) added. Harness: 339/342. **v9 Sprint 6 complete** — Argus MCP server (`src/mcp-server.js`): `argus_audit`, `argus_audit_full`, `argus_compare`, `argus_last_report` tools; `.mcp.json` registration; `@modelcontextprotocol/sdk` dependency; harness block [80] (6 assertions). Harness: 345/348 (82 blocks). See `SKILL.md` §14 for the full feature list.
