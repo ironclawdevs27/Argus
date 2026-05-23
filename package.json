@@ -19,6 +19,8 @@
     "harness": "node test-harness/server.js",
     "harness:staging": "PORT=3101 node test-harness/server.js",
     "test:harness": "node test-harness/validate.js",
+    "test:unit": "vitest run test/unit",
+    "test": "npm run test:unit && npm run test:harness",
     "report:html": "node src/utils/html-reporter.js"
   },
   "dependencies": {
@@ -32,5 +34,8 @@
     "pngjs": "^7.0.0",
     "sharp": "^0.33.4",
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.7"
   }
 }

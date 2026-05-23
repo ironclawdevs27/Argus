@@ -7,12 +7,12 @@ description: Argus AI-powered QA harness — Chrome DevTools MCP reference for b
 
 ## 1. What Argus Is
 
-Argus is an AI-driven automated QA harness that audits web pages against 53 detection categories (46 positively verified by the correctness harness) using Chrome DevTools Protocol (CDP) via the `chrome-devtools` MCP server. It drives a real Chromium browser, executes multi-step user flows, and emits structured JSON findings.
+Argus is an AI-driven automated QA harness that audits web pages against 54 detection categories (47 positively verified by the correctness harness) using Chrome DevTools Protocol (CDP) via the `chrome-devtools` MCP server. It drives a real Chromium browser, executes multi-step user flows, and emits structured JSON findings.
 
 **Entry points**
 - `src/argus.js` — single-page audit (CLI)
 - `src/batch-runner.js` — multi-page batch audit
-- `test-harness/validate.js` — 79-block correctness harness (334 hard assertions)
+- `test-harness/validate.js` — 81-block correctness harness (342 hard assertions)
 - `test-harness/harness-config.js` — fixture page routing table
 
 ---
@@ -955,7 +955,7 @@ Always walk at least 3 levels back — the proximate cause is almost never the r
 
 ### Known MCP Behavioral Limitations
 
-These are chrome-devtools-mcp restrictions that **cannot be worked around in Argus code**. They cause 3 permanent failures in the correctness harness (327/330 pass).
+These are chrome-devtools-mcp restrictions that **cannot be worked around in Argus code**. They cause 3 permanent failures in the correctness harness (339/342 pass).
 
 > **Note on `fill` vs `type_text` and DOM events**: Both tools fire DOM `input` events, but differently:
 > - `mcp.fill({ uid, value })` fires **one consolidated `input` event** with the full value — counter shows `value.length`. It does NOT fire per-keystroke `keydown`/`keypress`/`keyup` events.
@@ -1094,14 +1094,35 @@ for (const bp of breakpoints) {
 
 | Metric | Value |
 |--------|-------|
-| Test blocks | 79 |
-| Hard assertions | 334 |
-| Detection categories | 53 in production code; **46 positively verified** by harness fixtures |
+| Test blocks | 81 (block [80] reserved for Sprint 6 — MCP server) |
+| Hard assertions | 342 |
+| Detection categories | 54 in production code; **47 positively verified** by harness fixtures |
 | Fixture pages | 54 |
 | Flow step actions | 11 (navigate, waitFor, sleep, fill, click, drag, upload_file, select_option, press_key, handle_dialog, assert) |
-| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring), **v9 Sprint 1 (adapter layer)**, **v9 Sprint 2 (plugin registry + god object split)**, **v9 Sprint 3 (threshold centralization + Zod validation)**, **v9 Sprint 4 (session split, Pino logging, retry)** |
+| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring), **v9 Sprint 1 (adapter layer)**, **v9 Sprint 2 (plugin registry + god object split)**, **v9 Sprint 3 (threshold centralization + Zod validation)**, **v9 Sprint 4 (session split, Pino logging, retry)**, **v9 Sprint 5 (Vitest unit tests, blocks [81]+[82])** |
 
-Expected harness output: `331/334 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
+Expected harness output: `339/342 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
+
+### v9 Sprint 5 additions (2026-05-23)
+
+Vitest unit test suite — 6 files, 61 tests, zero Chrome dependency. Gate: 339/342.
+
+| New file | Sprint | Tests |
+|----------|--------|-------|
+| `test/unit/finding.test.js` | v9.1.10 | 8 — createFinding() fields, throws, frozen, extra fields |
+| `test/unit/config-schema.test.js` | v9.1.10 | 8 — validateConfig() valid/invalid, ConfigSchema.safeParse |
+| `test/unit/report-processor.test.js` | v9.1.10 | 11 — deduplicateFindings + rebuildSummary |
+| `test/unit/flakiness-detector.test.js` | v9.1.10 | 13 — findingKey normalization + mergeRunResults |
+| `test/unit/baseline-manager.test.js` | v9.1.10 | 9 — loadBaseline/saveBaseline/applyBaseline (real tmp dirs) |
+| `test/unit/flow-runner.test.js` | v9.1.10 | 11 — normalizeArray (pure) + runFlow with mock browser |
+
+**New harness blocks**: [81] `createFinding()` (4 assertions — required fields, invalid severity, immutability, url default) + [82] `withRetry()` (4 assertions — success once, retries, rethrows, env override). Total: 8 new assertions → 339/342.
+
+**New scripts in `package.json`**: `"test:unit": "vitest run test/unit"` + `"test": "npm run test:unit && npm run test:harness"`. `vitest ^4.1.7` added to `devDependencies`.
+
+**Run unit tests** (no Chrome required): `npm run test:unit`
+
+---
 
 ### v9 Sprint 4 additions (2026-05-18)
 
@@ -1212,7 +1233,7 @@ All 13 analyzer/orchestration/harness files migrated from `mcp.*` → `browser.*
 | `browser.listConsoleRaw(args)` | `list_console_messages(args)` → raw (for issues panel) |
 | `browser.close()` | `close()` |
 
-> The 7-category gap (53 − 46): `cors_violation`, `mixed_content`, `cookie_attribute_missing`, `low_contrast_native`, `permission_policy_violation`, `focus_lost`, `heading_missing_h1` — no fixture triggers these yet. See v6.103–v6.110 in `argus-v6-strategy.md` §10.
+> The 7-category gap (54 − 47): `cors_violation`, `mixed_content`, `cookie_attribute_missing`, `low_contrast_native`, `permission_policy_violation`, `focus_lost`, `heading_missing_h1` — no fixture triggers these yet. See v6.103–v6.110 in `argus-v6-strategy.md` §10.
 
 ### v6 additions (v6.093–v6.102)
 

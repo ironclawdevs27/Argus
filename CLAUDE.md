@@ -11,7 +11,7 @@ Argus is an AI-driven automated QA harness that audits web pages using Chrome De
 - Flow Runner DSL step actions
 - Assertion patterns for `test-harness/validate.js`
 - Common failure modes and fixes
-- Harness statistics (79 blocks, 334 hard assertions, 53 detection categories)
+- Harness statistics (81 blocks, 342 hard assertions, 54 detection categories)
 
 ## Project Structure
 
@@ -53,7 +53,7 @@ src/
     targets.js                — URL targets + auth steps + centralized thresholds (v9 Sprint 3)
     schema.js                 — Zod validation schema for targets.js; validateConfig() called inside runCrawl() (v9.1.6)
 test-harness/
-  validate.js                 — 78-block correctness harness
+  validate.js                 — 81-block correctness harness (block [80] reserved for Sprint 6)
   harness-config.js           — fixture page routing table
   pages/                      — 54 fixture HTML pages
   server.js                   — fixture HTTP server
@@ -70,8 +70,8 @@ Chrome must be running with remote debugging before starting the harness:
 "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu --user-data-dir=%TEMP%\chrome-argus
 
 # Then run the harness:
-npm run test:harness
-# Expected: 331/334 (3 permanent MCP-limited failures)
+npm run test:unit     # 61 Vitest unit tests — no Chrome required
+npm run test:harness  # Expected: 339/342 (3 permanent MCP-limited failures)
 ```
 
 Soft assertions (Lighthouse, perf traces) require non-headless Chrome — they are expected to be skipped in headless CI.
@@ -110,4 +110,4 @@ TARGET_STAGING_URL=
 
 ## Phases Complete
 
-D1–D8.5 (all code phases complete). Watch mode (passive browser monitoring — `npm run watch`). **v9 Sprint 1 complete** — `CdpBrowserAdapter` (`src/adapters/browser.js`), `createFinding()` factory (`src/domain/finding.js`), `mcp-parsers.js`, and all 13 analyzer/orchestration/harness files migrated from `mcp.*` to `browser.*`. **v9 Sprint 2 complete** — plugin registry (`src/registry.js`), god object split (`orchestrator.js` + `report-processor.js` + `dispatcher.js`), `crawl-and-report.js` reduced to 20-line re-export shell, 6 analyzers self-register. **v9 Sprint 3 complete** — all magic-number thresholds centralized in `src/config/targets.js`; `src/config/schema.js` (Zod) validates targets.js at startup. **v9 Sprint 4 complete** — `session-manager.js` split into `session-persistence.js` + `login-orchestrator.js` (v9.1.7); Pino structured logging across all `src/` files via `logger.js` (v9.1.8); `withRetry()` exponential backoff on `navigate` and `fill` in `CdpBrowserAdapter` — `click` is intentionally excluded (not idempotent) (v9.1.9). Harness: 331/334. See `SKILL.md` §14 for the full feature list.
+D1–D8.5 (all code phases complete). Watch mode (passive browser monitoring — `npm run watch`). **v9 Sprint 1 complete** — `CdpBrowserAdapter` (`src/adapters/browser.js`), `createFinding()` factory (`src/domain/finding.js`), `mcp-parsers.js`, and all 13 analyzer/orchestration/harness files migrated from `mcp.*` to `browser.*`. **v9 Sprint 2 complete** — plugin registry (`src/registry.js`), god object split (`orchestrator.js` + `report-processor.js` + `dispatcher.js`), `crawl-and-report.js` reduced to 20-line re-export shell, 6 analyzers self-register. **v9 Sprint 3 complete** — all magic-number thresholds centralized in `src/config/targets.js`; `src/config/schema.js` (Zod) validates targets.js at startup. **v9 Sprint 4 complete** — `session-manager.js` split into `session-persistence.js` + `login-orchestrator.js` (v9.1.7); Pino structured logging across all `src/` files via `logger.js` (v9.1.8); `withRetry()` exponential backoff on `navigate` and `fill` in `CdpBrowserAdapter` — `click` is intentionally excluded (not idempotent) (v9.1.9). **v9 Sprint 5 complete** — Vitest unit test suite: 6 files, 61 tests, zero Chrome dependency (`npm run test:unit`); harness blocks [81] (createFinding) + [82] (withRetry) added. Harness: 339/342 (81 blocks; [80] reserved for Sprint 6). See `SKILL.md` §14 for the full feature list.
