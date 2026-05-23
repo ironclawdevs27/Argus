@@ -14,7 +14,7 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 | 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
 |:---:|:---:|:---:|:---:|
-| **114 distinct issue types detected** | **24 analysis engines** | **342 test assertions** | **81 test blocks** |
+| **114 distinct issue types detected** | **24 analysis engines** | **348 test assertions** | **82 test blocks** |
 
 </div>
 
@@ -282,6 +282,7 @@ Argus watches your running application and automatically surfaces issues that te
 | **Slack Notifications** | Rich Block Kit reports with inline screenshots routed to `#bugs-critical`, `#bugs-warnings`, `#bugs-digest` |
 | **Slash Command** | `/argus-retest <url>` triggers an on-demand test from any Slack channel |
 | **CI Integration** | GitHub Actions workflow runs daily at 6 AM UTC and on every push to `main` |
+| **MCP Server (AI-callable Argus)** | Register Argus as an MCP server via `.mcp.json`; Claude (or any MCP client) can call `argus_audit`, `argus_audit_full`, `argus_compare`, `argus_last_report` directly from a conversation — no CLI, no terminal required (`npm run mcp-server`) |
 
 Works with **React + SCSS**, CSS Modules, CSS-in-JS (styled-components / emotion), and plain HTML/CSS apps.
 
@@ -633,6 +634,7 @@ argus/
 │       └── argus.yml                 # CI pipeline
 ├── .vscode/
 │   └── mcp.json                      # Chrome DevTools MCP config for VS Code
+├── .mcp.json                         # Argus MCP server registration — exposes argus_audit/argus_audit_full/argus_compare/argus_last_report to Claude (v9 Sprint 6)
 ├── src/
 │   ├── adapters/
 │   │   └── browser.js                # CdpBrowserAdapter — facade over all chrome-devtools-mcp calls (v9 Sprint 1)
@@ -694,11 +696,11 @@ argus/
 │       ├── flakiness-detector.test.js # findingKey normalization + mergeRunResults (13 tests)
 │       ├── baseline-manager.test.js  # loadBaseline/saveBaseline/applyBaseline (9 tests)
 │       └── flow-runner.test.js       # normalizeArray (pure) + runFlow mock browser (11 tests)
-├── test-harness/                     # Fixture server + test runner (81 blocks, 342 hard assertions, 54 fixture pages)
+├── test-harness/                     # Fixture server + test runner (82 blocks, 348 hard assertions, 54 fixture pages)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner — 81 numbered blocks (block [80] reserved for Sprint 6)
+│   ├── validate.js                   # Test runner — 82 numbered blocks (block [80] = MCP server, Sprint 6)
 │   ├── pages/                        # 54 fixture pages (one per detection category)
 │   ├── nextjs-fixture/               # Next.js app structure for C3 discovery tests (10 files)
 │   └── static/
@@ -738,7 +740,7 @@ argus/
 
 ## Known MCP Tool Limitations
 
-The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`339/342` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code.
+The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`345/348` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code.
 
 > **`type_text` clarification**: `type_text` does fire DOM `input` events when the element is properly focused first with `mcp.click({ uid })`. Always use uid-based focus — passing `{ selector }` to `mcp.click` silently does nothing.
 

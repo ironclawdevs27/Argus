@@ -12,7 +12,8 @@ Argus is an AI-driven automated QA harness that audits web pages against 54 dete
 **Entry points**
 - `src/argus.js` — single-page audit (CLI)
 - `src/batch-runner.js` — multi-page batch audit
-- `test-harness/validate.js` — 81-block correctness harness (342 hard assertions)
+- `src/mcp-server.js` — MCP server (AI-callable via Claude or any MCP client; registers argus_audit / argus_audit_full / argus_compare / argus_last_report)
+- `test-harness/validate.js` — 82-block correctness harness (348 hard assertions)
 - `test-harness/harness-config.js` — fixture page routing table
 
 ---
@@ -1094,14 +1095,33 @@ for (const bp of breakpoints) {
 
 | Metric | Value |
 |--------|-------|
-| Test blocks | 81 (block [80] reserved for Sprint 6 — MCP server) |
-| Hard assertions | 342 |
+| Test blocks | 82 (block [80] = MCP server, Sprint 6) |
+| Hard assertions | 348 |
 | Detection categories | 54 in production code; **47 positively verified** by harness fixtures |
 | Fixture pages | 54 |
 | Flow step actions | 11 (navigate, waitFor, sleep, fill, click, drag, upload_file, select_option, press_key, handle_dialog, assert) |
-| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring), **v9 Sprint 1 (adapter layer)**, **v9 Sprint 2 (plugin registry + god object split)**, **v9 Sprint 3 (threshold centralization + Zod validation)**, **v9 Sprint 4 (session split, Pino logging, retry)**, **v9 Sprint 5 (Vitest unit tests, blocks [81]+[82])** |
+| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring), **v9 Sprint 1 (adapter layer)**, **v9 Sprint 2 (plugin registry + god object split)**, **v9 Sprint 3 (threshold centralization + Zod validation)**, **v9 Sprint 4 (session split, Pino logging, retry)**, **v9 Sprint 5 (Vitest unit tests, blocks [81]+[82])**, **v9 Sprint 6 (Argus MCP server, block [80])** |
 
-Expected harness output: `339/342 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
+Expected harness output: `345/348 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
+
+### v9 Sprint 6 additions (2026-05-23)
+
+Argus MCP server — Argus exposed as an MCP tool server. Gate: 345/348.
+
+| New file | Purpose |
+|----------|---------|
+| `src/mcp-server.js` | MCP server — exposes `argus_audit`, `argus_audit_full`, `argus_compare`, `argus_last_report` |
+| `.mcp.json` | MCP server registration — `"argus": { "command": "node", "args": ["src/mcp-server.js"] }` |
+
+**New harness block**: [80] MCP server registration (6 assertions — file exists, all 4 tool names present, `.mcp.json` has "argus" entry). Total: 6 new assertions → 345/348.
+
+**New script in `package.json`**: `"mcp-server": "node src/mcp-server.js"`. `@modelcontextprotocol/sdk ^1.29.0` added to `dependencies`.
+
+**Architecture**: MCP-inside-MCP. Argus MCP server consumes `createMcpClient()` (headless chrome-devtools-mcp) then calls `crawlRouteCheap` / `runCrawl` / `runComparison` using the raw `mcp` interface (same as CLI). All tool handlers wrapped in `withMcp()` for clean teardown.
+
+**Tool note**: `argus_compare` reads URLs from `TARGET_DEV_URL` / `TARGET_STAGING_URL` in `.env` / targets.js (same as `npm run compare`).
+
+---
 
 ### v9 Sprint 5 additions (2026-05-23)
 

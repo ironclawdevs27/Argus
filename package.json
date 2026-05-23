@@ -21,9 +21,11 @@
     "test:harness": "node test-harness/validate.js",
     "test:unit": "vitest run test/unit",
     "test": "npm run test:unit && npm run test:harness",
-    "report:html": "node src/utils/html-reporter.js"
+    "report:html": "node src/utils/html-reporter.js",
+    "mcp-server": "node src/mcp-server.js"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@slack/web-api": "^7.3.4",
     "chrome": "^0.1.0",
     "dotenv": "^16.4.5",

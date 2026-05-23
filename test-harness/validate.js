@@ -3330,6 +3330,51 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
       '[79d] validateConfig throws when thresholds.perf.LCP is a string instead of a number');
   }
 
+  // ── Block [80] Argus MCP server registration ─────────────────────────────
+  {
+    console.log('\n[80] Argus MCP server — file registration (v9.2.0)');
+
+    const mcpServerPath = path.join(__dirname, '../src/mcp-server.js');
+    const mcpJsonPath   = path.join(__dirname, '../.mcp.json');
+
+    // [80a] src/mcp-server.js exists and is readable
+    let serverContent = null;
+    try { serverContent = fs.readFileSync(mcpServerPath, 'utf8'); } catch { /* file missing */ }
+    assert(serverContent !== null, '[80a] src/mcp-server.js exists and is readable');
+
+    // [80b] file contains 'argus_audit' tool name
+    assert(
+      serverContent !== null && serverContent.includes('argus_audit'),
+      '[80b] src/mcp-server.js registers the argus_audit tool',
+    );
+
+    // [80c] file contains 'argus_compare' tool name
+    assert(
+      serverContent !== null && serverContent.includes('argus_compare'),
+      '[80c] src/mcp-server.js registers the argus_compare tool',
+    );
+
+    // [80d] file contains 'argus_audit_full' tool name
+    assert(
+      serverContent !== null && serverContent.includes('argus_audit_full'),
+      '[80d] src/mcp-server.js registers the argus_audit_full tool',
+    );
+
+    // [80e] file contains 'argus_last_report' tool name
+    assert(
+      serverContent !== null && serverContent.includes('argus_last_report'),
+      '[80e] src/mcp-server.js registers the argus_last_report tool',
+    );
+
+    // [80f] .mcp.json exists and contains "argus" server entry
+    let mcpJsonContent = null;
+    try { mcpJsonContent = fs.readFileSync(mcpJsonPath, 'utf8'); } catch { /* file missing */ }
+    assert(
+      mcpJsonContent !== null && mcpJsonContent.includes('"argus"'),
+      '[80f] .mcp.json exists and contains "argus" server entry',
+    );
+  }
+
   // ── Block [81] createFinding() factory ────────────────────────────────────
   {
     console.log('\n[81] createFinding() factory (domain layer)');
