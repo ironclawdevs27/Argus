@@ -1,5 +1,5 @@
 /**
- * Argus Orchestrator (v9.1.3)
+ * Argus Orchestrator (v9.3.0)
  *
  * Per-route crawl loop: cheap×2 flakiness pass + expensive×1 pass.
  * Extracted from crawl-and-report.js god object.
@@ -47,6 +47,7 @@ import { processReport }         from './report-processor.js';
 import { dispatchAll }           from './dispatcher.js';
 import { validateConfig }        from '../config/schema.js';
 import { childLogger }           from '../utils/logger.js';
+import { startSpan, recordFinding, recordFlaky, recordNewFindings } from '../utils/telemetry.js';
 
 const logger = childLogger('orchestrator');
 
@@ -857,6 +858,7 @@ export async function crawlRouteExpensive(route, baseUrl, mcp) {
 // ── Per-Route Crawl Coordinator ────────────────────────────────────────────────
 
 async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
+  return startSpan('argus.crawl_route', { url: `${targetBaseUrl}${route.path}`, critical: String(!!route.critical) }, async () => {
   const browser = new CdpBrowserAdapter(mcp);
   const url     = `${targetBaseUrl}${route.path}`;
 
@@ -871,14 +873,14 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
 
   // Cheap pass × 2 → merge for flakiness
   logger.info(`[ARGUS] ${route.name}: cheap run 1/2...`);
-  const cheapRun1 = await crawlRouteCheap(route, targetBaseUrl, mcp);
+  const cheapRun1 = await startSpan('argus.crawl_route', { url, critical: String(!!route.critical), pass: 'cheap_1' }, () => crawlRouteCheap(route, targetBaseUrl, mcp));
   logger.info(`[ARGUS] ${route.name}: cheap run 2/2 (flakiness check)...`);
-  const cheapRun2 = await crawlRouteCheap(route, targetBaseUrl, mcp);
+  const cheapRun2 = await startSpan('argus.crawl_route', { url, critical: String(!!route.critical), pass: 'cheap_2' }, () => crawlRouteCheap(route, targetBaseUrl, mcp));
   const result    = mergeRunResults(cheapRun1, cheapRun2);
 
   // Expensive pass × 1
   logger.info(`[ARGUS] ${route.name}: expensive analyzers (once)...`);
-  const expensiveErrors = await crawlRouteExpensive(route, targetBaseUrl, mcp);
+  const expensiveErrors = await startSpan('argus.crawl_route', { url, critical: String(!!route.critical), pass: 'expensive' }, () => crawlRouteExpensive(route, targetBaseUrl, mcp));
   result.errors.push(...expensiveErrors);
   result.errors = deduplicateErrors(result.errors);
 
@@ -886,7 +888,7 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
   for (const { name, analyze } of getExpensive()) {
     if (name === 'lighthouse') continue; // runs inside crawlRouteExpensive
     try {
-      const raw      = await analyze(browser, url, route);
+      const raw      = await startSpan('argus.analyzer', { name, url }, () => analyze(browser, url, route));
       const findings = Array.isArray(raw) ? raw : (raw?.findings ?? []);
       result.errors.push(...findings);
       // Handle responsive screenshot return shape: { findings, screenshots }
@@ -922,7 +924,13 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
     result.discoveredLinks = [];
   }
 
+  // Record per-route finding metrics and flakiness
+  const flakyCount = result.errors.filter(e => e.flaky).length;
+  recordFlaky(flakyCount, route.name);
+  for (const f of result.errors) recordFinding(f.type, f.severity, route.name);
+
   return result;
+  }); // end argus.crawl_route span
 }
 
 // ── Parallel Shard Runner (D7.3) ──────────────────────────────────────────────
@@ -953,6 +961,7 @@ async function crawlShardWithClient(shard, targetBaseUrl, mcp, sessionFile) {
  * @returns {object} Full report object
  */
 export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = null) {
+  return startSpan('argus.run_crawl', { baseUrl: baseUrlOverride ?? BASE_URL }, async () => {
   // Validate config at startup — catches targets.js misconfiguration before any crawl work begins.
   // Named exports are already statically imported above; build the namespace object here.
   validateConfig({ config, routes, thresholds, apiContracts, severityOverrides, auth, flows, codebase, autoDiscover });
@@ -1102,9 +1111,12 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
     severityOverrides,
   });
 
+  if (diff && !diff.isFirstRun) recordNewFindings(diff.newCount ?? 0);
+
   await dispatchAll(report, diff, reportPath);
 
   return report;
+  }); // end argus.run_crawl span
 }
 
 // ── CLI Entry ──────────────────────────────────────────────────────────────────

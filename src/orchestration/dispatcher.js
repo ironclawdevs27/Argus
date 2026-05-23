@@ -1,5 +1,5 @@
 /**
- * Argus Report Dispatcher (v9.1.3)
+ * Argus Report Dispatcher (v9.3.0)
  *
  * Dispatches a completed report to Slack, GitHub, and/or HTML.
  * Extracted from crawl-and-report.js god object.
@@ -8,6 +8,7 @@
 import path                                        from 'path';
 import { execFile }                               from 'child_process';
 import { childLogger }                            from '../utils/logger.js';
+import { startSpan }                             from '../utils/telemetry.js';
 import { postBugReport }                          from './slack-notifier.js';
 import { isSlackConfigured }                      from '../utils/slack-guard.js';
 import { isGitHubConfigured, reportToGitHub }     from '../utils/github-reporter.js';
@@ -237,24 +238,26 @@ async function dispatchToSlack(report, diff) {
  * @param {string} reportPath - Path to the written JSON report (for HTML generation)
  */
 export async function dispatchAll(report, diff, reportPath) {
+  return startSpan('argus.dispatch', { baseUrl: report?.baseUrl ?? '' }, async () => {
   if (isSlackConfigured()) {
     try {
-      await dispatchToSlack(report, diff);
+      await startSpan('argus.dispatch', { channel: 'slack' }, () => dispatchToSlack(report, diff));
     } catch (err) {
       logger.error(`[ARGUS] Slack dispatch failed: ${err.message}`);
     }
   } else {
     logger.info('\n[ARGUS] No Slack credentials — generating HTML report...');
-    const htmlPath = generateHtmlReport(reportPath);
+    const htmlPath = await startSpan('argus.dispatch', { channel: 'html' }, () => generateHtmlReport(reportPath));
     logger.info(`[ARGUS] ✓ Open in browser: ${htmlPath}\n`);
     openInBrowser(htmlPath);
   }
 
   if (isGitHubConfigured()) {
     try {
-      await reportToGitHub(report, diff);
+      await startSpan('argus.dispatch', { channel: 'github' }, () => reportToGitHub(report, diff));
     } catch (err) {
       logger.error(`[ARGUS] GitHub reporting failed: ${err.message}`);
     }
   }
+  }); // end argus.dispatch span
 }

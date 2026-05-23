@@ -1,5 +1,5 @@
 /**
- * Argus v3 Phase B5 / D8.3–D8.5 — User Flow Runner
+ * Argus v9.3.0 — User Flow Runner
  *
  * Executes reusable multi-step interaction sequences defined in targets.js flows[].
  * Each flow is a named sequence of steps that exercises a user journey end-to-end.
@@ -38,6 +38,7 @@ import os   from 'os';
 import path from 'path';
 import { unwrapEval } from './mcp-client.js';
 import { childLogger } from './logger.js';
+import { startSpan } from './telemetry.js';
 
 const logger = childLogger('flow-runner');
 
@@ -310,6 +311,7 @@ async function runAssert(step, browser, flowName, baseUrl, baselines) {
  * Critical assert failures also stop execution immediately unless step.failFast is false.
  */
 export async function runFlow(flow, baseUrl, browser) {
+  return startSpan('argus.flow', { flow_name: flow.name, url: baseUrl }, async () => {
   const result = {
     flowName: flow.name,
     ranAt: new Date().toISOString(),
@@ -328,8 +330,11 @@ export async function runFlow(flow, baseUrl, browser) {
     networkReqCount: (await browser.listNetwork().catch(() => [])).length,
   };
 
+  let _earlyExit = false;
+
   for (const step of flow.steps) {
     try {
+      await startSpan('argus.flow_step', { flow_name: flow.name, action: step.action ?? '', selector: step.selector ?? '' }, async () => {
       switch (step.action) {
         case 'navigate':
           // step.url = absolute URL override; step.path = relative to baseUrl
@@ -481,7 +486,8 @@ export async function runFlow(flow, baseUrl, browser) {
           if (assertFindings.some(f => f.severity === 'critical') && step.failFast !== false) {
             result.status = 'fail';
             result.stepsCompleted++;
-            return result;
+            _earlyExit = true;
+            return; // exit span fn; outer loop checks _earlyExit before incrementing again
           }
           break;
         }
@@ -489,6 +495,8 @@ export async function runFlow(flow, baseUrl, browser) {
         default:
           logger.warn(`[ARGUS] Flow "${flow.name}": unknown step action "${step.action}" — skipped`);
       }
+      }); // end argus.flow_step span
+      if (_earlyExit) return result; // propagate early exit from critical assert
       result.stepsCompleted++;
     } catch (err) {
       // Capture a screenshot of the failure state for debugging before the page changes.
@@ -520,6 +528,7 @@ export async function runFlow(flow, baseUrl, browser) {
   }
 
   return result;
+  }); // end argus.flow span
 }
 
 /**

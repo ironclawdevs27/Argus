@@ -6,14 +6,14 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 <div align="center">
 
-[![](https://skillicons.dev/icons?i=nodejs,js,expressjs,react,css,sass,github,githubactions,vscode)](https://skillicons.dev)
+[![Tech stack icons](https://skillicons.dev/icons?i=nodejs,js,expressjs,react,css,sass,github,githubactions,vscode)](https://skillicons.dev)
 
 </div>
 
 <div align="center">
 
 | 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
-|:---:|:---:|:---:|:---:|
+| :---: | :---: | :---: | :---: |
 | **114 distinct issue types detected** | **24 analysis engines** | **348 test assertions** | **82 test blocks** |
 
 </div>
@@ -27,7 +27,7 @@ Argus runs **24 analysis engines** per run and detects **114 distinct issue type
 ### JavaScript Runtime
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🔴 Critical | Uncaught exceptions — `TypeError`, `ReferenceError`, etc. | `window.onerror` listener injected before page load |
 | 🔴 Critical | Unhandled Promise rejections | `unhandledrejection` event listener injected into the page |
 | 🟡 Warning | `console.error` calls (on non-critical routes) | Chrome DevTools `list_console_messages` |
@@ -37,7 +37,7 @@ Argus runs **24 analysis engines** per run and detects **114 distinct issue type
 ### Network & API
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🔴 Critical | HTTP 5xx server errors on any request | `list_network_requests` → status ≥ 500 |
 | 🔴 Critical | 401 / 403 auth failures — user is being kicked out | `list_network_requests` → status 401 or 403 |
 | 🔴 Critical | API endpoint called 5+ times in one page load — likely an infinite loop | Network frequency grouping by normalized URL + method |
@@ -51,14 +51,14 @@ Argus runs **24 analysis engines** per run and detects **114 distinct issue type
 ### Page Health
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🔴 Critical | Blank or near-empty page — less than 50 characters of body text | `document.body.innerText` length check after navigation |
 | 🟡 Warning | Expected element never appeared — page may have crashed mid-load | `waitFor` selector timeout after 10 seconds |
 
 ### CSS & Styling
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🟡 Warning | `!important` cascade conflict — forced override fighting another rule | CSS rule walk: property declared with `!important` on same element |
 | 🟡 Warning | Component style leak — BEM selector found in the wrong stylesheet | `.block__element` selector in a file whose name doesn't match `block` |
 | 🟡 Warning | React inline style overriding a stylesheet declaration on the same element | `style=""` attribute vs. matching CSS rule, `__reactFiber` presence confirmed |
@@ -70,7 +70,7 @@ Argus runs **24 analysis engines** per run and detects **114 distinct issue type
 ### Performance
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🟡 Warning | LCP > 2500ms — largest element took too long to paint | Chrome performance trace → `performance_analyze_insight` |
 | 🟡 Warning | CLS > 0.1 — layout shifted significantly after initial render | Chrome performance trace |
 | 🟡 Warning | FID / TBT > 100ms — main thread was blocked during interaction | Chrome performance trace |
@@ -79,7 +79,7 @@ Argus runs **24 analysis engines** per run and detects **114 distinct issue type
 ### Accessibility
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🔴 Critical | Lighthouse accessibility score below 50 / 100 | Lighthouse audit via `lighthouse_audit` |
 | 🟡 Warning | Lighthouse accessibility score 50–89 / 100 | Lighthouse audit |
 | 🟡 Warning | Missing alt text on images | Individual Lighthouse audit check |
@@ -90,7 +90,7 @@ Argus runs **24 analysis engines** per run and detects **114 distinct issue type
 ### SEO
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🟡 Warning | Missing `<meta name="description">` | DOM inspection via `evaluate_script` |
 | 🟡 Warning | Missing Open Graph tags (`og:title`, `og:description`, `og:image`) | DOM inspection via `evaluate_script` |
 | 🟡 Warning | `og:image` URL is relative — Open Graph requires an absolute URL | DOM inspection + URL prefix check (`http://` / `https://`) |
@@ -103,7 +103,7 @@ Argus runs **24 analysis engines** per run and detects **114 distinct issue type
 ### Security
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🔴 Critical | Auth token found in `localStorage` or `sessionStorage` | `evaluate_script` walks storage keys for token patterns |
 | 🔴 Critical | Sensitive token in the page URL (query param or hash) | URL pattern match against current `window.location.href` |
 | 🔴 Critical | `eval()` call detected in page scripts | `evaluate_script` AST-style text scan of inline `<script>` tags |
@@ -119,7 +119,7 @@ Argus runs **24 analysis engines** per run and detects **114 distinct issue type
 ### Content Quality
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🟡 Warning | `null` or `undefined` rendered as visible text | DOM text scan for literal "null" / "undefined" strings |
 | 🟡 Warning | Lorem ipsum / placeholder copy still in production | DOM text scan for "lorem ipsum" and common placeholder strings |
 | 🟡 Warning | Broken image (404 or failed to load) | `evaluate_script` checks `img.naturalWidth === 0` on all images |
@@ -128,7 +128,7 @@ Argus runs **24 analysis engines** per run and detects **114 distinct issue type
 ### Responsive / Mobile
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🔴 Critical | Horizontal overflow at mobile / tablet viewport (≤ 768px) | `emulate` at 375px and 768px → `document.documentElement.scrollWidth > clientWidth` |
 | 🟡 Warning | Touch target smaller than 44×44 px at mobile or tablet viewport | CSS computed size check on interactive elements at 375px and 768px |
 | 🔵 Info | Responsive screenshot grid — snapshots at 375 / 768 / 1024 / 1440px | `emulate` at 4 breakpoints, screenshots dispatched to Slack |
@@ -136,7 +136,7 @@ Argus runs **24 analysis engines** per run and detects **114 distinct issue type
 ### Network Performance
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🔴 Critical | API response time > 3000ms | `PerformanceObserver` entries for `fetch` / XHR calls |
 | 🟡 Warning | API response time > 1000ms | Same observer, lower threshold |
 | 🔴 Critical | API response payload > 2 MB | `list_network_requests` → response body size |
@@ -147,10 +147,10 @@ Argus runs **24 analysis engines** per run and detects **114 distinct issue type
 
 All network findings carry an `origin` field (`'first-party'` / `'third-party'`) so operators can triage critical first-party failures separately from third-party noise.
 
-### Lighthouse Suite
+### Lighthouse Audits
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🔴 Critical | Lighthouse accessibility score < 50 / 100 | `lighthouse_audit` (accessibility category) |
 | 🟡 Warning | Lighthouse accessibility score 50–89 / 100 | `lighthouse_audit` |
 | 🟡 Warning | Lighthouse performance score < 90 / 100 | `lighthouse_audit` (performance category) |
@@ -161,7 +161,7 @@ All network findings carry an `origin` field (`'first-party'` / `'third-party'`)
 ### Memory Leaks
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🔴 Critical | > 100 detached DOM nodes in V8 heap — severe leak | `take_memory_snapshot` → parse flat nodes array for "Detached Xxx" names |
 | 🟡 Warning | > 10 detached DOM nodes in V8 heap — probable leak | Same snapshot parse, lower threshold |
 | 🟡 Warning | Heap grew > 2 MB after navigate-away + navigate-back — probable per-load leak | `performance.memory.usedJSHeapSize` delta across round-trip (soft — GC-dependent) |
@@ -169,7 +169,7 @@ All network findings carry an `origin` field (`'first-party'` / `'third-party'`)
 ### Runtime Anti-Patterns
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🟡 Warning | Synchronous `XMLHttpRequest` — blocks the main thread until the server responds | `XMLHttpRequest.open` patched via `addScriptToEvaluateOnNewDocument`; `async === false` calls recorded |
 | 🟡 Warning | `document.write` / `document.writeln` called — can erase the page or block parsing | `document.write` and `document.writeln` patched before page load; calls recorded with method + content |
 | 🟡 Warning | Long task > 50ms on the main thread — blocks user interaction | `PerformanceObserver` with `entryTypes: ['longtask']` injected before page load |
@@ -180,7 +180,7 @@ All network findings carry an `origin` field (`'first-party'` / `'third-party'`)
 ### Historical Baselines & Trends
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🔴 Critical | New critical finding not present in the saved baseline — regression introduced since last run | `applyBaseline` compares finding keys (`type::message[:100]::status`) against `reports/baselines/<branch>.json` (D7.2 per-branch) |
 | 🟡 Warning | New warning finding not present in the baseline | Same key comparison, warning severity |
 | 🔵 Info | Pre-existing finding still present — no change since last run | Suppressed from real-time alerts; included in info digest only |
@@ -189,14 +189,14 @@ All network findings carry an `origin` field (`'first-party'` / `'third-party'`)
 ### Hover-State Bugs
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🟡 Warning / 🔴 Critical | `[aria-haspopup]` element whose controlled popup does not become visible after hover — `aria-expanded` stays false and popup remains `display:none` / `visibility:hidden` / `opacity:0` | `hover` dispatches `mousemove`; `evaluate_script` checks `aria-expanded` + `getComputedStyle` on the controlled element; critical on routes marked `critical: true` |
 | 🟡 Warning | `[data-tooltip]` element whose `[role="tooltip"]` is not visible in the DOM after hover — not found or opacity ≤ 0.05 | Same hover + `evaluate_script` checks tooltip opacity, `display`, `visibility`, and `offsetHeight` |
 
 ### Accessibility Snapshot Analysis
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🟡 Warning | Interactive element (`<button>`, `<a>`, `[role="button"]`, `[role="link"]`) with no accessible name — no text content, `aria-label`, `aria-labelledby`, `title`, or `alt` | `take_snapshot` captures DOM/AX state; `evaluate_script` queries each visible interactive element for accessible name sources |
 | 🟡 Warning | Form control (`<input>`, `<select>`, `<textarea>`) with no associated label — no `<label for="...">`, `aria-label`, or `aria-labelledby` (placeholder is intentionally excluded — not a valid accessible name per WCAG 2.1 §3.3.2) | `evaluate_script` checks `label[for]`, ancestor `<label>`, `aria-label`, and `aria-labelledby` for each visible control |
 | 🟡 Warning | Landmark role appearing more than once without distinct `aria-label` / `aria-labelledby` — screen readers cannot differentiate them | `evaluate_script` counts `[role=X]` instances and checks for unique label values across: `main`, `banner`, `contentinfo`, `navigation`, `search`, `complementary`, `form`, `region` |
@@ -206,20 +206,20 @@ All network findings carry an `origin` field (`'first-party'` / `'third-party'`)
 ### Keyboard Accessibility
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🟡 Warning | Button or focusable element has `outline:0` with no `box-shadow` fallback — no visible focus ring | `press_key({ key: 'Tab' })` walk + `evaluate_script` reads `document.activeElement` computed style for outline/box-shadow |
 
 ### Flakiness Detection
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | original | Confirmed finding — present in both crawl runs | `mergeRunResults` finds the key in both run1 and run2 (`type::message[:100]::status` scheme); original severity kept |
 | 🔵 Info | Flaky finding — appeared in only one of two crawl runs | Present in run1 or run2 but not both; downgraded to `severity: 'info'`, labelled `:zap: _flaky_` in Slack digest |
 
 ### User Flow Assertions
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🔴 Critical | Flow step failed — navigate/fill/click/waitFor threw mid-flow (page state unknown) | `flow-runner.js` wraps every step; any throw emits `flow_step_failed` and halts the flow |
 | 🔴 Critical | `element_visible` assert — expected selector absent within timeout | Polled via `evaluate_script` + `document.querySelector` (MCP `wait_for` doesn't reliably throw on timeout) |
 | 🟡 Warning | `no_console_errors` assert — console errors recorded *during* this flow (baseline-sliced, not session-wide) | Baseline snapshot of `list_console_messages` at flow start; only messages after that offset count |
@@ -231,7 +231,7 @@ All network findings carry an `origin` field (`'first-party'` / `'third-party'`)
 ### Environment Regressions *(dev vs staging)*
 
 | Severity | Bug / Issue | Detection Method |
-|---|---|---|
+| --- | --- | --- |
 | 🔴 Critical | API status regressed — request that returned 2xx in dev now returns 5xx in staging | Network diff between both environments |
 | 🟡 Warning | Visual change > 0.5% pixels different between dev and staging screenshots | `pixelmatch` pixel-level comparison + diff overlay image |
 | 🟡 Warning | New console error in staging that doesn't exist in dev | Console message diff |
@@ -247,7 +247,7 @@ All network findings carry an `origin` field (`'first-party'` / `'third-party'`)
 Argus watches your running application and automatically surfaces issues that test suites miss: visual regressions, API loops, CSS drift, console noise, and accessibility failures — all with screenshots delivered directly to Slack.
 
 | Feature | Description |
-|---|---|
+| --- | --- |
 | **Error Detection** | Crawls your app's routes; captures JS exceptions, console errors, failed API calls, redirect chains, and broken internal links |
 | **Environment Comparison** | Diffs dev vs staging: screenshots, DOM structure, network requests, console errors |
 | **CSS Analysis** | Detects cascade overrides, component style leaks, unused rules, React inline style conflicts |
@@ -292,7 +292,7 @@ Works with **React + SCSS**, CSS Modules, CSS-in-JS (styled-components / emotion
 
 Three components run against the same Chrome instance:
 
-```
+```text
 Claude Code (Terminal / VS Code)
   ├── MCP Protocol → Chrome DevTools MCP Server → Chrome
   └── Writes → Orchestration Layer → Slack Bot API
@@ -309,7 +309,7 @@ In interactive mode (running from Claude Code), MCP tools are called natively. I
 ## Prerequisites
 
 | Requirement | Version | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Node.js | v20.19+ | Required by Chrome DevTools MCP |
 | Chrome | Stable (current) | Must be installed |
 | Claude Code | Latest | `npm install -g @anthropic-ai/claude-code` |
@@ -398,13 +398,13 @@ You should see a list of tabs. If you do, the MCP connection is live.
 
 Open Claude Code in this project directory. With Chrome DevTools MCP connected, ask:
 
-```
+```text
 Run the Argus error detection crawl on localhost:3000
 ```
 
 Claude calls `runCrawl(mcp)` with live MCP tools — navigates pages, captures errors, posts to Slack.
 
-```
+```text
 Run the Argus environment comparison between localhost:3000 and staging
 ```
 
@@ -428,18 +428,19 @@ npm run server
 
 Reports are saved to `reports/` as JSON files. Screenshots saved alongside. Run `npm run report:html` after any crawl to get a portable `reports/report.html` with all screenshots inlined — useful for sharing with designers, PMs, or reviewing offline.
 
-### Option D: Watch Mode (passive monitoring)
+### Option C: Watch Mode (passive monitoring)
 
 Watch mode attaches to whatever page Chrome already has open and polls for new issues at a 3-second interval — without navigating anywhere. Use this for real-time reporting while you develop.
 
 **Requires 2 terminals:**
 
 | Terminal | Command | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | 1 | `npm start` *(or your app's dev command)* | Your application |
 | 2 | `npm run watch` | Argus passive monitor |
 
 **Sequential steps:**
+
 1. Open Chrome and navigate to your app's local URL
 2. Terminal 1: start your application
 3. Terminal 2: `npm run watch` — Argus begins polling
@@ -447,21 +448,23 @@ Watch mode attaches to whatever page Chrome already has open and polls for new i
 5. `Ctrl+C` in Terminal 2 — stops the monitor and writes `reports/report.html` if any issues were found
 
 **To target a specific URL:**
+
 ```bash
 npm run watch http://localhost:4000
 ```
 
 **Environment variables:**
+
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `ARGUS_WATCH_INTERVAL_MS` | `3000` | Poll interval in milliseconds |
 | `TARGET_DEV_URL` | `http://localhost:3000` | URL attributed to findings when none passed as argument |
 
 Watch mode uses the same Slack integration as `npm run crawl` — if `SLACK_BOT_TOKEN` is configured, new findings are posted to Slack in real time. On `Ctrl+C`, the HTML report is generated from all accumulated findings for the session.
 
-### Option C: From Slack (on-demand)
+### Option D: From Slack (on-demand)
 
-```
+```text
 /argus-retest https://staging.yourapp.com/checkout
 ```
 
@@ -476,7 +479,7 @@ When `TARGET_STAGING_URL` is not set in `.env`, `npm run compare` automatically 
 **What it analyzes on your dev environment:**
 
 | Check | What it catches |
-|---|---|
+| --- | --- |
 | **Cascade overrides** | Same CSS property declared multiple times on an element; `!important` flagged as warning |
 | **Component style leaks** | BEM selector (`.card__title`) found in a stylesheet that doesn't belong to that component |
 | **Unused rules** | CSS selectors that match no element on the current page |
@@ -487,7 +490,7 @@ When `TARGET_STAGING_URL` is not set in `.env`, `npm run compare` automatically 
 **API frequency analysis** also runs automatically:
 
 | Call count | Severity | Likely cause |
-|---|---|---|
+| --- | --- | --- |
 | 2 calls | info | Possible prefetch + actual — verify intentional |
 | 3–4 calls | warning | Double-fetch — check `useEffect` deps or component re-mounts |
 | 5+ calls | critical | Runaway loop — missing cleanup, infinite re-render |
@@ -499,7 +502,7 @@ When `TARGET_STAGING_URL` is not set in `.env`, `npm run compare` automatically 
 Argus enforces these thresholds on every crawl:
 
 | Metric | Threshold | Severity |
-|---|---|---|
+| --- | --- | --- |
 | LCP (Largest Contentful Paint) | < 2500ms | warning |
 | CLS (Cumulative Layout Shift) | < 0.1 | warning |
 | FID / TBT (interaction latency) | < 100ms | warning |
@@ -531,12 +534,13 @@ Individual failing audit items (e.g., missing alt text, low contrast, render-blo
 When Slack **is** configured, findings are routed by severity:
 
 | Severity | Channel | When |
-|---|---|---|
+| --- | --- | --- |
 | `critical` | `#bugs-critical` | JS exceptions, HTTP 5xx, blank page, auth failure, API called 5+ times, Lighthouse accessibility < 50, auth token in storage/URL, responsive overflow, slow API > 3s, payload > 2MB, > 100 detached DOM nodes, CORS policy violations, `debugger;` statements in production code, blocked mixed content (HTTP resource on HTTPS page) |
 | `warning` | `#bugs-warnings` | Visual regression > 0.5%, HTTP 4xx, CSS overrides with `!important`, API called 3–4×, Lighthouse scores < 90, missing SEO/OG tags, missing security headers, placeholder content, touch targets too small, slow API > 1s, payload > 500KB, > 10 detached DOM nodes, redirect chains > 2 hops, broken links, sync XHR, `document.write`, long tasks > 50ms, SW registration failures, duplicate `id` attributes, passive mixed content (images/audio on HTTPS page) |
 | `info` | `#bugs-digest` | Console warnings, unused CSS rules, API summaries, CSS Modules detection, empty data lists, responsive screenshot grid, missing cache headers on static assets |
 
 Each message includes:
+
 - Severity badge + affected URL + timestamp
 - AI-generated description
 - Inline screenshot (uploaded directly to Slack — no external hosting)
@@ -586,7 +590,7 @@ Copy the public HTTPS URL that appears.
 
 ### Step 4 — Test
 
-```
+```text
 /argus-retest http://localhost:3000
 ```
 
@@ -601,7 +605,7 @@ BugBot should reply within 3 seconds with a "running" acknowledgement, then post
 Go to GitHub repo → **Settings** → **Secrets and variables** → **Actions** → add:
 
 | Secret name | Required | Value |
-|---|---|---|
+| --- | --- | --- |
 | `SLACK_BOT_TOKEN` | No | Your `xoxb-...` token. **Omit entirely to use Slack-optional mode** — Argus generates `report.html` instead |
 | `SLACK_SIGNING_SECRET` | No* | From Slack App → Basic Information (only needed for `/argus-retest` slash command) |
 | `SLACK_CHANNEL_CRITICAL` | No* | Channel ID (required when Slack is configured) |
@@ -610,6 +614,7 @@ Go to GitHub repo → **Settings** → **Secrets and variables** → **Actions**
 | `TARGET_STAGING_URL` | Yes | Your staging base URL |
 
 The workflow at [.github/workflows/argus.yml](.github/workflows/argus.yml) runs:
+
 - On every push to `main` / `master`
 - Daily at 6 AM UTC (before the team starts work)
 - Manually via **Actions** → **Run workflow** (with optional URL override)
@@ -620,7 +625,7 @@ If critical issues are found, the pipeline **fails** — preventing silent regre
 
 ## Project Structure
 
-```
+```text
 argus/
 ├── .env                              # Your secrets (never commit this)
 ├── .env.example                      # Template — copy to .env
@@ -634,63 +639,51 @@ argus/
 │       └── argus.yml                 # CI pipeline
 ├── .vscode/
 │   └── mcp.json                      # Chrome DevTools MCP config for VS Code
-├── .mcp.json                         # Argus MCP server registration — exposes argus_audit/argus_audit_full/argus_compare/argus_last_report to Claude (v9 Sprint 6)
-├── src/
-│   ├── adapters/
-│   │   └── browser.js                # CdpBrowserAdapter — facade over all chrome-devtools-mcp calls (v9 Sprint 1)
-│   ├── domain/
-│   │   └── finding.js                # createFinding() factory — canonical finding shape (v9 Sprint 1)
-│   ├── registry.js                   # Analyzer plugin registry — registerExpensive/getCheap/getExpensive (v9 Sprint 2)
-│   ├── config/
-│   │   └── targets.js                # Routes to test, thresholds, config
-│   ├── orchestration/
-│   │   ├── crawl-and-report.js       # Backward-compat re-export shell → orchestrator + report-processor + dispatcher (v9 Sprint 2)
-│   │   ├── orchestrator.js           # Crawl loop, route/flow crawl, runCrawl() (v9 Sprint 2)
-│   │   ├── report-processor.js       # Dedup → severity overrides → baseline → JSON write (v9 Sprint 2)
-│   │   ├── dispatcher.js             # Slack / GitHub / HTML dispatch (v9 Sprint 2)
-│   │   ├── env-comparison.js         # Dev vs staging diff + CSS analysis mode
+├── .mcp.json                         # Argus MCP server registration — exposes argus_audit/argus_audit_full/argus_compare/argus_last_report to Claude├── src/
+│   ├── argus.js                      # Single-page audit entry point
+│   ├── batch-runner.js               # Multi-page batch audit
+│   ├── mcp-server.js                 # Argus MCP server — argus_audit / argus_audit_full / argus_compare / argus_last_report│   ├── adapters/
+│   │   └── browser.js                # CdpBrowserAdapter — facade over all chrome-devtools-mcp calls│   ├── domain/
+│   │   └── finding.js                # createFinding() factory — canonical finding shape│   ├── registry.js                   # Analyzer plugin registry — registerExpensive/getCheap/getExpensive│   ├── config/
+│   │   ├── targets.js                # Routes to test, thresholds, config
+│   │   └── schema.js                 # Zod validation schema; validateConfig() called inside runCrawl()│   ├── orchestration/
+│   │   ├── crawl-and-report.js       # Backward-compat re-export shell → orchestrator + report-processor + dispatcher│   │   ├── orchestrator.js           # Crawl loop, route/flow crawl, runCrawl()│   │   ├── report-processor.js       # Dedup → severity overrides → baseline → JSON write│   │   ├── dispatcher.js             # Slack / GitHub / HTML dispatch│   │   ├── env-comparison.js         # Dev vs staging diff + CSS analysis mode
 │   │   ├── watch-mode.js             # Passive browser monitoring (WatchSession + runWatchMode)
 │   │   └── slack-notifier.js         # Slack Block Kit dispatcher
 │   ├── server/
 │   │   ├── index.js                  # Express server (port 3001)
 │   │   ├── slash-command-handler.js  # /argus-retest handler
 │   │   └── interaction-handler.js    # Acknowledge + Retest button handler
-│   └── utils/
-│       ├── css-analyzer.js           # CSS analysis script injected into the browser
-│       ├── seo-analyzer.js           # SEO checks: meta, OG tags, h1, canonical, viewport
-│       ├── security-analyzer.js      # Security: localStorage tokens, eval(), headers, cookies
-│       ├── content-analyzer.js       # Content quality: null text, placeholders, broken images
-│       ├── responsive-analyzer.js    # Responsive: overflow + touch targets at 4 breakpoints
-│       ├── memory-analyzer.js        # Memory leaks: V8 heap snapshot + heap growth
-│       ├── logger.js                 # Pino structured logger — childLogger(module) (v9 Sprint 4)
-│       ├── retry.js                  # withRetry() exponential backoff — navigate/fill only; Number.isFinite guard (v9 Sprint 4)
-│       ├── session-manager.js        # Auth: backward-compat re-export barrel (v9 Sprint 4)
-│       ├── session-persistence.js    # Auth: saveSession (mkdirSync+atomic write), restoreSession, hasSession, clearSession (v9 Sprint 4)
-│       ├── login-orchestrator.js     # Auth: runLoginFlow, refreshSession + lock file (v9 Sprint 4)
-│       ├── baseline-manager.js       # Baselines: loadBaseline, saveBaseline, applyBaseline, appendTrend
-│       ├── flakiness-detector.js     # Flakiness: mergeRunResults — confirmed vs flaky per double-crawl
-│       ├── flow-runner.js            # User flow assertions: runFlow / runAllFlows — assert DSL
-│       ├── html-reporter.js          # HTML dashboard: generateHtmlReport() + npm run report:html (D7.1 / D7.7)
-│       ├── parallel-crawler.js       # chunkArray sharding utility (ARGUS_CONCURRENCY=N parallel crawl)
-│       ├── contract-validator.js     # API contract validation: validateSchema, matchesContract (D7.4)
-│       ├── severity-overrides.js     # Severity policy overrides: applyOverrides (D7.5)
-│       ├── slack-guard.js            # Slack-optional guard: isSlackConfigured() (D7.7)
-│       ├── hover-analyzer.js         # Hover-state bug detection — aria-haspopup + data-tooltip (D8.1)
-│       ├── snapshot-analyzer.js      # Accessibility tree snapshot — missing names, labels, landmarks, heading hierarchy, ARIA state (D8.2 + v6)
-│       ├── issues-analyzer.js        # Chrome DevTools Issues panel — CSP/deprecated/cookie issues
-│       ├── network-timing-analyzer.js # HAR timing analysis — slow third-party detection
-│       ├── keyboard-analyzer.js      # Keyboard Tab-walk — focus_visible_missing, focus_lost
-│       ├── codebase-analyzer.js      # Codebase cross-reference — env vars, feature flags, dead routes (C1)
-│       ├── github-reporter.js        # GitHub PR comment + commit status integration (C2)
-│       ├── route-discoverer.js       # Auto route discovery — sitemap + Next.js + React Router (C3)
-│       ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
-│       ├── mcp-parsers.js            # Text-format parsers for list_console_messages + list_network_requests (v9)
-│       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
+│   ├── utils/
+│   │   ├── css-analyzer.js           # CSS analysis script injected into the browser
+│   │   ├── seo-analyzer.js           # SEO checks: meta, OG tags, h1, canonical, viewport
+│   │   ├── security-analyzer.js      # Security: localStorage tokens, eval(), headers, cookies
+│   │   ├── content-analyzer.js       # Content quality: null text, placeholders, broken images
+│   │   ├── responsive-analyzer.js    # Responsive: overflow + touch targets at 4 breakpoints
+│   │   ├── memory-analyzer.js        # Memory leaks: V8 heap snapshot + heap growth
+│   │   ├── logger.js                 # Pino structured logger — childLogger(module)│   │   ├── retry.js                  # withRetry() exponential backoff — navigate/fill only; Number.isFinite guard│   │   ├── telemetry.js              # OTel tracing + metrics — startSpan() / recordFinding() / recordFlaky() / recordNewFindings(); no-op default│   │   ├── session-manager.js        # Auth: backward-compat re-export barrel│   │   ├── session-persistence.js    # Auth: saveSession (mkdirSync+atomic write), restoreSession, hasSession, clearSession│   │   ├── login-orchestrator.js     # Auth: runLoginFlow, refreshSession + lock file│   │   ├── baseline-manager.js       # Baselines: loadBaseline, saveBaseline, applyBaseline, appendTrend
+│   │   ├── flakiness-detector.js     # Flakiness: mergeRunResults — confirmed vs flaky per double-crawl
+│   │   ├── flow-runner.js            # User flow assertions: runFlow / runAllFlows — assert DSL
+│   │   ├── html-reporter.js          # HTML dashboard: generateHtmlReport() + npm run report:html (D7.1 / D7.7)
+│   │   ├── parallel-crawler.js       # chunkArray sharding utility (ARGUS_CONCURRENCY=N parallel crawl)
+│   │   ├── contract-validator.js     # API contract validation: validateSchema, matchesContract (D7.4)
+│   │   ├── severity-overrides.js     # Severity policy overrides: applyOverrides (D7.5)
+│   │   ├── slack-guard.js            # Slack-optional guard: isSlackConfigured() (D7.7)
+│   │   ├── hover-analyzer.js         # Hover-state bug detection — aria-haspopup + data-tooltip (D8.1)
+│   │   ├── snapshot-analyzer.js      # Accessibility tree snapshot — missing names, labels, landmarks, heading hierarchy, ARIA state (D8.2 + v6)
+│   │   ├── issues-analyzer.js        # Chrome DevTools Issues panel — CSP/deprecated/cookie issues
+│   │   ├── network-timing-analyzer.js # HAR timing analysis — slow third-party detection
+│   │   ├── keyboard-analyzer.js      # Keyboard Tab-walk — focus_visible_missing, focus_lost
+│   │   ├── codebase-analyzer.js      # Codebase cross-reference — env vars, feature flags, dead routes (C1)
+│   │   ├── github-reporter.js        # GitHub PR comment + commit status integration (C2)
+│   │   ├── route-discoverer.js       # Auto route discovery — sitemap + Next.js + React Router (C3)
+│   │   ├── diff.js                   # pixelmatch screenshot + DOM/network diff utilities
+│   │   ├── mcp-parsers.js            # Text-format parsers for list_console_messages + list_network_requests (v9)
+│   │   └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
 │   └── cli/
 │       └── init.js                   # argus init setup wizard — detect framework, discover routes, write .env + targets.js (C4)
 ├── test/
-│   └── unit/                         # Vitest unit tests — no Chrome required (v9 Sprint 5)
-│       ├── finding.test.js           # createFinding() — fields, throws, frozen, extra fields (8 tests)
+│   └── unit/                         # Vitest unit tests — no Chrome required│       ├── finding.test.js           # createFinding() — fields, throws, frozen, extra fields (8 tests)
 │       ├── config-schema.test.js     # validateConfig() + ConfigSchema.safeParse (8 tests)
 │       ├── report-processor.test.js  # deduplicateFindings + rebuildSummary (11 tests)
 │       ├── flakiness-detector.test.js # findingKey normalization + mergeRunResults (13 tests)
@@ -700,7 +693,7 @@ argus/
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner — 82 numbered blocks (block [80] = MCP server, Sprint 6)
+│   ├── validate.js                   # Test runner — 82 numbered blocks ([80] MCP server, [81] createFinding, [82] withRetry)
 │   ├── pages/                        # 54 fixture pages (one per detection category)
 │   ├── nextjs-fixture/               # Next.js app structure for C3 discovery tests (10 files)
 │   └── static/
@@ -717,7 +710,7 @@ argus/
 ## Key Technical Decisions
 
 | Decision | Choice | Reason |
-|---|---|---|
+| --- | --- | --- |
 | Screenshot comparison | pixelmatch + AI classification | pixelmatch is fast and deterministic; Claude removes false positives from anti-aliasing and dynamic content |
 | Slack API | Bot API, not Incoming Webhooks | Bot API supports file uploads, message updates, interactive buttons, and threads |
 | File uploads | `files.getUploadURLExternal` + PUT + `files.completeUploadExternal` | `files.upload` is deprecated; pre-signed URL requires PUT — POST silently produces broken files |
@@ -745,7 +738,7 @@ The Chrome DevTools MCP behavioral constraints below cause **3 permanent test fa
 > **`type_text` clarification**: `type_text` does fire DOM `input` events when the element is properly focused first with `mcp.click({ uid })`. Always use uid-based focus — passing `{ selector }` to `mcp.click` silently does nothing.
 
 | Tool | Constraint | Impact |
-|------|-----------|--------|
+| --- | --- | --- |
 | `drag` | Uses mouse simulation, **not** HTML5 DnD API | `dragstart`/`dragover`/`drop` events never fire |
 | `list_console_messages({ types: ['issue'] })` | Issues panel returns empty even when violations exist | CSP and deprecated-API detection is unreliable |
 
@@ -756,7 +749,7 @@ These constraints are documented with workarounds in [SKILL.md §10](SKILL.md).
 ## Environment Variables Reference
 
 | Variable | Required | Description |
-|---|---|---|
+| --- | --- | --- |
 | `SLACK_BOT_TOKEN` | No | `xoxb-...` Bot User OAuth Token. **Omit to enable Slack-optional mode** — Argus generates `report.html` and opens it in the browser instead |
 | `SLACK_SIGNING_SECRET` | No* | Verifies slash command / interaction requests from Slack (required only when using `/argus-retest`) |
 | `SLACK_CHANNEL_CRITICAL` | No* | Channel ID for critical bugs (required when Slack is configured) |
@@ -768,38 +761,54 @@ These constraints are documented with workarounds in [SKILL.md §10](SKILL.md).
 | `REPORT_OUTPUT_DIR` | No | Where to write reports (default: `./reports`) |
 | `ARGUS_CONCURRENCY` | No | Number of parallel MCP clients for route crawling (default: `1` = sequential) |
 | `PORT` | No | Server port (default: `3001`) |
+| `ARGUS_LOG_LEVEL` | No | Pino log level — `trace`, `debug`, `info`, `warn`, `error`, `fatal` (default: `info`) |
+| `ARGUS_LOG_PRETTY` | No | Set to `1` for human-readable log output instead of JSON (dev mode) |
+| `ARGUS_RETRY_ATTEMPTS` | No | Max retry attempts for `navigate`/`fill` MCP calls (default: `3`) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | No | OTLP collector endpoint — enables span/metric export to Jaeger, Grafana Tempo, Datadog, etc. |
+| `ARGUS_OTEL_CONSOLE` | No | Set to `1` to print OTel spans to stdout without an OTLP endpoint (dev tracing) |
+| `ARGUS_WATCH_INTERVAL_MS` | No | Watch mode poll interval in milliseconds (default: `3000`) |
+| `ARGUS_SOURCE_DIR` | No | Path to your app's source directory — enables codebase cross-reference (env var detection, feature flag leakage, dead routes) |
+| `GITHUB_TOKEN` | No | GitHub personal access token — required for PR comment + commit status integration |
+| `GITHUB_REPOSITORY` | No | Repository in `owner/repo` format — required for GitHub PR integration |
 
 ---
 
 ## Troubleshooting
 
-**Chrome DevTools MCP not connecting**
+### Chrome DevTools MCP not connecting
+
 ```bash
 claude mcp add chrome-devtools -- npx chrome-devtools-mcp@latest
 # Then restart Claude Code
 ```
 
-**Slack messages not posting**
+### Slack messages not posting
+
 - Confirm `SLACK_BOT_TOKEN` starts with `xoxb-` (not `xoxp-`, `xoxe-`, or `xapp-`)
 - Verify BugBot is invited to each channel: `/invite @BugBot`
 - Check token scopes: `chat:write`, `files:write`, `files:read`
 
-**Screenshots not appearing in Slack messages**
+### Screenshots not appearing in Slack messages
+
 - The upload uses a pre-signed URL that requires `PUT`, not `POST` — if you see a broken image, check that the Slack token has `files:write` scope and the channel is correct
 
-**Slash command returns "dispatch_failed"**
+### Slash command returns "dispatch_failed"
+
 - Your tunnel URL has changed (Cloudflare Tunnel / localhost.run URLs change on restart)
 - Update the Request URL in Slack App → Slash Commands and reinstall
 
-**CSS analysis returns empty results**
+### CSS analysis returns empty results
+
 - Page may be behind auth — make sure you're logged in on the Chrome instance Argus is controlling
 - Cross-origin stylesheets (CDN fonts, third-party widgets) can't be read due to browser security restrictions — this is expected
 
-**Screenshots are blank**
+### Screenshots are blank
+
 - Page hasn't finished loading — increase `pageSettleMs` in `src/config/targets.js`
 - Add a `waitFor` selector for that route
 
-**CI pipeline fails immediately**
+### CI pipeline fails immediately
+
 - Chrome may not be starting fast enough — increase the `sleep 3` after Chrome launch to `sleep 5` in `.github/workflows/argus.yml`
 
 ---
@@ -809,7 +818,7 @@ claude mcp add chrome-devtools -- npx chrome-devtools-mcp@latest
 Argus is not a replacement for unit or E2E tests. It's a complementary layer:
 
 | | Playwright / Cypress | Argus |
-|---|---|---|
+| --- | --- | --- |
 | **Tests** | Your logic and API contracts | What the user actually sees |
 | **Catches** | Regression in behaviour | CSS drift, visual regressions, API redundancy, console noise, perf budgets |
 | **Runs** | In your test suite | Continuously, on the live running app |
