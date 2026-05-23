@@ -72,6 +72,8 @@ import { analyzeKeyboard } from '../src/utils/keyboard-analyzer.js';
 import { WatchSession } from '../src/orchestration/watch-mode.js';
 import { validateConfig } from '../src/config/schema.js';
 import * as argusTargets from '../src/config/targets.js';
+import { createFinding } from '../src/domain/finding.js';
+import { withRetry } from '../src/utils/retry.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -3326,6 +3328,71 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
     } catch { threw79d = true; }
     assert(threw79d,
       '[79d] validateConfig throws when thresholds.perf.LCP is a string instead of a number');
+  }
+
+  // ── Block [81] createFinding() factory ────────────────────────────────────
+  {
+    console.log('\n[81] createFinding() factory (domain layer)');
+
+    // [81a] valid finding created with all required fields
+    const f81a = createFinding({ type: 'console_error', severity: 'warning', message: 'oops', url: '/foo' });
+    assert(
+      f81a.type === 'console_error' && f81a.severity === 'warning' && f81a.message === 'oops' && f81a.url === '/foo',
+      '[81a] createFinding returns correct field values',
+    );
+
+    // [81b] missing type → throws containing "type"
+    let threw81b = false;
+    try { createFinding({ severity: 'info', message: 'm' }); } catch (e) { threw81b = /type/i.test(e.message); }
+    assert(threw81b, '[81b] createFinding throws when type is missing');
+
+    // [81c] invalid severity → throws containing "severity"
+    let threw81c = false;
+    try { createFinding({ type: 't', severity: 'medium', message: 'm' }); } catch (e) { threw81c = /severity/i.test(e.message); }
+    assert(threw81c, '[81c] createFinding throws on invalid severity');
+
+    // [81d] returned object is frozen (immutable)
+    const f81d = createFinding({ type: 't', severity: 'info', message: 'm' });
+    assert(Object.isFrozen(f81d), '[81d] createFinding returns a frozen object');
+  }
+
+  // ── Block [82] withRetry() exponential backoff ─────────────────────────────
+  {
+    console.log('\n[82] withRetry() exponential backoff (Sprint 4)');
+
+    // [82a] successful function called exactly once
+    let calls82a = 0;
+    await withRetry(() => { calls82a++; return Promise.resolve('ok'); }, { attempts: 3, delayMs: 1 });
+    assert(calls82a === 1, '[82a] withRetry calls fn once when it succeeds immediately');
+
+    // [82b] transient failure retried — succeeds on second attempt
+    let calls82b = 0;
+    await withRetry(() => {
+      calls82b++;
+      if (calls82b < 2) throw new Error('transient');
+      return Promise.resolve('ok');
+    }, { attempts: 3, delayMs: 1 });
+    assert(calls82b === 2, '[82b] withRetry retries on transient failure and succeeds on second attempt');
+
+    // [82c] persistent failure rethrown after all attempts exhausted
+    let threw82c = false;
+    let calls82c = 0;
+    try {
+      await withRetry(() => { calls82c++; throw new Error('permanent'); }, { attempts: 2, delayMs: 1 });
+    } catch { threw82c = true; }
+    assert(threw82c && calls82c === 2, '[82c] withRetry rethrows after all attempts exhausted');
+
+    // [82d] ARGUS_RETRY_ATTEMPTS=1 env override → only one attempt made
+    const prev = process.env.ARGUS_RETRY_ATTEMPTS;
+    process.env.ARGUS_RETRY_ATTEMPTS = '1';
+    let calls82d = 0;
+    let threw82d = false;
+    try {
+      await withRetry(() => { calls82d++; throw new Error('fail'); }, { delayMs: 1 });
+    } catch { threw82d = true; }
+    if (prev === undefined) delete process.env.ARGUS_RETRY_ATTEMPTS;
+    else process.env.ARGUS_RETRY_ATTEMPTS = prev;
+    assert(threw82d && calls82d === 1, '[82d] ARGUS_RETRY_ATTEMPTS=1 limits withRetry to one attempt');
   }
 }
 

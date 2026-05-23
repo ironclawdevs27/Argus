@@ -2,7 +2,7 @@
 
 Validates that every Argus detection category fires correctly by running the full crawl pipeline against deliberately broken fixture pages hosted on a local Express server.
 
-> **v4 Quality Audit complete** — all 30 gaps resolved. **v5 Correctness Hardening complete** (20 gaps). **v6 Detection Expansion complete** (10 new detection categories). **v7 Final Production Hardening complete** (2026-05-05) — 50+ security and robustness fixes across 17 source files. **v8 Harness Correctness** (2026-05-10) — uid regex rewrite, sync-xhr timing fix, select_option label resolution. **Watch Mode** (2026-05-17) — passive browser monitoring; block [78] added. **v9 Sprint 1** (2026-05-17) — CdpBrowserAdapter migration complete; all 13 files migrated from `mcp.*` → `browser.*`; 327/330. **v9 Sprint 2** (2026-05-18) — Plugin registry + god object split; `crawl-and-report.js` reduced to 20-line re-export shell; 6 analyzers self-register; harness gate: 327/330. **v9 Sprint 3** (2026-05-18) — Threshold centralization + Zod config validation; block [79] added; harness gate: 331/334. **v9 Sprint 4** (2026-05-18) — Session split (`session-persistence.js` + `login-orchestrator.js`), Pino structured logging across all src/ files, `withRetry()` on navigate and fill (`click` excluded — not idempotent); 6 gap fixes across two audit passes (pino-pretty load fallback, retry debug labels, clearSession `.tmp` log, doc corrections for click exclusion, NaN guard in `withRetry()`, `mkdirSync` in `saveSession()`); harness gate: 331/334 (no new assertions).
+> **v4 Quality Audit complete** — all 30 gaps resolved. **v5 Correctness Hardening complete** (20 gaps). **v6 Detection Expansion complete** (10 new detection categories). **v7 Final Production Hardening complete** (2026-05-05) — 50+ security and robustness fixes across 17 source files. **v8 Harness Correctness** (2026-05-10) — uid regex rewrite, sync-xhr timing fix, select_option label resolution. **Watch Mode** (2026-05-17) — passive browser monitoring; block [78] added. **v9 Sprint 1** (2026-05-17) — CdpBrowserAdapter migration complete; all 13 files migrated from `mcp.*` → `browser.*`; 327/330. **v9 Sprint 2** (2026-05-18) — Plugin registry + god object split; `crawl-and-report.js` reduced to 20-line re-export shell; 6 analyzers self-register; harness gate: 327/330. **v9 Sprint 3** (2026-05-18) — Threshold centralization + Zod config validation; block [79] added; harness gate: 331/334. **v9 Sprint 4** (2026-05-18) — Session split (`session-persistence.js` + `login-orchestrator.js`), Pino structured logging across all src/ files, `withRetry()` on navigate and fill (`click` excluded — not idempotent); 6 gap fixes across two audit passes (pino-pretty load fallback, retry debug labels, clearSession `.tmp` log, doc corrections for click exclusion, NaN guard in `withRetry()`, `mkdirSync` in `saveSession()`); harness gate: 331/334 (no new assertions). **v9 Sprint 5** (2026-05-23) — Vitest unit test suite: 6 files, 61 tests, zero Chrome dependency (`npm run test:unit`); harness blocks [81] (`createFinding()` — 4 assertions) + [82] (`withRetry()` — 4 assertions); harness gate: 339/342.
 
 <br/>
 
@@ -17,7 +17,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-79 test blocks · 334 hard assertions · 47 verified detection categories · 54 fixture pages
+81 test blocks · 342 hard assertions · 47 verified detection categories · 54 fixture pages
 
 > **Coverage note**: 54 detection categories exist in production code. 47 are positively exercised by the harness. The remaining 7 have no fixture trigger yet — see [argus-v6-strategy.md §10](../argus-v6-strategy.md) for details and planned fixtures.
 
@@ -103,6 +103,9 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 76 | `clean.html` (localhost exclusion) | HTTPS enforcement — `security_no_https` NOT emitted for localhost · URL parsing correctly classifies non-localhost as non-local · `http://example.com` protocol = `http:` (101) | Hard |
 | 77 | `iframe-sandbox.html` | `security_iframe_no_sandbox` warning ×2 (example.com + w3.org) · severity warning · sandboxed iframe NOT flagged (102) | Hard |
 | 78 | `watch-issues.html` | Watch Mode — `WatchSession.poll()` detects console errors/warnings + network 4xx/5xx on first poll · second poll returns 0 (dedup) · third poll after `argusWatchTriggerError()` finds new incremental finding · HTTP 500 classified as `network_server_error` critical · all findings have type/severity/message fields | Hard |
+| 79 | _(pure function — no fixture page)_ | Zod config validation — valid config passes · route missing `path` throws · path without leading `/` throws · non-number threshold throws (v9 Sprint 3) | Hard |
+| 81 | _(pure function — no fixture page)_ | `createFinding()` factory — correct field values · throws on missing type · throws on invalid severity · returns frozen object (v9 Sprint 5) | Hard |
+| 82 | _(pure function — no fixture page)_ | `withRetry()` exponential backoff — fn called once on success · retries on transient failure · rethrows after all attempts · `ARGUS_RETRY_ATTEMPTS=1` disables retries (v9 Sprint 5) | Hard |
 
 ---
 
@@ -253,7 +256,7 @@ The validator will:
 5. Print pass / fail for each assertion
 6. Shut down both fixture servers and exit
 
-**Expected output (331/334 — 3 permanent MCP-limited failures):**
+**Expected output (339/342 — 3 permanent MCP-limited failures):**
 
 ```
 ╔══════════════════════════════════════════════════════╗
@@ -307,7 +310,7 @@ The validator will:
   ✓ Flaky count: 2 (expected 2)
 
 ────────────────────────────────────────────────────────
-Results: 331/334 hard assertions passed, 3 failed
+Results: 339/342 hard assertions passed, 3 failed
 
 ✗ [49b] drag uses mouse simulation — HTML5 drop event never fires (MCP behavioral limit)
 ✗ [67b] Chrome DevTools Issues panel not returned by list_console_messages (MCP behavioral limit)
