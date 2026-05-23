@@ -20,6 +20,9 @@ import path from 'path';
 import readline from 'readline';
 import { fileURLToPath } from 'url';
 import { discoverRoutes } from '../utils/route-discoverer.js';
+import { childLogger } from '../utils/logger.js';
+
+const logger = childLogger('init');
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -284,7 +287,7 @@ async function main() {
     const targetsContent = generateTargetsJs(finalRoutes, { framework, sourceDir, envFile: envFilePath });
 
     if (fs.existsSync('.env')) {
-      console.warn('  ⚠  .env already exists — skipping write to preserve existing credentials. Delete it manually to regenerate.');
+      logger.warn('  ⚠  .env already exists — skipping write to preserve existing credentials. Delete it manually to regenerate.');
     } else {
       fs.writeFileSync('.env', envContent, 'utf8');
       tick('Wrote .env');

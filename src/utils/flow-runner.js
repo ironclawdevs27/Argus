@@ -37,6 +37,9 @@ import fs   from 'fs';
 import os   from 'os';
 import path from 'path';
 import { unwrapEval } from './mcp-client.js';
+import { childLogger } from './logger.js';
+
+const logger = childLogger('flow-runner');
 
 const INJECT_ERROR_LISTENER = `() => {
   if (window.__argusErrorsPatched) return;
@@ -295,7 +298,7 @@ async function runAssert(step, browser, flowName, baseUrl, baselines) {
     }
 
     default:
-      console.warn(`[ARGUS] Flow "${flowName}": unknown assert type "${step.type}" — skipped`);
+      logger.warn(`[ARGUS] Flow "${flowName}": unknown assert type "${step.type}" — skipped`);
   }
 
   return findings;
@@ -332,7 +335,7 @@ export async function runFlow(flow, baseUrl, browser) {
           // step.url = absolute URL override; step.path = relative to baseUrl
           await browser.navigate(step.url ?? (`${baseUrl.replace(/\/$/, '')}/${(step.path ?? '').replace(/^\//, '')}`));
           // Re-inject error listener — navigation destroys the previous page context
-          await browser.evaluate(INJECT_ERROR_LISTENER).catch(err => console.warn('[ARGUS] flow-runner: INJECT_ERROR_LISTENER failed:', err.message));
+          await browser.evaluate(INJECT_ERROR_LISTENER).catch(err => logger.warn('[ARGUS] flow-runner: INJECT_ERROR_LISTENER failed:', err.message));
           break;
 
         case 'fill': {
@@ -484,7 +487,7 @@ export async function runFlow(flow, baseUrl, browser) {
         }
 
         default:
-          console.warn(`[ARGUS] Flow "${flow.name}": unknown step action "${step.action}" — skipped`);
+          logger.warn(`[ARGUS] Flow "${flow.name}": unknown step action "${step.action}" — skipped`);
       }
       result.stepsCompleted++;
     } catch (err) {
@@ -549,11 +552,11 @@ export async function runAllFlows(flows, baseUrl, browser) {
   const allFindings = [];
 
   for (const flow of flows) {
-    console.log(`[ARGUS] Running flow: ${flow.name}`);
+    logger.info(`[ARGUS] Running flow: ${flow.name}`);
     const result = await runFlow(flow, baseUrl, browser);
     results.push(result);
     allFindings.push(...result.findings);
-    console.log(`[ARGUS] Flow "${flow.name}": ${result.status} (${result.stepsCompleted}/${result.totalSteps} steps, ${result.findings.length} finding(s))`);
+    logger.info(`[ARGUS] Flow "${flow.name}": ${result.status} (${result.stepsCompleted}/${result.totalSteps} steps, ${result.findings.length} finding(s))`);
   }
 
   return { results, findings: allFindings };

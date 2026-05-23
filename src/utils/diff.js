@@ -12,6 +12,9 @@ import fs from 'fs';
 // strategy as analyzeApiFrequency — previously each module had its own private normalizer,
 // causing the same endpoint to be keyed differently in frequency vs diff analysis.
 import { normalizeApiUrl } from './api-frequency.js';
+import { childLogger } from './logger.js';
+
+const logger = childLogger('diff');
 
 /**
  * Compare two screenshot files pixel-by-pixel.
@@ -60,7 +63,7 @@ export async function compareScreenshots(pathA, pathB, diffOutputPath, threshold
   try {
     fs.writeFileSync(diffOutputPath, PNG.sync.write(diff));
   } catch (err) {
-    console.warn(`[ARGUS] compareScreenshots: could not write diff image to ${diffOutputPath} — ${err.message}`);
+    logger.warn(`[ARGUS] compareScreenshots: could not write diff image to ${diffOutputPath} — ${err.message}`);
   }
 
   const totalPixels = width * height;
@@ -94,7 +97,7 @@ function cropPNG(png, width, height) {
  */
 export function diffDomSnapshots(domA, domB) {
   if (typeof domA !== 'string' || typeof domB !== 'string') {
-    console.warn('[ARGUS] diffDomSnapshots: non-string argument — one or both DOM snapshots may be missing');
+    logger.warn('[ARGUS] diffDomSnapshots: non-string argument — one or both DOM snapshots may be missing');
     return [];
   }
   const diffs = [];

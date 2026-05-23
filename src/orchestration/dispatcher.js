@@ -7,10 +7,13 @@
 
 import path                                        from 'path';
 import { execFile }                               from 'child_process';
+import { childLogger }                            from '../utils/logger.js';
 import { postBugReport }                          from './slack-notifier.js';
 import { isSlackConfigured }                      from '../utils/slack-guard.js';
 import { isGitHubConfigured, reportToGitHub }     from '../utils/github-reporter.js';
 import { generateHtmlReport }                     from '../utils/html-reporter.js';
+
+const logger = childLogger('dispatcher');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -71,7 +74,7 @@ async function dispatchToSlack(report, diff) {
       url: routeResult.url,
       screenshotPath: routeResult.screenshot,
       details: { route: routeResult.route, errors: criticals },
-    }).catch(err => console.warn(`[ARGUS] Slack: critical report failed for ${routeResult.route}: ${err.message}`));
+    }).catch(err => logger.warn(`[ARGUS] Slack: critical report failed for ${routeResult.route}: ${err.message}`));
   }
 
   // ── Warnings: one message per affected route ──────────────────────────────
@@ -90,7 +93,7 @@ async function dispatchToSlack(report, diff) {
       url: routeResult.url,
       screenshotPath: routeResult.screenshot,
       details: { route: routeResult.route, errors: warnings },
-    }).catch(err => console.warn(`[ARGUS] Slack: warning report failed for ${routeResult.route}: ${err.message}`));
+    }).catch(err => logger.warn(`[ARGUS] Slack: warning report failed for ${routeResult.route}: ${err.message}`));
   }
 
   // ── Responsive screenshots: mobile view for routes with responsive findings
@@ -111,7 +114,7 @@ async function dispatchToSlack(report, diff) {
       url: routeResult.url,
       screenshotPath: mobileShot,
       details: { responsiveFindings: responsiveErrors },
-    }).catch(err => console.warn(`[ARGUS] Slack: responsive report failed for ${routeResult.route}: ${err.message}`));
+    }).catch(err => logger.warn(`[ARGUS] Slack: responsive report failed for ${routeResult.route}: ${err.message}`));
   }
 
   // ── Flow failures ─────────────────────────────────────────────────────────
@@ -125,7 +128,7 @@ async function dispatchToSlack(report, diff) {
         url: report.baseUrl,
         screenshotPath: null,
         details: { flow: flowResult.flowName, errors: flowCriticals },
-      }).catch(err => console.warn(`[ARGUS] Slack: flow critical report failed for ${flowResult.flowName}: ${err.message}`));
+      }).catch(err => logger.warn(`[ARGUS] Slack: flow critical report failed for ${flowResult.flowName}: ${err.message}`));
     }
     const flowWarnings = (flowResult.findings ?? []).filter(f => f.severity === 'warning' && f.isNew === true);
     if (flowWarnings.length > 0) {
@@ -136,7 +139,7 @@ async function dispatchToSlack(report, diff) {
         url: report.baseUrl,
         screenshotPath: null,
         details: { flow: flowResult.flowName, errors: flowWarnings },
-      }).catch(err => console.warn(`[ARGUS] Slack: flow warning report failed for ${flowResult.flowName}: ${err.message}`));
+      }).catch(err => logger.warn(`[ARGUS] Slack: flow warning report failed for ${flowResult.flowName}: ${err.message}`));
     }
   }
 
@@ -150,7 +153,7 @@ async function dispatchToSlack(report, diff) {
       url: report.baseUrl,
       screenshotPath: null,
       details: { codebase: cbCriticals },
-    }).catch(err => console.warn(`[ARGUS] Slack: codebase critical report failed: ${err.message}`));
+    }).catch(err => logger.warn(`[ARGUS] Slack: codebase critical report failed: ${err.message}`));
   }
   const cbWarnings = (report.codebase ?? []).filter(f => f.severity === 'warning' && f.isNew === true);
   if (cbWarnings.length > 0) {
@@ -161,7 +164,7 @@ async function dispatchToSlack(report, diff) {
       url: report.baseUrl,
       screenshotPath: null,
       details: { codebase: cbWarnings },
-    }).catch(err => console.warn(`[ARGUS] Slack: codebase warning report failed: ${err.message}`));
+    }).catch(err => logger.warn(`[ARGUS] Slack: codebase warning report failed: ${err.message}`));
   }
 
   // ── Info digest: one summary message across all routes ────────────────────
@@ -219,7 +222,7 @@ async function dispatchToSlack(report, diff) {
       url: report.baseUrl,
       screenshotPath: null,
       details: { summary, infos: allInfos },
-    }).catch(err => console.warn(`[ARGUS] Slack: info digest report failed: ${err.message}`));
+    }).catch(err => logger.warn(`[ARGUS] Slack: info digest report failed: ${err.message}`));
   }
 }
 
@@ -238,12 +241,12 @@ export async function dispatchAll(report, diff, reportPath) {
     try {
       await dispatchToSlack(report, diff);
     } catch (err) {
-      console.error(`[ARGUS] Slack dispatch failed: ${err.message}`);
+      logger.error(`[ARGUS] Slack dispatch failed: ${err.message}`);
     }
   } else {
-    console.log('\n[ARGUS] No Slack credentials — generating HTML report...');
+    logger.info('\n[ARGUS] No Slack credentials — generating HTML report...');
     const htmlPath = generateHtmlReport(reportPath);
-    console.log(`[ARGUS] ✓ Open in browser: ${htmlPath}\n`);
+    logger.info(`[ARGUS] ✓ Open in browser: ${htmlPath}\n`);
     openInBrowser(htmlPath);
   }
 
@@ -251,7 +254,7 @@ export async function dispatchAll(report, diff, reportPath) {
     try {
       await reportToGitHub(report, diff);
     } catch (err) {
-      console.error(`[ARGUS] GitHub reporting failed: ${err.message}`);
+      logger.error(`[ARGUS] GitHub reporting failed: ${err.message}`);
     }
   }
 }

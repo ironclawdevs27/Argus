@@ -19,6 +19,9 @@ import { postBugReport } from '../orchestration/slack-notifier.js';
 import { createMcpClient } from '../utils/mcp-client.js';
 import { runCrawl } from '../orchestration/crawl-and-report.js';
 import { WebClient } from '@slack/web-api';
+import { childLogger } from '../utils/logger.js';
+
+const logger = childLogger('slash-command-handler');
 
 // Lazy-initialize the Slack client so SLACK_BOT_TOKEN is read at call time,
 // not at module import time (before dotenv has run).
@@ -125,7 +128,7 @@ export async function handleSlashCommand(req, res) {
   // Attach .catch() so an unexpected rejection doesn't become an unhandled rejection
   // that crashes the server (Node 15+ terminates on unhandled rejections).
   runRetestAsync({ targetUrl, channelId: channel_id, responseUrl: response_url, requestedBy: user_name })
-    .catch(err => console.error('[ARGUS] runRetestAsync unhandled:', err.message));
+    .catch(err => logger.error('[ARGUS] runRetestAsync unhandled:', err.message));
 }
 
 /**
@@ -169,13 +172,13 @@ async function runRetestAsync({ targetUrl, channelId, responseUrl, requestedBy }
   } catch (err) {
     // Log full error server-side; post only a generic message to Slack so internal
     // paths/stack traces/env var names are not leaked to the channel.
-    console.error('[ARGUS] Retest failed:', err);
+    logger.error('[ARGUS] Retest failed:', err);
     // Log delivery failures — silent .catch(() => {}) meant the operator
     // had no indication when the error notification itself failed to post.
     await getSlack().chat.postMessage({
       channel: channelId,
       text: `⚠️ *Retest error* for \`${targetUrl}\` — check server logs for details`,
-    }).catch(e => console.error('[ARGUS] Failed to post error notification:', e.message));
+    }).catch(e => logger.error('[ARGUS] Failed to post error notification:', e.message));
   } finally {
     mcp?.close?.();
   }

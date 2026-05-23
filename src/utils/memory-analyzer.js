@@ -21,6 +21,9 @@ import path from 'path';
 import { unwrapEval }        from './mcp-client.js';
 import { registerExpensive } from '../registry.js';
 import { thresholds }        from '../config/targets.js';
+import { childLogger }       from './logger.js';
+
+const logger = childLogger('memory-analyzer');
 
 // ── Scripts ────────────────────────────────────────────────────────────────────
 
@@ -129,7 +132,7 @@ async function captureAndParseSnapshot(browser) {
       raw = await fs.promises.readFile(filePath, 'utf8');
     } catch (readErr) {
       if (readErr.code === 'ENOENT') {
-        console.warn(`[ARGUS] Snapshot file not written at ${filePath}`);
+        logger.warn(`[ARGUS] Snapshot file not written at ${filePath}`);
         return null;
       }
       throw readErr;
@@ -137,7 +140,7 @@ async function captureAndParseSnapshot(browser) {
     const snapshot = JSON.parse(raw);
     return parseV8Snapshot(snapshot);
   } catch (err) {
-    console.warn(`[ARGUS] Snapshot capture/parse error: ${err.message}`);
+    logger.warn(`[ARGUS] Snapshot capture/parse error: ${err.message}`);
     return null;
   } finally {
     try { fs.unlinkSync(filePath); } catch { /* best-effort cleanup */ }
@@ -174,7 +177,7 @@ export async function analyzeMemory(browser, url, awayUrl = 'about:blank') {
     await browser.navigate(url);
     await new Promise(r => setTimeout(r, 1500)); // let JS run, detached nodes accumulate
   } catch (err) {
-    console.warn(`[ARGUS] Memory analysis navigation failed for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] Memory analysis navigation failed for ${url}: ${err.message}`);
     return findings;
   }
 
@@ -206,7 +209,7 @@ export async function analyzeMemory(browser, url, awayUrl = 'about:blank') {
       }
     }
   } catch (err) {
-    console.warn(`[ARGUS] Detached node detection skipped for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] Detached node detection skipped for ${url}: ${err.message}`);
   }
 
   // ── 3. Heap growth — navigate-away + navigate-back ────────────────────────────
@@ -252,7 +255,7 @@ export async function analyzeMemory(browser, url, awayUrl = 'about:blank') {
       }
     }
   } catch (err) {
-    console.warn(`[ARGUS] Heap growth check skipped for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] Heap growth check skipped for ${url}: ${err.message}`);
   }
 
   return findings;

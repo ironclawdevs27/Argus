@@ -18,6 +18,9 @@ import 'dotenv/config';
 
 import { handleSlashCommand } from './slash-command-handler.js';
 import { handleInteraction } from './interaction-handler.js';
+import { childLogger } from '../utils/logger.js';
+
+const logger = childLogger('server');
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -41,7 +44,7 @@ app.use(express.json({ limit: BODY_LIMIT, verify: captureRawBody }));
 // ── Request error handler ──────────────────────────────────────────────────────
 app.use((req, res, next) => {
   req.on('error', err => {
-    console.error('[ARGUS] Request stream error:', err.message);
+    logger.error('[ARGUS] Request stream error:', err.message);
     if (!res.headersSent) res.status(400).send('Bad request');
   });
   next();
@@ -63,12 +66,12 @@ app.post('/slack/interactions', handleInteraction);
 
 // Capture server instance so we can attach an error listener.
 const server = app.listen(PORT, () => {
-  console.log(`[ARGUS] Server running on port ${PORT}`);
-  console.log(`[ARGUS] Slash commands:  POST http://localhost:${PORT}/slack/commands`);
-  console.log(`[ARGUS] Interactions:    POST http://localhost:${PORT}/slack/interactions`);
-  console.log(`[ARGUS] Health:          GET  http://localhost:${PORT}/health`);
-  console.log('');
-  console.log('[ARGUS] For local testing, expose with: cloudflared tunnel --url http://localhost:' + PORT);
+  logger.info(`[ARGUS] Server running on port ${PORT}`);
+  logger.info(`[ARGUS] Slash commands:  POST http://localhost:${PORT}/slack/commands`);
+  logger.info(`[ARGUS] Interactions:    POST http://localhost:${PORT}/slack/interactions`);
+  logger.info(`[ARGUS] Health:          GET  http://localhost:${PORT}/health`);
+  logger.info('');
+  logger.info('[ARGUS] For local testing, expose with: cloudflared tunnel --url http://localhost:' + PORT);
 });
 
 // requestTimeout is assigned synchronously here — before the Node.js event loop
@@ -81,9 +84,9 @@ server.requestTimeout = 10_000;
 // the process with a cryptic EADDRINUSE message and no guidance.
 server.on('error', err => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`[ARGUS] Port ${PORT} is already in use — try PORT=3002 node src/server/index.js`);
+    logger.error(`[ARGUS] Port ${PORT} is already in use — try PORT=3002 node src/server/index.js`);
   } else {
-    console.error('[ARGUS] Server error:', err.message);
+    logger.error('[ARGUS] Server error:', err.message);
   }
   process.exit(1);
 });

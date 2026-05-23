@@ -13,6 +13,9 @@ import { verifySlackSignature } from './slash-command-handler.js';
 import { acknowledgeMessage, postRetestResult } from '../orchestration/slack-notifier.js';
 import { createMcpClient } from '../utils/mcp-client.js';
 import { runCrawl } from '../orchestration/crawl-and-report.js';
+import { childLogger } from '../utils/logger.js';
+
+const logger = childLogger('interaction-handler');
 
 /**
  * Handle POST /slack/interactions
@@ -50,7 +53,7 @@ export async function handleInteraction(req, res) {
   // channelId is required for all follow-up Slack posts. Missing means the payload
   // is from an unsupported interaction type — ack it (above) but skip async processing.
   if (!channelId) {
-    console.warn('[ARGUS] Interaction missing channel.id — cannot dispatch response');
+    logger.warn('[ARGUS] Interaction missing channel.id — cannot dispatch response');
     return;
   }
 
@@ -65,7 +68,7 @@ export async function handleInteraction(req, res) {
     }
     // 'view_page' is a URL button — Slack handles it client-side, no server action needed
   } catch (err) {
-    console.error('[ARGUS] Interaction post-response error:', err.message);
+    logger.error('[ARGUS] Interaction post-response error:', err.message);
   }
 }
 
@@ -79,7 +82,7 @@ async function handleRetestAction({ action, messageTs, channelId, userName }) {
     parsedValue = JSON.parse(action.value ?? '{}');
   } catch (e) {
     // Log the raw value and error so we can diagnose malformed action payloads.
-    console.warn('[ARGUS] Failed to parse action.value:', action.value, e.message);
+    logger.warn('[ARGUS] Failed to parse action.value:', action.value, e.message);
     parsedValue = {};
   }
 
@@ -115,7 +118,7 @@ async function handleRetestAction({ action, messageTs, channelId, userName }) {
     await postRetestResult(messageTs, channelId, passed ? 'pass' : 'fail', details);
   } catch (err) {
     // Log full error server-side; redact from the thread reply.
-    console.error('[ARGUS] Retest interaction failed:', err);
+    logger.error('[ARGUS] Retest interaction failed:', err);
     await postRetestResult(messageTs, channelId, 'fail', 'Error: check server logs for details');
   } finally {
     mcp?.close?.();

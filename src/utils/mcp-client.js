@@ -13,6 +13,9 @@
  */
 
 import { spawn } from 'child_process';
+import { childLogger } from './logger.js';
+
+const logger = childLogger('mcp-client');
 
 // Validate MCP_BROWSER_URL before embedding it in a shell:true spawn argument.
 // Two-step defense:
@@ -88,7 +91,7 @@ export async function createMcpClient() {
   // unhandled EventEmitter exception that crashes the process. Reject all pending calls
   // so callers get a meaningful error instead of waiting for the 30 s timeout.
   proc.stdin.on('error', err => {
-    console.error('[ARGUS] MCP stdin error:', err.message);
+    logger.error('[ARGUS] MCP stdin error:', err.message);
     for (const { reject } of pending.values()) {
       reject(new Error(`MCP stdin error: ${err.message}`));
     }
@@ -98,7 +101,7 @@ export async function createMcpClient() {
   const MAX_BUFFER_BYTES = 50 * 1024 * 1024;
   proc.stdout.on('data', (chunk) => {
     if (buffer.length + chunk.length > MAX_BUFFER_BYTES) {
-      console.error('[ARGUS] MCP stdout buffer overflow — discarding buffer');
+      logger.error('[ARGUS] MCP stdout buffer overflow — discarding buffer');
       buffer = '';
     }
     buffer += chunk.toString();

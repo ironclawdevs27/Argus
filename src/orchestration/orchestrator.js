@@ -46,6 +46,9 @@ import { deduplicateFindings as deduplicateErrors } from './report-processor.js'
 import { processReport }         from './report-processor.js';
 import { dispatchAll }           from './dispatcher.js';
 import { validateConfig }        from '../config/schema.js';
+import { childLogger }           from '../utils/logger.js';
+
+const logger = childLogger('orchestrator');
 
 const __dirname   = path.dirname(fileURLToPath(import.meta.url));
 const BASE_URL    = process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
@@ -390,7 +393,7 @@ async function checkPerformanceBudgets(browser, url) {
       }
     }
   } catch (err) {
-    console.warn(`[ARGUS] Performance trace skipped for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] Performance trace skipped for ${url}: ${err.message}`);
   }
 
   void LIGHTHOUSE_TIMEOUT_MS; // referenced only here to prevent unused-var lint
@@ -523,7 +526,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
   try {
     result.errors.push(...parseNetworkTiming(networkReqs, url));
   } catch (err) {
-    console.warn(`[ARGUS] Network timing analysis skipped for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] Network timing analysis skipped for ${url}: ${err.message}`);
   }
 
   // 6c. API contract validation
@@ -532,7 +535,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
       const contractFindings = await validateApiContracts(networkReqs, browser, apiContracts, url);
       result.errors.push(...contractFindings);
     } catch (err) {
-      console.warn(`[ARGUS] API contract validation skipped for ${url}: ${err.message}`);
+      logger.warn(`[ARGUS] API contract validation skipped for ${url}: ${err.message}`);
     }
   }
 
@@ -669,7 +672,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
     const seoRaw = await browser.evaluate(SEO_ANALYSIS_SCRIPT);
     result.errors.push(...parseSeoAnalysisResult(unwrapEval(seoRaw), url));
   } catch (err) {
-    console.warn(`[ARGUS] SEO analysis skipped for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] SEO analysis skipped for ${url}: ${err.message}`);
   }
 
   // 9c. Security checks
@@ -677,7 +680,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
     const secRaw = await browser.evaluate(SECURITY_ANALYSIS_SCRIPT);
     result.errors.push(...parseSecurityAnalysisResult(unwrapEval(secRaw), url));
   } catch (err) {
-    console.warn(`[ARGUS] Security DOM analysis skipped for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] Security DOM analysis skipped for ${url}: ${err.message}`);
   }
   result.errors.push(...analyzeSecurityConsole(consoleMsgs, url));
   result.errors.push(...analyzeSecurityNetwork(networkReqs, url));
@@ -687,7 +690,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
     const contentRaw = await browser.evaluate(CONTENT_ANALYSIS_SCRIPT);
     result.errors.push(...parseContentAnalysisResult(unwrapEval(contentRaw), url));
   } catch (err) {
-    console.warn(`[ARGUS] Content analysis skipped for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] Content analysis skipped for ${url}: ${err.message}`);
   }
 
   // 9e. Chrome DevTools Issues panel
@@ -696,7 +699,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
     const issues   = normalizeArray(issueRaw).slice(issuesBaseline);
     result.errors.push(...parseIssues(issues, url, route.critical));
   } catch (err) {
-    console.warn(`[ARGUS] Issues analysis skipped for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] Issues analysis skipped for ${url}: ${err.message}`);
   }
 
   // 9f. HTTPS enforcement check
@@ -718,7 +721,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
     const cssRaw = await browser.evaluate(CSS_ANALYSIS_SCRIPT);
     result.errors.push(...parseCssAnalysisResult(unwrapEval(cssRaw), url));
   } catch (err) {
-    console.warn(`[ARGUS] CSS analysis skipped for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] CSS analysis skipped for ${url}: ${err.message}`);
   }
 
   // 11. Deduplicate within this cheap run
@@ -733,7 +736,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
       result.screenshot = screenshotPath;
     }
   } catch (err) {
-    console.warn(`[ARGUS] Screenshot failed for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] Screenshot failed for ${url}: ${err.message}`);
   }
 
   return result;
@@ -759,7 +762,7 @@ export async function crawlRouteExpensive(route, baseUrl, mcp) {
       await new Promise(r => setTimeout(r, config.pageSettleMs));
     }
   } catch (err) {
-    console.warn(`[ARGUS] Expensive crawl: navigation failed for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] Expensive crawl: navigation failed for ${url}: ${err.message}`);
     return errors;
   }
 
@@ -771,7 +774,7 @@ export async function crawlRouteExpensive(route, baseUrl, mcp) {
       : JSON.parse(typeof perfResult === 'string' ? perfResult : '[]');
     errors.push(...analyzeNetworkPerformance(Array.isArray(perfEntries) ? perfEntries : [], url));
   } catch (err) {
-    console.warn(`[ARGUS] Network performance analysis skipped for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] Network performance analysis skipped for ${url}: ${err.message}`);
   }
 
   // Redirect chain detection
@@ -788,7 +791,7 @@ export async function crawlRouteExpensive(route, baseUrl, mcp) {
       });
     }
   } catch (err) {
-    console.warn(`[ARGUS] Redirect chain check skipped for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] Redirect chain check skipped for ${url}: ${err.message}`);
   }
 
   // Performance budget check
@@ -825,7 +828,7 @@ export async function crawlRouteExpensive(route, baseUrl, mcp) {
       }
     }
   } catch (err) {
-    console.warn(`[ARGUS] Broken link check skipped for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] Broken link check skipped for ${url}: ${err.message}`);
   }
 
   // Cache header detection
@@ -845,7 +848,7 @@ export async function crawlRouteExpensive(route, baseUrl, mcp) {
       });
     }
   } catch (err) {
-    console.warn(`[ARGUS] Cache header check skipped for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] Cache header check skipped for ${url}: ${err.message}`);
   }
 
   return errors;
@@ -862,19 +865,19 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
       await refreshSession(browser, auth, targetBaseUrl);
       await restoreSession(browser, targetBaseUrl, sessionFile);
     } catch (err) {
-      console.warn(`[ARGUS] Auth: session restore skipped for ${route.name}: ${err.message}`);
+      logger.warn(`[ARGUS] Auth: session restore skipped for ${route.name}: ${err.message}`);
     }
   }
 
   // Cheap pass × 2 → merge for flakiness
-  console.log(`[ARGUS] ${route.name}: cheap run 1/2...`);
+  logger.info(`[ARGUS] ${route.name}: cheap run 1/2...`);
   const cheapRun1 = await crawlRouteCheap(route, targetBaseUrl, mcp);
-  console.log(`[ARGUS] ${route.name}: cheap run 2/2 (flakiness check)...`);
+  logger.info(`[ARGUS] ${route.name}: cheap run 2/2 (flakiness check)...`);
   const cheapRun2 = await crawlRouteCheap(route, targetBaseUrl, mcp);
   const result    = mergeRunResults(cheapRun1, cheapRun2);
 
   // Expensive pass × 1
-  console.log(`[ARGUS] ${route.name}: expensive analyzers (once)...`);
+  logger.info(`[ARGUS] ${route.name}: expensive analyzers (once)...`);
   const expensiveErrors = await crawlRouteExpensive(route, targetBaseUrl, mcp);
   result.errors.push(...expensiveErrors);
   result.errors = deduplicateErrors(result.errors);
@@ -899,13 +902,13 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
             fs.writeFileSync(shotPath, Buffer.from(data, 'base64'));
             screenshotPaths[viewport] = shotPath;
           } catch (err) {
-            console.warn(`[ARGUS] Responsive screenshot write failed (${viewport}): ${err.message}`);
+            logger.warn(`[ARGUS] Responsive screenshot write failed (${viewport}): ${err.message}`);
           }
         }
         if (Object.keys(screenshotPaths).length > 0) result.responsiveScreenshots = screenshotPaths;
       }
     } catch (err) {
-      console.warn(`[ARGUS] ${name} skipped for ${route.name}: ${err.message}`);
+      logger.warn(`[ARGUS] ${name} skipped for ${route.name}: ${err.message}`);
     }
   }
 
@@ -927,11 +930,11 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
 async function crawlShardWithClient(shard, targetBaseUrl, mcp, sessionFile) {
   const results = [];
   for (const route of shard) {
-    console.log(`[ARGUS/parallel] Crawling: ${route.name} → ${targetBaseUrl}${route.path}`);
+    logger.info(`[ARGUS/parallel] Crawling: ${route.name} → ${targetBaseUrl}${route.path}`);
     const result = await crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile);
     const flakyCount = result.errors.filter(e => e.flaky).length;
     if (flakyCount > 0) {
-      console.log(`[ARGUS/parallel] ${route.name}: ${flakyCount} finding(s) downgraded to info (flaky)`);
+      logger.info(`[ARGUS/parallel] ${route.name}: ${flakyCount} finding(s) downgraded to info (flaky)`);
     }
     results.push(result);
   }
@@ -985,15 +988,15 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
   const sessionFile = auth?.sessionFile ?? '.argus-session.json';
   if (auth?.steps?.length > 0) {
     if (!hasSession(sessionFile, auth.sessionMaxAgeMs)) {
-      console.log(`[ARGUS] Auth: running login flow (${auth.steps.length} steps)...`);
+      logger.info(`[ARGUS] Auth: running login flow (${auth.steps.length} steps)...`);
       try {
         await runLoginFlow(browser, targetBaseUrl, auth.steps);
         await saveSession(browser, sessionFile);
       } catch (err) {
-        console.warn(`[ARGUS] Auth: login flow failed — crawl will proceed unauthenticated: ${err.message}`);
+        logger.warn(`[ARGUS] Auth: login flow failed — crawl will proceed unauthenticated: ${err.message}`);
       }
     } else {
-      console.log(`[ARGUS] Auth: reusing existing session from ${sessionFile}`);
+      logger.info(`[ARGUS] Auth: reusing existing session from ${sessionFile}`);
     }
   }
 
@@ -1002,7 +1005,7 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
   const concurrency = Math.min(10, Math.max(1, isNaN(_rawConcurrency) ? 1 : _rawConcurrency));
 
   if (concurrency > 1) {
-    console.log(`[ARGUS] Parallel mode: concurrency=${concurrency}, sharding ${targetRoutes.length} route(s)`);
+    logger.info(`[ARGUS] Parallel mode: concurrency=${concurrency}, sharding ${targetRoutes.length} route(s)`);
     const shards       = chunkArray(targetRoutes, concurrency);
     const extraClients = [];
     try {
@@ -1030,12 +1033,12 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
     }
   } else {
     for (const route of targetRoutes) {
-      console.log(`[ARGUS] Crawling: ${route.name} → ${targetBaseUrl}${route.path}`);
+      logger.info(`[ARGUS] Crawling: ${route.name} → ${targetBaseUrl}${route.path}`);
       const result = await crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile);
 
       const flakyCount = result.errors.filter(e => e.flaky).length;
       if (flakyCount > 0) {
-        console.log(`[ARGUS] ${route.name}: ${flakyCount} finding(s) downgraded to info (flaky — appeared in only one cheap run)`);
+        logger.info(`[ARGUS] ${route.name}: ${flakyCount} finding(s) downgraded to info (flaky — appeared in only one cheap run)`);
       }
 
       report.routes.push(result);
@@ -1048,7 +1051,7 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
 
   // User flow testing (B5)
   if (flows?.length > 0) {
-    console.log(`[ARGUS] Running ${flows.length} user flow(s)...`);
+    logger.info(`[ARGUS] Running ${flows.length} user flow(s)...`);
     const { results: flowResults, findings: flowFindings } = await runAllFlows(flows, targetBaseUrl, browser);
     report.flows = flowResults;
     for (const finding of flowFindings) {
@@ -1068,10 +1071,10 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
     });
     report.codebase.push(...cbFindings);
     if (cbFindings.length > 0) {
-      console.log(`[ARGUS] C1: ${cbFindings.length} codebase finding(s)`);
+      logger.info(`[ARGUS] C1: ${cbFindings.length} codebase finding(s)`);
     }
   } catch (err) {
-    console.warn(`[ARGUS] C1: codebase analysis skipped: ${err.message}`);
+    logger.warn(`[ARGUS] C1: codebase analysis skipped: ${err.message}`);
   }
 
   // C1.4: Dead route detection
@@ -1081,10 +1084,10 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
     const deadFindings = await detectDeadRoutes(targetBaseUrl, allLinks, testedPaths);
     report.codebase.push(...deadFindings);
     if (deadFindings.length > 0) {
-      console.log(`[ARGUS] C1: ${deadFindings.length} dead route(s) detected`);
+      logger.info(`[ARGUS] C1: ${deadFindings.length} dead route(s) detected`);
     }
   } catch (err) {
-    console.warn(`[ARGUS] C1: dead route detection skipped: ${err.message}`);
+    logger.warn(`[ARGUS] C1: dead route detection skipped: ${err.message}`);
   }
 
   // Add codebase findings to running summary
@@ -1107,7 +1110,7 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
 // ── CLI Entry ──────────────────────────────────────────────────────────────────
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  console.log('[ARGUS] orchestrator.js loaded. Invoke runCrawl(mcp) from Claude Code with MCP tools connected.');
-  console.log('[ARGUS] Target base URL:', BASE_URL);
-  console.log('[ARGUS] Routes to crawl:', (routes ?? []).map(r => r?.path ?? '(no path)').join(', '));
+  logger.info('[ARGUS] orchestrator.js loaded. Invoke runCrawl(mcp) from Claude Code with MCP tools connected.');
+  logger.info('[ARGUS] Target base URL: ' + BASE_URL);
+  logger.info('[ARGUS] Routes to crawl: ' + (routes ?? []).map(r => r?.path ?? '(no path)').join(', '));
 }

@@ -18,6 +18,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 import { unwrapEval } from '../utils/mcp-client.js';
+import { childLogger } from '../utils/logger.js';
+
+const logger = childLogger('env-comparison');
 import { normalizeArray } from '../utils/flow-runner.js';
 import { CdpBrowserAdapter } from '../adapters/browser.js';
 
@@ -59,7 +62,7 @@ const SCREENSHOT_THRESHOLD = config.screenshotDiffThreshold; // %
  * @returns {object} Captured page state
  */
 async function capturePage(url, label, routeName, browser) {
-  console.log(`[ARGUS] Capturing ${label}: ${url}`);
+  logger.info(`[ARGUS] Capturing ${label}: ${url}`);
 
   // Snapshot buffer counts BEFORE navigation so staging capture does not
   // include dev's accumulated console messages and network requests from the prior capture.
@@ -248,7 +251,7 @@ export async function runComparison(mcp) {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
   if (!STAGING_URL_SET) {
-    console.log('[ARGUS] No staging URL configured — running CSS & API analysis mode on dev environment');
+    logger.info('[ARGUS] No staging URL configured — running CSS & API analysis mode on dev environment');
     return runCssAnalysisMode(browser);
   }
 
@@ -262,7 +265,7 @@ export async function runComparison(mcp) {
   };
 
   for (const route of comparisonRoutes) {
-    console.log(`[ARGUS] Comparing route: ${route.name} (${route.path})`);
+    logger.info(`[ARGUS] Comparing route: ${route.name} (${route.path})`);
     const result = await compareRoute(route, browser);
     report.routes.push(result);
 
@@ -275,12 +278,12 @@ export async function runComparison(mcp) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const reportPath = path.join(OUTPUT_DIR, `comparison-report-${timestamp}.json`);
   fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
-  console.log(`[ARGUS] Comparison report: ${reportPath}`);
+  logger.info(`[ARGUS] Comparison report: ${reportPath}`);
 
   // Slack dispatch is best-effort — a network error or Slack API failure should not
   // crash the entire comparison run and discard the already-written JSON report.
   await dispatchComparisonToSlack(report).catch(err =>
-    console.error('[ARGUS] Slack dispatch failed:', err.message)
+    logger.error('[ARGUS] Slack dispatch failed:', err.message)
   );
   return report;
 }
@@ -312,7 +315,7 @@ async function runCssAnalysisMode(browser) {
 
   for (const route of comparisonRoutes) {
     const url = `${DEV_URL}${route.path}`;
-    console.log(`[ARGUS] CSS analysis: ${route.name} (${url})`);
+    logger.info(`[ARGUS] CSS analysis: ${route.name} (${url})`);
 
     const routeResult = {
       route: route.name,
@@ -340,7 +343,7 @@ async function runCssAnalysisMode(browser) {
         const cssBugs = parseCssAnalysisResult(cssResult, url);
         routeResult.findings.push(...cssBugs);
       } else if (cssResult !== null) {
-        console.warn(`[ARGUS] CSS analysis: unexpected response type (${typeof cssResult}), skipping ${url}`);
+        logger.warn(`[ARGUS] CSS analysis: unexpected response type (${typeof cssResult}), skipping ${url}`);
       }
 
       // API frequency analysis — sliced from per-route baseline
@@ -377,11 +380,11 @@ async function runCssAnalysisMode(browser) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const reportPath = path.join(OUTPUT_DIR, `css-analysis-report-${timestamp}.json`);
   fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
-  console.log(`[ARGUS] CSS analysis report: ${reportPath}`);
+  logger.info(`[ARGUS] CSS analysis report: ${reportPath}`);
 
   // Dispatch to Slack
   await dispatchCssAnalysisToSlack(report).catch(err =>
-    console.error('[ARGUS] CSS Slack dispatch failed:', err.message)
+    logger.error('[ARGUS] CSS Slack dispatch failed:', err.message)
   );
 
   return report;
@@ -407,7 +410,7 @@ async function dispatchCssAnalysisToSlack(report) {
         url: routeResult.url,
         screenshotPath: routeResult.screenshot,
         details: api,
-      }).catch(err => console.error('[ARGUS] Slack dispatch failed (css critical):', err.message));
+      }).catch(err => logger.error('[ARGUS] Slack dispatch failed (css critical):', err.message));
     }
 
     // CSS overrides + leaks + duplicate APIs bundled as one warning per route
@@ -421,7 +424,7 @@ async function dispatchCssAnalysisToSlack(report) {
         url: routeResult.url,
         screenshotPath: routeResult.screenshot,
         details: { route: routeResult.route, findings: warningItems },
-      }).catch(err => console.error('[ARGUS] Slack dispatch failed (css warning):', err.message));
+      }).catch(err => logger.error('[ARGUS] Slack dispatch failed (css warning):', err.message));
     }
 
     // Summary as info digest
@@ -434,7 +437,7 @@ async function dispatchCssAnalysisToSlack(report) {
         url: routeResult.url,
         screenshotPath: null,
         details: summary,
-      }).catch(err => console.error('[ARGUS] Slack dispatch failed (css info):', err.message));
+      }).catch(err => logger.error('[ARGUS] Slack dispatch failed (css info):', err.message));
     }
   }
 }
@@ -462,7 +465,7 @@ async function dispatchComparisonToSlack(report) {
           devUrl: routeResult.devUrl,
           stagingUrl: routeResult.stagingUrl,
         },
-      }).catch(err => console.error('[ARGUS] Slack dispatch failed (comparison critical):', err.message));
+      }).catch(err => logger.error('[ARGUS] Slack dispatch failed (comparison critical):', err.message));
     }
 
     if (warnings.length > 0) {
@@ -480,7 +483,7 @@ async function dispatchComparisonToSlack(report) {
           stagingUrl: routeResult.stagingUrl,
           diffs: warnings,
         },
-      }).catch(err => console.error('[ARGUS] Slack dispatch failed (comparison warning):', err.message));
+      }).catch(err => logger.error('[ARGUS] Slack dispatch failed (comparison warning):', err.message));
     }
   }
 }
@@ -488,8 +491,8 @@ async function dispatchComparisonToSlack(report) {
 // ── CLI Entry ──────────────────────────────────────────────────────────────────
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  console.log('[ARGUS] env-comparison.js loaded. Invoke runComparison(mcp) from Claude Code with MCP tools connected.');
-  console.log('[ARGUS] Dev URL:', DEV_URL);
-  console.log('[ARGUS] Staging URL:', STAGING_URL);
-  console.log('[ARGUS] Routes to compare:', comparisonRoutes.map(r => r.path).join(', '));
+  logger.info('[ARGUS] env-comparison.js loaded. Invoke runComparison(mcp) from Claude Code with MCP tools connected.');
+  logger.info('[ARGUS] Dev URL:', DEV_URL);
+  logger.info('[ARGUS] Staging URL:', STAGING_URL);
+  logger.info('[ARGUS] Routes to compare:', comparisonRoutes.map(r => r.path).join(', '));
 }

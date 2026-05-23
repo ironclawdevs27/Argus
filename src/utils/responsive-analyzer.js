@@ -11,6 +11,9 @@
  */
 
 import { registerExpensive } from '../registry.js';
+import { childLogger }       from './logger.js';
+
+const logger = childLogger('responsive-analyzer');
 
 const BREAKPOINTS = [
   { width: 375,  height: 812,  label: 'mobile'  },
@@ -75,14 +78,14 @@ function parseEvalObject(raw) {
     if (typeof inner === 'string') {
       // Log parse failures so a broken evaluate_script response is diagnosable.
       try { return JSON.parse(inner); } catch (e) {
-        console.warn('[ARGUS] parseEvalObject: JSON.parse failed —', e.message, '— raw type:', typeof raw);
+        logger.warn('[ARGUS] parseEvalObject: JSON.parse failed —', e.message, '— raw type:', typeof raw);
         return null;
       }
     }
   }
   if (typeof raw === 'string') {
     try { return JSON.parse(raw); } catch (e) {
-      console.warn('[ARGUS] parseEvalObject: JSON.parse failed —', e.message);
+      logger.warn('[ARGUS] parseEvalObject: JSON.parse failed —', e.message);
       return null;
     }
   }
@@ -103,7 +106,7 @@ function parseEvalArray(raw) {
     if (typeof inner === 'string') {
       // Log parse failures.
       try { const p = JSON.parse(inner); return Array.isArray(p) ? p : []; } catch (e) {
-        console.warn('[ARGUS] parseEvalArray: JSON.parse failed —', e.message, '— raw type:', typeof raw);
+        logger.warn('[ARGUS] parseEvalArray: JSON.parse failed —', e.message, '— raw type:', typeof raw);
         return [];
       }
     }
@@ -113,7 +116,7 @@ function parseEvalArray(raw) {
   }
   if (typeof raw === 'string') {
     try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; } catch (e) {
-      console.warn('[ARGUS] parseEvalArray: JSON.parse failed —', e.message);
+      logger.warn('[ARGUS] parseEvalArray: JSON.parse failed —', e.message);
       return [];
     }
   }
@@ -184,7 +187,7 @@ export async function analyzeResponsive(browser, url) {
             });
           }
         } catch (err) {
-          console.warn(`[ARGUS] Overflow check failed at ${bp.width}px: ${err.message}`);
+          logger.warn(`[ARGUS] Overflow check failed at ${bp.width}px: ${err.message}`);
         }
 
         // ── Touch target check — at 375 px (mobile) and 768 px (tablet) ──────
@@ -208,7 +211,7 @@ export async function analyzeResponsive(browser, url) {
               });
             }
           } catch (err) {
-            console.warn(`[ARGUS] Touch target check failed at ${bp.width}px: ${err.message}`);
+            logger.warn(`[ARGUS] Touch target check failed at ${bp.width}px: ${err.message}`);
           }
         }
 
@@ -227,7 +230,7 @@ export async function analyzeResponsive(browser, url) {
         } catch { /* screenshots are optional */ }
 
       } catch (err) {
-        console.warn(`[ARGUS] Responsive analysis failed at ${bp.width}px: ${err.message}`);
+        logger.warn(`[ARGUS] Responsive analysis failed at ${bp.width}px: ${err.message}`);
       }
     }
   } finally {

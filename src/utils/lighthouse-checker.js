@@ -7,6 +7,9 @@
 
 import { registerExpensive } from '../registry.js';
 import { thresholds }        from '../config/targets.js';
+import { childLogger }       from './logger.js';
+
+const logger = childLogger('lighthouse-checker');
 
 const LIGHTHOUSE_LABELS = {
   accessibility:    'Accessibility',
@@ -102,7 +105,7 @@ export async function checkLighthouse(browser, url) {
     }
 
   } catch (err) {
-    console.warn(`[ARGUS] Lighthouse audit skipped for ${url}: ${err.message}`);
+    logger.warn(`[ARGUS] Lighthouse audit skipped for ${url}: ${err.message}`);
   }
 
   return violations;

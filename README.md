@@ -660,7 +660,11 @@ argus/
 │       ├── content-analyzer.js       # Content quality: null text, placeholders, broken images
 │       ├── responsive-analyzer.js    # Responsive: overflow + touch targets at 4 breakpoints
 │       ├── memory-analyzer.js        # Memory leaks: V8 heap snapshot + heap growth
-│       ├── session-manager.js        # Auth: saveSession, restoreSession, runLoginFlow, refreshSession (D7.6)
+│       ├── logger.js                 # Pino structured logger — childLogger(module) (v9 Sprint 4)
+│       ├── retry.js                  # withRetry() exponential backoff — navigate/fill only; Number.isFinite guard (v9 Sprint 4)
+│       ├── session-manager.js        # Auth: backward-compat re-export barrel (v9 Sprint 4)
+│       ├── session-persistence.js    # Auth: saveSession (mkdirSync+atomic write), restoreSession, hasSession, clearSession (v9 Sprint 4)
+│       ├── login-orchestrator.js     # Auth: runLoginFlow, refreshSession + lock file (v9 Sprint 4)
 │       ├── baseline-manager.js       # Baselines: loadBaseline, saveBaseline, applyBaseline, appendTrend
 │       ├── flakiness-detector.js     # Flakiness: mergeRunResults — confirmed vs flaky per double-crawl
 │       ├── flow-runner.js            # User flow assertions: runFlow / runAllFlows — assert DSL
@@ -682,11 +686,11 @@ argus/
 │       └── mcp-client.js             # Headless JSON-RPC MCP client for CI mode
 │   └── cli/
 │       └── init.js                   # argus init setup wizard — detect framework, discover routes, write .env + targets.js (C4)
-├── test-harness/                     # Fixture server + test runner (78 blocks, 330 hard assertions, 54 categories)
+├── test-harness/                     # Fixture server + test runner (79 blocks, 334 hard assertions, 54 fixture pages)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner — 78 numbered blocks
+│   ├── validate.js                   # Test runner — 79 numbered blocks
 │   ├── pages/                        # 54 fixture pages (one per detection category)
 │   ├── nextjs-fixture/               # Next.js app structure for C3 discovery tests (10 files)
 │   └── static/
@@ -726,7 +730,7 @@ argus/
 
 ## Known MCP Tool Limitations
 
-The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`327/330` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code.
+The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`331/334` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code.
 
 > **`type_text` clarification**: `type_text` does fire DOM `input` events when the element is properly focused first with `mcp.click({ uid })`. Always use uid-based focus — passing `{ selector }` to `mcp.click` silently does nothing.
 

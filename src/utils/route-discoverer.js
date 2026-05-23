@@ -19,6 +19,9 @@
 
 import fs   from 'fs';
 import path from 'path';
+import { childLogger } from './logger.js';
+
+const logger = childLogger('route-discoverer');
 
 // File extensions to scan for page/route files
 const PAGE_EXTS = new Set(['.js', '.jsx', '.ts', '.tsx']);
@@ -281,23 +284,23 @@ export async function discoverRoutes(baseUrl, sourceDir, autoDiscover, manualRou
   if (sitemap) {
     const paths = await discoverFromSitemap(baseUrl);
     allPaths.push(...paths);
-    if (paths.length > 0) console.log(`[ARGUS] C3: sitemap → ${paths.length} route(s)`);
+    if (paths.length > 0) logger.info(`[ARGUS] C3: sitemap → ${paths.length} route(s)`);
   }
 
   if (nextjs && sourceDir) {
     const paths = discoverFromNextJs(sourceDir);
     allPaths.push(...paths);
-    if (paths.length > 0) console.log(`[ARGUS] C3: Next.js → ${paths.length} route(s)`);
+    if (paths.length > 0) logger.info(`[ARGUS] C3: Next.js → ${paths.length} route(s)`);
   }
 
   if (reactRouter && sourceDir) {
     const paths = discoverFromReactRouter(sourceDir);
     allPaths.push(...paths);
-    if (paths.length > 0) console.log(`[ARGUS] C3: React Router → ${paths.length} route(s)`);
+    if (paths.length > 0) logger.info(`[ARGUS] C3: React Router → ${paths.length} route(s)`);
   }
 
   const merged = mergeRoutes(manualRoutes, allPaths);
   const added  = merged.length - manualRoutes.length;
-  if (added > 0) console.log(`[ARGUS] C3: ${added} new route(s) added (total: ${merged.length})`);
+  if (added > 0) logger.info(`[ARGUS] C3: ${added} new route(s) added (total: ${merged.length})`);
   return merged;
 }

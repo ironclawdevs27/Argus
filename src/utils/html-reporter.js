@@ -17,6 +17,9 @@
 import fs   from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { childLogger } from './logger.js';
+
+const logger = childLogger('html-reporter');
 
 const __dirname   = path.dirname(fileURLToPath(import.meta.url));
 const REPORTS_DIR = path.resolve(__dirname, '../../reports');
@@ -262,7 +265,7 @@ export function generateHtmlReport(reportPath) {
   fs.writeFileSync(outPath, html, 'utf8');
 
   const kb = Math.round(Buffer.byteLength(html, 'utf8') / 1024);
-  console.log(`[ARGUS] HTML report written: ${outPath} (${kb} KB)`);
+  logger.info(`[ARGUS] HTML report written: ${outPath} (${kb} KB)`);
   return outPath;
 }
 
@@ -289,10 +292,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   const reportPath = arg ? path.resolve(arg) : findLatestReport(REPORTS_DIR);
 
   if (!fs.existsSync(reportPath)) {
-    console.error(`Error: report not found — ${reportPath}`);
+    logger.error(`Error: report not found — ${reportPath}`);
     process.exit(1);
   }
 
   generateHtmlReport(reportPath);
-  console.log(`[ARGUS] Source report: ${reportPath}`);
+  logger.info(`[ARGUS] Source report: ${reportPath}`);
 }

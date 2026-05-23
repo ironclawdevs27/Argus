@@ -15,12 +15,13 @@
  */
 
 import { parseConsoleMsgResponse, parseNetworkReqResponse } from '../utils/mcp-parsers.js';
+import { withRetry } from '../utils/retry.js';
 
 export class CdpBrowserAdapter {
   constructor(mcp) { this._mcp = mcp; }
 
   // ── Navigation ──────────────────────────────────────────────────────────────
-  navigate(url)            { return this._mcp.navigate_page({ url }); }
+  navigate(url)            { return withRetry(() => this._mcp.navigate_page({ url }), { label: `navigate(${url})` }); }
 
   // ── Evaluation & snapshots ──────────────────────────────────────────────────
   evaluate(fn)             { return this._mcp.evaluate_script({ function: fn }); }
@@ -29,8 +30,12 @@ export class CdpBrowserAdapter {
   heapSnapshot(opts = {})  { return this._mcp.take_memory_snapshot(opts); }
 
   // ── Interactions ────────────────────────────────────────────────────────────
+  // click is intentionally NOT retried — it is not idempotent (submits forms,
+  // toggles state, triggers deletions). A retry after an ambiguous MCP timeout
+  // cannot distinguish "Chrome never received the click" from "Chrome processed
+  // it but the pipe dropped the response" — firing twice causes duplicate actions.
   click(uid)               { return this._mcp.click({ uid }); }
-  fill(uid, value)         { return this._mcp.fill({ uid, value }); }
+  fill(uid, value)         { return withRetry(() => this._mcp.fill({ uid, value }), { label: `fill(${uid})` }); }
   type(text)               { return this._mcp.type_text({ text }); }
   pressKey(key)            { return this._mcp.press_key({ key }); }
   hover(uid)               { return this._mcp.hover({ uid }); }

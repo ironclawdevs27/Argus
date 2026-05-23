@@ -20,7 +20,7 @@ src/
   argus.js                    — single-page audit entry point
   batch-runner.js             — multi-page batch audit
   adapters/
-    browser.js                — CdpBrowserAdapter (v9.1.1) — wraps all mcp.* calls
+    browser.js                — CdpBrowserAdapter (v9.1.1 + v9.1.9 retry) — wraps all mcp.* calls
   domain/
     finding.js                — createFinding() factory (v9.1.4)
   registry.js                 — analyzer plugin registry (registerExpensive/getCheap/getExpensive) (v9 Sprint 2)
@@ -32,6 +32,8 @@ src/
     env-comparison.js         — dev vs staging diff
     watch-mode.js             — passive browser monitoring (npm run watch)
   utils/
+    logger.js                 — Pino structured logger; childLogger(module) (v9 Sprint 4)
+    retry.js                  — withRetry() exponential-backoff wrapper (v9 Sprint 4)
     flow-runner.js            — DSL step executor (D8 flow steps)
     mcp-parsers.js            — text-format parsers for list_console_messages / list_network_requests
     seo-analyzer.js           — A3: SEO checks
@@ -39,7 +41,9 @@ src/
     content-analyzer.js       — A5: content quality
     responsive-analyzer.js    — A6: viewport emulation + overflow
     memory-analyzer.js        — B1: heap snapshot + detached DOM
-    session-manager.js        — B2: auth cookie/localStorage save+restore
+    session-manager.js        — B2: backward-compat re-export barrel (v9 Sprint 4)
+    session-persistence.js    — B2: saveSession / restoreSession / hasSession / clearSession (v9 Sprint 4)
+    login-orchestrator.js     — B2: runLoginFlow / refreshSession + lock file (v9 Sprint 4)
     baseline-manager.js       — B3: historical baselines + trend tracking
     flakiness-detector.js     — B4: double-crawl, confirm vs flaky
     hover-analyzer.js         — D8.1: hover-state bug detection
@@ -106,4 +110,4 @@ TARGET_STAGING_URL=
 
 ## Phases Complete
 
-D1–D8.5 (all code phases complete). Watch mode (passive browser monitoring — `npm run watch`). **v9 Sprint 1 complete** — `CdpBrowserAdapter` (`src/adapters/browser.js`), `createFinding()` factory (`src/domain/finding.js`), `mcp-parsers.js`, and all 13 analyzer/orchestration/harness files migrated from `mcp.*` to `browser.*`. **v9 Sprint 2 complete** — plugin registry (`src/registry.js`), god object split (`orchestrator.js` + `report-processor.js` + `dispatcher.js`), `crawl-and-report.js` reduced to 20-line re-export shell, 6 analyzers self-register. **v9 Sprint 3 complete** — all magic-number thresholds centralized in `src/config/targets.js`; `src/config/schema.js` (Zod) validates targets.js at startup. Harness: 331/334. See `SKILL.md` §14 for the full feature list.
+D1–D8.5 (all code phases complete). Watch mode (passive browser monitoring — `npm run watch`). **v9 Sprint 1 complete** — `CdpBrowserAdapter` (`src/adapters/browser.js`), `createFinding()` factory (`src/domain/finding.js`), `mcp-parsers.js`, and all 13 analyzer/orchestration/harness files migrated from `mcp.*` to `browser.*`. **v9 Sprint 2 complete** — plugin registry (`src/registry.js`), god object split (`orchestrator.js` + `report-processor.js` + `dispatcher.js`), `crawl-and-report.js` reduced to 20-line re-export shell, 6 analyzers self-register. **v9 Sprint 3 complete** — all magic-number thresholds centralized in `src/config/targets.js`; `src/config/schema.js` (Zod) validates targets.js at startup. **v9 Sprint 4 complete** — `session-manager.js` split into `session-persistence.js` + `login-orchestrator.js` (v9.1.7); Pino structured logging across all `src/` files via `logger.js` (v9.1.8); `withRetry()` exponential backoff on `navigate` and `fill` in `CdpBrowserAdapter` — `click` is intentionally excluded (not idempotent) (v9.1.9). Harness: 331/334. See `SKILL.md` §14 for the full feature list.

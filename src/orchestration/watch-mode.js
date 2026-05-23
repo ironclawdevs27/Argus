@@ -22,6 +22,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 import { createMcpClient } from '../utils/mcp-client.js';
+import { childLogger } from '../utils/logger.js';
+
+const logger = childLogger('watch-mode');
 import { CdpBrowserAdapter } from '../adapters/browser.js';
 import {
   analyzeSecurityConsole,
@@ -220,10 +223,10 @@ export async function runWatchMode(baseUrl) {
   const browser = new CdpBrowserAdapter(mcp);
   const session = new WatchSession(browser, target);
 
-  console.log('\n[ARGUS WATCH] ─────────────────────────────────────────────────');
-  console.log(`[ARGUS WATCH] Passive monitoring — ${target}`);
-  console.log(`[ARGUS WATCH] Polling every ${pollIntervalMs}ms. Press Ctrl+C to stop.`);
-  console.log('[ARGUS WATCH] ─────────────────────────────────────────────────\n');
+  logger.info('\n[ARGUS WATCH] ─────────────────────────────────────────────────');
+  logger.info(`[ARGUS WATCH] Passive monitoring — ${target}`);
+  logger.info(`[ARGUS WATCH] Polling every ${pollIntervalMs}ms. Press Ctrl+C to stop.`);
+  logger.info('[ARGUS WATCH] ─────────────────────────────────────────────────\n');
 
   const badge = (severity) =>
     severity === 'critical' ? '✗ CRIT' :
@@ -234,9 +237,9 @@ export async function runWatchMode(baseUrl) {
       const { findings } = await session.poll();
       if (findings.length === 0) return;
 
-      console.log(`\n[ARGUS WATCH] ${new Date().toLocaleTimeString()} — ${findings.length} new finding(s):`);
+      logger.info(`\n[ARGUS WATCH] ${new Date().toLocaleTimeString()} — ${findings.length} new finding(s):`);
       for (const f of findings) {
-        console.log(`  [${badge(f.severity)}] [${f.type}] ${f.message}`);
+        logger.info(`  [${badge(f.severity)}] [${f.type}] ${f.message}`);
       }
 
       if (isSlackConfigured()) {
@@ -253,11 +256,11 @@ export async function runWatchMode(baseUrl) {
             url: target,
             screenshotPath: null,
             details: { findings: group, source: 'watch-mode' },
-          }).catch(e => console.warn('[ARGUS WATCH] Slack post failed:', e.message));
+          }).catch(e => logger.warn('[ARGUS WATCH] Slack post failed:', e.message));
         }
       }
     } catch (err) {
-      console.warn('[ARGUS WATCH] Poll error:', err.message);
+      logger.warn('[ARGUS WATCH] Poll error:', err.message);
     }
   };
 
@@ -269,7 +272,7 @@ export async function runWatchMode(baseUrl) {
     clearInterval(interval);
     const all = session.getAllFindings();
 
-    console.log(`\n[ARGUS WATCH] Stopped. Total findings: ${all.length}`);
+    logger.info(`\n[ARGUS WATCH] Stopped. Total findings: ${all.length}`);
 
     if (all.length > 0) {
       try {
@@ -289,12 +292,12 @@ export async function runWatchMode(baseUrl) {
         const jsonPath = path.join(REPORTS_DIR, 'watch-report.json');
         fs.writeFileSync(jsonPath, JSON.stringify(reportJson, null, 2), 'utf8');
         const htmlPath = generateHtmlReport(jsonPath);
-        console.log(`[ARGUS WATCH] HTML report written → ${htmlPath}`);
+        logger.info(`[ARGUS WATCH] HTML report written → ${htmlPath}`);
       } catch (e) {
-        console.warn('[ARGUS WATCH] HTML report failed:', e.message);
+        logger.warn('[ARGUS WATCH] HTML report failed:', e.message);
       }
     } else {
-      console.log('[ARGUS WATCH] No issues detected during this session. ✓');
+      logger.info('[ARGUS WATCH] No issues detected during this session. ✓');
     }
 
     try { await browser.close(); } catch { /* ignore */ }
@@ -307,7 +310,7 @@ export async function runWatchMode(baseUrl) {
 // Run when invoked directly: node src/orchestration/watch-mode.js [url]
 if (process.argv[1]?.endsWith('watch-mode.js')) {
   runWatchMode(process.argv[2]).catch(err => {
-    console.error('[ARGUS WATCH] Fatal:', err.message);
+    logger.error('[ARGUS WATCH] Fatal:', err.message);
     process.exit(1);
   });
 }

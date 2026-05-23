@@ -18,7 +18,10 @@
  *      • HTTP resource on HTTPS page (D6.9) — skips loopback; only fires on real HTTPS origins
  */
 
-import { thresholds } from '../config/targets.js';
+import { thresholds }  from '../config/targets.js';
+import { childLogger } from './logger.js';
+
+const logger = childLogger('security-analyzer');
 
 /**
  * Async arrow function injected into the page via mcp.evaluate_script.
@@ -135,7 +138,7 @@ export function parseSecurityAnalysisResult(rawResult, url) {
     const str = typeof raw === 'string' ? raw : JSON.stringify(raw);
     data = JSON.parse(str);
   } catch (e) {
-    console.warn('[ARGUS] parseSecurityAnalysisResult: parse failed —', e.message);
+    logger.warn('[ARGUS] parseSecurityAnalysisResult: parse failed —', e.message);
     return [];
   }
 

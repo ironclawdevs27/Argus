@@ -1099,9 +1099,46 @@ for (const bp of breakpoints) {
 | Detection categories | 53 in production code; **46 positively verified** by harness fixtures |
 | Fixture pages | 54 |
 | Flow step actions | 11 (navigate, waitFor, sleep, fill, click, drag, upload_file, select_option, press_key, handle_dialog, assert) |
-| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring), **v9 Sprint 1 (adapter layer)**, **v9 Sprint 2 (plugin registry + god object split)**, **v9 Sprint 3 (threshold centralization + Zod validation)** |
+| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring), **v9 Sprint 1 (adapter layer)**, **v9 Sprint 2 (plugin registry + god object split)**, **v9 Sprint 3 (threshold centralization + Zod validation)**, **v9 Sprint 4 (session split, Pino logging, retry)** |
 
 Expected harness output: `331/334 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
+
+### v9 Sprint 4 additions (2026-05-18)
+
+Session split, structured logging (Pino), and retry logic. No new harness blocks — gate unchanged at 331/334.
+
+| New file | Sprint | Purpose |
+|----------|--------|---------|
+| `src/utils/session-persistence.js` | v9.1.7 | Session save/restore (extracted from session-manager.js); atomic tmp→rename write |
+| `src/utils/login-orchestrator.js` | v9.1.7 | Login flow + refresh (extracted); lock file prevents concurrent redundant logins |
+| `src/utils/logger.js` | v9.1.8 | Pino structured logger; auto-detects TTY → pino-pretty; `childLogger(module)` |
+| `src/utils/retry.js` | v9.1.9 | `withRetry(fn, opts)` — exponential backoff; reads `ARGUS_RETRY_ATTEMPTS` env (default: 3) |
+
+**`session-manager.js`** reduced to 11-line backward-compat re-export barrel — all callers unchanged.
+
+**Pino migration**: All `console.log/warn/error` calls across 27 `src/` files replaced with `logger.info/warn/error` via `childLogger`. One intentional exception: `init.js:312` process-exit error uses bare `console.error` for visibility.
+
+**Retry coverage**: `navigate` and `fill` in `CdpBrowserAdapter` only. `click` is intentionally **not** retried — it is not idempotent (submits forms, toggles state, triggers deletions). A retry after an ambiguous MCP timeout cannot tell whether Chrome already processed the click. All other methods (`type`, `hover`, `drag`, etc.) are also not retried for the same reason.
+
+**Environment variables added:**
+- `ARGUS_LOG_LEVEL` — log level (default: `info`)
+- `ARGUS_LOG_PRETTY` — `1` = force pino-pretty, `0` = force JSON, unset = auto-detect TTY
+- `ARGUS_RETRY_ATTEMPTS` — max retry attempts (default: `3`; set to `1` to disable in CI)
+
+**Dependencies added:** `pino@^10.3.1`, `pino-pretty@^13.1.3`
+
+#### v9 Sprint 4 gap fixes (2026-05-18)
+
+Post-audit correctness fixes applied across Sprint 4 files (two passes):
+
+| File | Gap | Fix |
+|------|-----|-----|
+| `src/utils/logger.js` | `createLogger()` would crash entire app if `pino-pretty` fails to load | Wrapped pino-pretty transport in try-catch; falls back to JSON logger silently |
+| `src/utils/retry.js` | `label` param silently ignored — no debug output on retry | Added `childLogger('retry')` + `logger.debug(...)` per attempt |
+| `src/utils/retry.js` | `ARGUS_RETRY_ATTEMPTS=non-numeric` → `parseInt` returns `NaN` → loop condition `i < NaN` is always `false` → **`fn()` is never called, returns `undefined` silently** | Added `Number.isFinite()` guard: `parsed >= 1 ? parsed : 3` — falls back to default |
+| `src/adapters/browser.js` | `withRetry()` calls had no labels; `click` idempotency exclusion undocumented | Added `label:` to `navigate`/`fill`; added 4-line comment above `click()` |
+| `src/utils/session-persistence.js` | `saveSession()` called `writeFileSync` without ensuring parent directory exists → throws `ENOENT` if session file is in a subdirectory | Added `fs.mkdirSync(path.dirname(sessionFile), { recursive: true })` before write |
+| `src/utils/session-persistence.js` | `clearSession()` removed main file but not stale `.tmp`; also logged nothing when only `.tmp` existed | Added `.tmp` removal with `logger.debug()` log |
 
 ### v9 Sprint 3 additions (2026-05-18)
 

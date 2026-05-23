@@ -13,6 +13,10 @@
  * Supported target values: 'critical' | 'warning' | 'info' | 'suppress'
  */
 
+import { childLogger } from './logger.js';
+
+const logger = childLogger('severity-overrides');
+
 const VALID_SEVERITIES = new Set(['critical', 'warning', 'info']);
 
 /**
@@ -65,7 +69,7 @@ export function applyOverrides(report, severityOverrides) {
       }
       // Log unknown override values — a typo in severityOverrides config silently
       // does nothing; warn so developers can spot misconfiguration immediately.
-      console.warn(`[ARGUS] severity-overrides: unrecognized value "${override}" for type "${finding.type}" — expected critical|warning|info|suppress`);
+      logger.warn(`[ARGUS] severity-overrides: unrecognized value "${override}" for type "${finding.type}" — expected critical|warning|info|suppress`);
       kept.push(finding);
     }
     return kept;

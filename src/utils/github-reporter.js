@@ -20,6 +20,10 @@
  *   ARGUS_REPORT_URL    — URL to the full HTML report; linked in the commit status check
  */
 
+import { childLogger } from './logger.js';
+
+const logger = childLogger('github-reporter');
+
 const COMMENT_MARKER = '<!-- argus-qa-report -->';
 const GITHUB_API     = 'https://api.github.com';
 const MAX_TABLE_ROWS = 15;  // cap table rows to stay within GitHub's 65536-char limit
@@ -239,10 +243,10 @@ export async function postPrComment(report, diff) {
 
   if (prev) {
     await ghFetch(`/repos/${repo}/issues/comments/${prev.id}`, 'PATCH', { body });
-    console.log(`[ARGUS] C2: Updated PR #${prNum} comment (id: ${prev.id})`);
+    logger.info(`[ARGUS] C2: Updated PR #${prNum} comment (id: ${prev.id})`);
   } else {
     await ghFetch(`/repos/${repo}/issues/${prNum}/comments`, 'POST', { body });
-    console.log(`[ARGUS] C2: Posted new comment on PR #${prNum}`);
+    logger.info(`[ARGUS] C2: Posted new comment on PR #${prNum}`);
   }
 }
 
@@ -263,7 +267,7 @@ export async function setCommitStatus(report, diff) {
     payload.target_url = process.env.ARGUS_REPORT_URL;
   }
   await ghFetch(`/repos/${repo}/statuses/${sha}`, 'POST', payload);
-  console.log(`[ARGUS] C2: Commit status → ${payload.state} (${payload.description})`);
+  logger.info(`[ARGUS] C2: Commit status → ${payload.state} (${payload.description})`);
 }
 
 // ── C2.5: Configuration guard ─────────────────────────────────────────────────
@@ -284,7 +288,7 @@ export async function reportToGitHub(report, diff) {
   if (process.env.GITHUB_PR_NUMBER) {
     tasks.push(
       postPrComment(report, diff).catch(err =>
-        console.warn(`[ARGUS] C2: PR comment failed — ${err.message}`)
+        logger.warn(`[ARGUS] C2: PR comment failed — ${err.message}`)
       )
     );
   }
@@ -292,13 +296,13 @@ export async function reportToGitHub(report, diff) {
   if (process.env.GITHUB_SHA) {
     tasks.push(
       setCommitStatus(report, diff).catch(err =>
-        console.warn(`[ARGUS] C2: Commit status failed — ${err.message}`)
+        logger.warn(`[ARGUS] C2: Commit status failed — ${err.message}`)
       )
     );
   }
 
   if (tasks.length === 0) {
-    console.log('[ARGUS] C2: No GITHUB_PR_NUMBER or GITHUB_SHA — skipping GitHub reporting');
+    logger.info('[ARGUS] C2: No GITHUB_PR_NUMBER or GITHUB_SHA — skipping GitHub reporting');
     return;
   }
 

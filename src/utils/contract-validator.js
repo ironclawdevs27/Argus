@@ -9,6 +9,9 @@
 
 import fs   from 'fs';
 import path from 'path';
+import { childLogger } from './logger.js';
+
+const logger = childLogger('contract-validator');
 
 /**
  * Lightweight JSON Schema validator.
@@ -109,7 +112,7 @@ function loadSchema(contract) {
     const resolved = path.resolve(contract.schemaFile);
     const cwd = process.cwd();
     if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
-      console.warn('[ARGUS] contract-validator: schemaFile outside project directory — skipping:', contract.schemaFile);
+      logger.warn('[ARGUS] contract-validator: schemaFile outside project directory — skipping:', contract.schemaFile);
       return null;
     }
     try {

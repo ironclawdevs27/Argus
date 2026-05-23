@@ -25,6 +25,10 @@
  * Returns a structured JSON report that Claude Code processes into bug entries.
  */
 
+import { childLogger } from './logger.js';
+
+const logger = childLogger('css-analyzer');
+
 /**
  * JavaScript string injected into the page via mcp.evaluate_script.
  * Runs entirely in the page context — no Node.js APIs available here.
@@ -288,7 +292,7 @@ export function parseCssAnalysisResult(rawResult, url) {
     data = JSON.parse(str);
     // Detect double-encoding: if the result is still a string after first parse, unwrap once more
     if (typeof data === 'string') {
-      console.warn('[ARGUS] css-analyzer: double-encoded JSON detected — unwrapping');
+      logger.warn('[ARGUS] css-analyzer: double-encoded JSON detected — unwrapping');
       data = JSON.parse(data);
     }
   } catch {

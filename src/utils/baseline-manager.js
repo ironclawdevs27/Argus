@@ -15,6 +15,9 @@ import { execSync }  from 'child_process';
 // Import shared findingKey from flakiness-detector so both modules use
 // identical normalization (trim + whitespace collapse). Local copy removed.
 import { findingKey } from './flakiness-detector.js';
+import { childLogger } from './logger.js';
+
+const logger = childLogger('baseline-manager');
 
 /**
  * Sanitize a git branch name into a safe filename segment.
@@ -216,7 +219,7 @@ export function appendTrend(trendsFile, entry) {
     const lockStat = fs.statSync(lockFile);
     if (Date.now() - lockStat.mtimeMs > 60_000) {
       fs.unlinkSync(lockFile);
-      console.warn('[ARGUS] Removed stale trend lock file:', lockFile);
+      logger.warn('[ARGUS] Removed stale trend lock file:', lockFile);
     }
   } catch { /* lock doesn't exist — good */ }
 
@@ -225,7 +228,7 @@ export function appendTrend(trendsFile, entry) {
     lockFd = fs.openSync(lockFile, 'wx');
   } catch (err) {
     if (err.code === 'EEXIST') {
-      console.warn('[ARGUS] appendTrend: lock held by another shard — skipping to avoid corruption');
+      logger.warn('[ARGUS] appendTrend: lock held by another shard — skipping to avoid corruption');
       return;
     }
     throw err;

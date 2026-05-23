@@ -13,6 +13,9 @@
 
 import fs   from 'fs';
 import path from 'path';
+import { childLogger } from './logger.js';
+
+const logger = childLogger('codebase-analyzer');
 
 // ── File scanning ──────────────────────────────────────────────────────────────
 
@@ -284,13 +287,13 @@ export async function analyzeCodebase({ sourceDir, envFile = null, consoleFindin
   const findings = [];
 
   try { findings.push(...auditEnvVariables(sourceDir, envFile)); }
-  catch (e) { console.warn(`[ARGUS] C1: env audit skipped: ${e.message}`); }
+  catch (e) { logger.warn(`[ARGUS] C1: env audit skipped: ${e.message}`); }
 
   try { findings.push(...detectFeatureFlagLeakage(sourceDir, envFile)); }
-  catch (e) { console.warn(`[ARGUS] C1: feature flag check skipped: ${e.message}`); }
+  catch (e) { logger.warn(`[ARGUS] C1: feature flag check skipped: ${e.message}`); }
 
   try { findings.push(...enrichErrorsWithSource(consoleFindings)); }
-  catch (e) { console.warn(`[ARGUS] C1: error enrichment skipped: ${e.message}`); }
+  catch (e) { logger.warn(`[ARGUS] C1: error enrichment skipped: ${e.message}`); }
 
   return findings;
 }

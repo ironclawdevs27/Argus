@@ -18,6 +18,9 @@ import { WebClient } from '@slack/web-api';
 import fs from 'fs';
 import path from 'path';
 import 'dotenv/config';
+import { childLogger } from '../utils/logger.js';
+
+const logger = childLogger('slack-notifier');
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 
@@ -46,7 +49,7 @@ async function slackPostWithBackoff(args) {
         || err.message?.toLowerCase().includes('ratelimited');
       if (!isRateLimit || attempt === SLACK_RATE_LIMIT_RETRIES - 1) throw err;
       const retryAfterMs = (err.retryAfter ?? 1) * 1000;
-      console.warn(`[ARGUS] Slack rate limited — retrying in ${retryAfterMs}ms (attempt ${attempt + 1})`);
+      logger.warn(`[ARGUS] Slack rate limited — retrying in ${retryAfterMs}ms (attempt ${attempt + 1})`);
       await new Promise(r => setTimeout(r, retryAfterMs));
     }
   }
@@ -79,7 +82,7 @@ async function uploadFileToSlack(filePath, channelId, filename) {
     uploadUrl = urlResponse.upload_url;
     fileId = urlResponse.file_id;
   } catch (err) {
-    console.error('[ARGUS] Failed to get Slack upload URL:', err.message);
+    logger.error('[ARGUS] Failed to get Slack upload URL:', err.message);
     return null;
   }
 
@@ -93,11 +96,11 @@ async function uploadFileToSlack(filePath, channelId, filename) {
       signal: AbortSignal.timeout(30000),
     });
     if (!response.ok) {
-      console.error('[ARGUS] Slack upload PUT failed:', response.status, response.statusText);
+      logger.error('[ARGUS] Slack upload PUT failed:', response.status, response.statusText);
       return null;
     }
   } catch (err) {
-    console.error('[ARGUS] Slack upload fetch error:', err.message);
+    logger.error('[ARGUS] Slack upload fetch error:', err.message);
     return null;
   }
 
@@ -108,7 +111,7 @@ async function uploadFileToSlack(filePath, channelId, filename) {
       channel_id: channelId,
     });
   } catch (err) {
-    console.error('[ARGUS] Failed to complete Slack upload:', err.message);
+    logger.error('[ARGUS] Failed to complete Slack upload:', err.message);
     return null;
   }
 
@@ -223,13 +226,13 @@ export async function postBugReport({ severity, title, description, url, screens
   const channelId = CHANNELS[severity];
 
   if (!channelId) {
-    console.warn(`[ARGUS] No Slack channel configured for severity: ${severity}. Set SLACK_CHANNEL_${severity.toUpperCase()} in .env`);
+    logger.warn(`[ARGUS] No Slack channel configured for severity: ${severity}. Set SLACK_CHANNEL_${severity.toUpperCase()} in .env`);
     return null;
   }
 
   if (!process.env.SLACK_BOT_TOKEN) {
-    console.warn('[ARGUS] SLACK_BOT_TOKEN not set — skipping Slack notification');
-    console.log(`[ARGUS] Would post: [${severity}] ${title} → ${url}`);
+    logger.warn('[ARGUS] SLACK_BOT_TOKEN not set — skipping Slack notification');
+    logger.info(`[ARGUS] Would post: [${severity}] ${title} → ${url}`);
     return null;
   }
 
@@ -251,10 +254,10 @@ export async function postBugReport({ severity, title, description, url, screens
       thread_ts: threadTs ?? undefined,
     });
 
-    console.log(`[ARGUS] Slack message posted: ${result.ts} → channel ${channelId}`);
+    logger.info(`[ARGUS] Slack message posted: ${result.ts} → channel ${channelId}`);
     return { ts: result.ts, channel: channelId };
   } catch (err) {
-    console.error('[ARGUS] Failed to post Slack message:', err.message);
+    logger.error('[ARGUS] Failed to post Slack message:', err.message);
     return null;
   }
 }
@@ -280,7 +283,7 @@ export async function postRetestResult(originalTs, channelId, outcome, details) 
       thread_ts: originalTs,
     });
   } catch (err) {
-    console.error('[ARGUS] Failed to post retest reply:', err.message);
+    logger.error('[ARGUS] Failed to post retest reply:', err.message);
   }
 }
 
@@ -305,7 +308,7 @@ export async function acknowledgeMessage(ts, channelId, acknowledgingUser) {
 
     const msg = existing.messages?.[0];
     if (!msg) {
-      console.warn('[ARGUS] acknowledgeMessage: original message not found for ts:', ts);
+      logger.warn('[ARGUS] acknowledgeMessage: original message not found for ts:', ts);
       return;
     }
 
@@ -329,6 +332,6 @@ export async function acknowledgeMessage(ts, channelId, acknowledgingUser) {
       text: msg.text + ' [ACKNOWLEDGED]',
     });
   } catch (err) {
-    console.error('[ARGUS] Failed to acknowledge message:', err.message);
+    logger.error('[ARGUS] Failed to acknowledge message:', err.message);
   }
 }

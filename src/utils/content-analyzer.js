@@ -12,6 +12,10 @@
  * Synchronous arrow function injected into the page via mcp.evaluate_script.
  * Returns a JSON string consumed by parseContentAnalysisResult().
  */
+import { childLogger } from './logger.js';
+
+const logger = childLogger('content-analyzer');
+
 export const CONTENT_ANALYSIS_SCRIPT = `() => {
   var body = document.body || {};
   var bodyText = body.innerText || '';
@@ -99,7 +103,7 @@ export function parseContentAnalysisResult(rawResult, url) {
     const str = typeof raw === 'string' ? raw : JSON.stringify(raw);
     data = JSON.parse(str);
   } catch (e) {
-    console.warn('[ARGUS] parseContentAnalysisResult: parse failed —', e.message);
+    logger.warn('[ARGUS] parseContentAnalysisResult: parse failed —', e.message);
     return [];
   }
 

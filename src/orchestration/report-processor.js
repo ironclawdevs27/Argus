@@ -10,8 +10,11 @@
 import fs   from 'fs';
 import path from 'path';
 
+import { childLogger } from '../utils/logger.js';
 import { applyOverrides }                                                  from '../utils/severity-overrides.js';
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend, getCurrentBranch } from '../utils/baseline-manager.js';
+
+const logger = childLogger('report-processor');
 
 // ── Deduplication ─────────────────────────────────────────────────────────────
 
@@ -46,7 +49,7 @@ export function rebuildSummary(report) {
     if (finding.severity === 'critical' || finding.severity === 'warning' || finding.severity === 'info') {
       report.summary[finding.severity]++;
     } else if (finding.severity) {
-      console.warn(`[ARGUS] Unknown severity "${finding.severity}" on finding type "${finding.type ?? 'unknown'}"`);
+      logger.warn(`[ARGUS] Unknown severity "${finding.severity}" on finding type "${finding.type ?? 'unknown'}"`);
     }
   }
 
@@ -76,7 +79,7 @@ export async function processReport(report, { outputDir, severityOverrides }) {
   // 1. Apply severity overrides (suppress or reclassify findings)
   const { overriddenCount, suppressedCount } = applyOverrides(report, severityOverrides);
   if (overriddenCount > 0 || suppressedCount > 0) {
-    console.log(`[ARGUS] Severity overrides: ${overriddenCount} remapped, ${suppressedCount} suppressed`);
+    logger.info(`[ARGUS] Severity overrides: ${overriddenCount} remapped, ${suppressedCount} suppressed`);
   }
 
   // 2. Rebuild summary after overrides
@@ -87,18 +90,18 @@ export async function processReport(report, { outputDir, severityOverrides }) {
   const safeBranch = branch.replace(/[/\\]/g, '__').replace(/[^a-zA-Z0-9._-]/g, '_');
   const baselinePath = path.join(outputDir, 'baselines', `${safeBranch}.json`);
   const trendsPath   = path.join(outputDir, 'baselines', `${safeBranch}-trends.json`);
-  console.log(`[ARGUS] Branch: "${branch}" → baseline: ${baselinePath}`);
+  logger.info(`[ARGUS] Branch: "${branch}" → baseline: ${baselinePath}`);
 
   const baseline = loadBaseline(baselinePath);
   const diff     = applyBaseline(report, baseline);
 
   if (!diff.isFirstRun) {
-    console.log(`[ARGUS] Baseline diff: ${diff.newCount} new finding(s), ${diff.resolvedCount} resolved`);
+    logger.info(`[ARGUS] Baseline diff: ${diff.newCount} new finding(s), ${diff.resolvedCount} resolved`);
     if ((diff.flowNewCount ?? 0) > 0 || (diff.flowResolvedCount ?? 0) > 0) {
-      console.log(`[ARGUS] Flow diff: ${diff.flowNewCount} new flow finding(s), ${diff.flowResolvedCount} resolved`);
+      logger.info(`[ARGUS] Flow diff: ${diff.flowNewCount} new flow finding(s), ${diff.flowResolvedCount} resolved`);
     }
   } else {
-    console.log('[ARGUS] First run — no baseline to compare; all findings treated as new');
+    logger.info('[ARGUS] First run — no baseline to compare; all findings treated as new');
   }
 
   // 4. Write JSON report
@@ -107,10 +110,10 @@ export async function processReport(report, { outputDir, severityOverrides }) {
   try {
     fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
   } catch (err) {
-    console.error(`[ARGUS] Failed to write report JSON: ${err.message}`);
+    logger.error(`[ARGUS] Failed to write report JSON: ${err.message}`);
     throw err;
   }
-  console.log(`[ARGUS] Report written: ${reportPath}`);
+  logger.info(`[ARGUS] Report written: ${reportPath}`);
 
   // 5. Persist baseline + append trend entry
   saveBaseline(baselinePath, report);
@@ -125,7 +128,7 @@ export async function processReport(report, { outputDir, severityOverrides }) {
     flowNewFindings:      diff.flowNewCount  ?? 0,
     flowResolvedFindings: diff.flowResolvedCount ?? 0,
   });
-  console.log(`[ARGUS] Baseline saved → ${baselinePath} (branch: "${branch}")`);
+  logger.info(`[ARGUS] Baseline saved → ${baselinePath} (branch: "${branch}")`);
 
   return { reportPath, diff };
 }
