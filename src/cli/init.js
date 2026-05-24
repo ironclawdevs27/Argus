@@ -158,13 +158,14 @@ export function generateEnvFile(options = {}) {
   const slackSection = slackToken
     ? `SLACK_BOT_TOKEN=${slackToken}
 SLACK_SIGNING_SECRET=${slackSecret}
-SLACK_CHANNEL_ID=${slackCritical}
-SLACK_ALERT_CHANNEL_ID=${slackWarnings}
+SLACK_CHANNEL_CRITICAL=${slackCritical}
+SLACK_CHANNEL_WARNINGS=${slackWarnings}
 ${slackDigest ? `SLACK_CHANNEL_DIGEST=${slackDigest}` : '# SLACK_CHANNEL_DIGEST='}`
     : `# SLACK_BOT_TOKEN=xoxb-...
 # SLACK_SIGNING_SECRET=...
-# SLACK_CHANNEL_ID=
-# SLACK_ALERT_CHANNEL_ID=`;
+# SLACK_CHANNEL_CRITICAL=
+# SLACK_CHANNEL_WARNINGS=
+# SLACK_CHANNEL_DIGEST=`;
 
   const githubSection = githubToken
     ? `GITHUB_TOKEN=${githubToken}

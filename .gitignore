@@ -16,6 +16,8 @@ session.md
 solution.md
 *-strategy.md
 FINALIZE.md
+argus-vX1-roadmap.md
+business-analysis.md
 
 # Argus auth session files — contain live cookies/localStorage tokens, never commit
 .argus-*.json
@@ -27,6 +29,7 @@ FINALIZE.md
 landing/node_modules/
 landing/dist/
 landing/vite.config.js.timestamp-*.mjs
+landing/.env.local
 Animated Argus Panoptes.mp4
 *.mp4
 

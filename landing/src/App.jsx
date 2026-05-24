@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { supabase } from './supabase'
 import {
   ArrowUpRight, X, ChevronDown, ChevronRight, CheckCircle,
   Code2, Sparkles, Globe,
@@ -128,6 +129,12 @@ const features = [
     title: 'MCP Server Mode',
     desc: 'Runs as an MCP server. Ask Claude to audit any URL directly in a conversation — no CLI, no config needed.',
     tag: 'MCP SERVER',
+  },
+  {
+    icon: CheckCircle,
+    title: 'Zero-Config Init',
+    desc: '`argus init` detects your framework, discovers routes via sitemap + Next.js + React Router, and writes a populated .env and targets.js in one pass.',
+    tag: 'SETUP WIZARD',
   },
   {
     icon: BarChart3,
@@ -272,13 +279,27 @@ const setupMethods = [
       {
         num: '01',
         title: 'Install',
-        desc: 'Install argus-qa globally or as a project dev dependency.',
+        desc: 'Install argus-qa and create the reports output directory.',
         code: `npm install -g argus-qa
 # or as a project dev dependency:
-npm install --save-dev argus-qa`,
+npm install --save-dev argus-qa
+npm run setup    # creates reports/ directory`,
       },
       {
         num: '02',
+        title: 'Initialize',
+        desc: 'Run the interactive setup wizard. It detects your framework, auto-discovers routes via sitemap + filesystem, and writes a populated .env and targets.js — no manual config editing required.',
+        code: `npm run init
+# Wizard prompts:
+#  1. Dev URL + staging URL (optional)
+#  2. App source directory (enables C1 env-var audit + C3 route discovery)
+#  3. Route discovery: sitemap.xml, Next.js pages/, React Router config
+#  4. Slack bot token + channel IDs (optional)
+#  5. GitHub token + repository (optional)
+# Writes: .env  +  src/config/targets.js`,
+      },
+      {
+        num: '03',
         title: 'Configure MCP',
         desc: 'Create .mcp.json in your project root to register Argus and Chrome DevTools with Claude.',
         code: `{
@@ -295,7 +316,7 @@ npm install --save-dev argus-qa`,
 }`,
       },
       {
-        num: '03',
+        num: '04',
         title: 'Start Chrome',
         desc: 'Launch Chrome with remote debugging enabled on port 9222. Argus drives this browser instance.',
         code: `# macOS
@@ -308,7 +329,7 @@ npm install --save-dev argus-qa`,
 google-chrome --remote-debugging-port=9222 --headless=new`,
       },
       {
-        num: '04',
+        num: '05',
         title: 'Audit via Claude',
         desc: 'Ask Claude directly. Argus crawls the URL, runs all 54 detection passes, and returns structured findings.',
         code: `# Quick audit (cheap pass):
@@ -337,11 +358,11 @@ google-chrome --remote-debugging-port=9222 --headless=new`,
     steps: [
       {
         num: '01',
-        title: 'Install',
-        desc: 'Install the argus-qa package globally or as a project dependency.',
-        code: `npm install -g argus-qa
-# or local install:
-npm install --save-dev argus-qa`,
+        title: 'Install & Initialize',
+        desc: 'Install argus-qa, create the reports directory, then run the interactive setup wizard to generate .env and targets.js.',
+        code: `npm install --save-dev argus-qa
+npm run setup    # creates reports/ directory
+npm run init     # interactive wizard: URLs, framework detection, route discovery, Slack/GitHub config`,
       },
       {
         num: '02',
@@ -370,7 +391,11 @@ npx argus-qa compare --dev http://localhost:3000 --staging https://staging.myapp
         desc: 'Add to your workflow to run QA on every pull request. New criticals will fail the status check.',
         code: `# .github/workflows/argus.yml
 name: Argus QA
-on: [pull_request]
+on:
+  push: { branches: [main, master] }
+  pull_request:
+  schedule: [{ cron: '0 6 * * *' }]   # daily 6 AM UTC
+  workflow_dispatch:
 jobs:
   qa:
     runs-on: ubuntu-latest
@@ -380,12 +405,18 @@ jobs:
         with: { node-version: '20' }
       - run: npm ci
       - name: Start Chrome
-        run: google-chrome --remote-debugging-port=9222 --headless=new &
+        run: google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox &
       - name: Run Argus
-        run: npx argus-qa crawl --url \${{ env.STAGING_URL }}
+        run: npx argus-qa crawl --url \${{ secrets.TARGET_STAGING_URL }}
         env:
+          TARGET_STAGING_URL: \${{ secrets.TARGET_STAGING_URL }}
+          SLACK_BOT_TOKEN: \${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_CRITICAL: \${{ secrets.SLACK_CHANNEL_CRITICAL }}
+          SLACK_CHANNEL_WARNINGS: \${{ secrets.SLACK_CHANNEL_WARNINGS }}
+          SLACK_CHANNEL_DIGEST: \${{ secrets.SLACK_CHANNEL_DIGEST }}
           GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
-          SLACK_BOT_TOKEN: \${{ secrets.SLACK_BOT_TOKEN }}`,
+          GITHUB_REPOSITORY: \${{ github.repository }}
+          GITHUB_PR_NUMBER: \${{ github.event.pull_request.number }}`,
       },
     ],
   },
@@ -532,6 +563,7 @@ const docChapters = [
           'Auto-discovers routes from sitemap.xml, Next.js, or React Router config',
           'Audits static source code for missing environment variables and dead routes',
           'Generates HTML dashboards, JSON reports, Slack messages, and GitHub PR comments',
+          '`argus init` wizard: detects framework, discovers routes, writes .env + targets.js — zero manual config',
         ],
       },
     ],
@@ -670,9 +702,10 @@ const docChapters = [
       },
       {
         title: 'Running',
-        code: `npm run test:unit     # 61 tests — no Chrome required
-npm run test:harness  # 348 assertions — Chrome required
-# Expected: 345/348 (3 permanent MCP-limited failures)`,
+        code: `npm run test:unit     # 61 Vitest tests — no Chrome required
+npm run test:harness  # 348 hard assertions — Chrome required (headless)
+# Expected: 345/348 (3 permanent MCP-limited failures: drag, Issues panel)
+# Soft assertions (Lighthouse, perf traces) require non-headless Chrome`,
       },
     ],
   },
@@ -1297,6 +1330,8 @@ function EnterpriseModal({ onClose }) {
   })
   const [focused, setFocused] = useState(null)
   const [submitted, setSubmitted] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose() }
@@ -1305,6 +1340,27 @@ function EnterpriseModal({ onClose }) {
   }, [onClose])
 
   const update = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }))
+
+  const handleSubmit = async () => {
+    if (required || loading) return
+    setLoading(true)
+    setError(null)
+    try {
+      if (supabase) {
+        const { error: sbError } = await supabase.from('enterprise_contacts').insert({
+          name: form.name, email: form.email, company: form.company,
+          team_size: form.teamSize, region: form.region,
+          use_case: form.useCase, workflow: form.workflow, message: form.message,
+        })
+        if (sbError) throw sbError
+      }
+      setSubmitted(true)
+    } catch {
+      setError('Something went wrong. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const inputStyle = (field) => ({
     width: '100%', padding: '0.75rem 1rem',
@@ -1494,21 +1550,24 @@ function EnterpriseModal({ onClose }) {
 
               {/* Submit */}
               <button
-                onClick={() => !required && setSubmitted(true)}
+                onClick={handleSubmit}
+                disabled={required || loading}
                 style={{
                   padding: '0.9rem 2rem', background: required ? 'rgba(94,14,215,0.4)' : ACCENT,
                   color: '#fff', fontWeight: 700, fontSize: '0.85rem', letterSpacing: '0.1em',
                   textTransform: 'uppercase', borderRadius: '0.875rem', border: 'none',
-                  cursor: required ? 'not-allowed' : 'pointer',
+                  cursor: required || loading ? 'not-allowed' : 'pointer',
                   transition: 'opacity 0.18s ease',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
                 }}
-                onMouseEnter={e => { if (!required) e.currentTarget.style.opacity = '0.88' }}
+                onMouseEnter={e => { if (!required && !loading) e.currentTarget.style.opacity = '0.88' }}
                 onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
               >
-                Send Enquiry
-                <ArrowUpRight size={16} />
+                {loading ? 'Sending…' : (<>Send Enquiry <ArrowUpRight size={16} /></>)}
               </button>
+              {error && (
+                <p style={{ margin: 0, fontSize: '0.78rem', color: '#f87171', textAlign: 'center' }}>{error}</p>
+              )}
               <p style={{ margin: 0, fontSize: '0.72rem', color: 'rgba(255,255,255,0.28)', textAlign: 'center' }}>
                 Fields marked * are required. We'll respond within 2 business days.
               </p>
@@ -1559,6 +1618,8 @@ function WaitlistModal({ planName, onClose }) {
   const [email, setEmail] = useState('')
   const [submitted, setSubmitted] = useState(false)
   const [focused, setFocused] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose() }
@@ -1567,6 +1628,31 @@ function WaitlistModal({ planName, onClose }) {
   }, [onClose])
 
   const isValidEmail = EMAIL_RE.test(email)
+
+  const handleSubmit = async () => {
+    if (!isValidEmail || loading) return
+    setLoading(true)
+    setError(null)
+    try {
+      if (supabase) {
+        const { error: sbError } = await supabase
+          .from('waitlist')
+          .insert({ email, plan: planName })
+        if (sbError) {
+          if (sbError.code === '23505') {
+            setSubmitted(true)
+            return
+          }
+          throw sbError
+        }
+      }
+      setSubmitted(true)
+    } catch {
+      setError('Something went wrong. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <motion.div
@@ -1652,19 +1738,22 @@ function WaitlistModal({ planName, onClose }) {
                 />
               </div>
               <button
-                onClick={() => isValidEmail && setSubmitted(true)}
-                disabled={!isValidEmail}
+                onClick={handleSubmit}
+                disabled={!isValidEmail || loading}
                 style={{
                   padding: '0.85rem 2rem', background: isValidEmail ? ACCENT : 'rgba(94,14,215,0.35)',
                   color: '#fff', fontWeight: 700, fontSize: '0.85rem', letterSpacing: '0.1em',
                   textTransform: 'uppercase', borderRadius: '0.75rem', border: 'none',
-                  cursor: isValidEmail ? 'pointer' : 'not-allowed', transition: 'opacity 0.18s ease',
+                  cursor: isValidEmail && !loading ? 'pointer' : 'not-allowed', transition: 'opacity 0.18s ease',
                 }}
-                onMouseEnter={e => { if (isValidEmail) e.currentTarget.style.opacity = '0.88' }}
+                onMouseEnter={e => { if (isValidEmail && !loading) e.currentTarget.style.opacity = '0.88' }}
                 onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
               >
-                Notify Me
+                {loading ? 'Saving…' : 'Notify Me'}
               </button>
+              {error && (
+                <p style={{ margin: 0, fontSize: '0.78rem', color: '#ef4444', textAlign: 'center' }}>{error}</p>
+              )}
             </div>
           </>
         ) : (

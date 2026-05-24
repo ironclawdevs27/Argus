@@ -1233,6 +1233,43 @@ for (const bp of breakpoints) {
 
 Expected harness output: `345/348 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
 
+### v9 Sprint 7 additions (2026-05-24)
+
+OpenTelemetry tracing + metrics — zero-overhead by default, OTLP-exportable for production observability. Gate: 345/348 (no new assertions).
+
+| New file | Purpose |
+| --- | --- |
+| `src/utils/telemetry.js` | Central OTel module — `startSpan()`, `recordFinding()`, `recordFlaky()`, `recordNewFindings()`; SDK lazy-init; no-op when env vars absent |
+
+**Spans instrumented:**
+
+| Span | Attributes | Where |
+| --- | --- | --- |
+| `argus.run_crawl` | `baseUrl` | `runCrawl()` outer wrap |
+| `argus.crawl_route` | `url`, `critical`, `pass` | Each cheap/expensive pass + per-route wrap in `crawlAndAnalyzeRoute()` |
+| `argus.analyzer` | `name`, `url` | Per registry-analyzer call in `crawlAndAnalyzeRoute()` |
+| `argus.dispatch` | `baseUrl`, `channel` | `dispatchAll()` + per-channel sub-spans (slack/github/html) |
+| `argus.flow` | `flow_name`, `url` | `runFlow()` wrap in `flow-runner.js` |
+| `argus.flow_step` | `flow_name`, `action`, `selector` | Per-step wrap in `runFlow()` |
+
+**Metrics recorded:**
+
+| Metric | Type | Description |
+| --- | --- | --- |
+| `argus.findings` | Counter | Total findings by type/severity/route |
+| `argus.flaky_findings` | Counter | Findings downgraded to flaky |
+| `argus.analyzer.duration` | Histogram | Per-analyzer wall-clock ms |
+| `argus.crawl.duration` | Histogram | Per-route wall-clock ms |
+| `argus.new_findings` | UpDownCounter | Net new findings vs baseline |
+
+**Environment variables added:** `OTEL_EXPORTER_OTLP_ENDPOINT` (ship spans/metrics to Jaeger/Grafana Tempo), `ARGUS_OTEL_CONSOLE=1` (dev mode: print spans to stdout).
+
+**Dependencies added:** `@opentelemetry/api ^1.9.1`, `@opentelemetry/sdk-node ^0.218.0`
+
+**No-op default**: when neither env var is set, `startSpan()` delegates to the OTel no-op provider — zero allocations, zero I/O.
+
+---
+
 ### v9 Sprint 6 additions (2026-05-23)
 
 Argus MCP server — Argus exposed as an MCP tool server. Gate: 345/348.
@@ -1264,80 +1301,6 @@ Vitest unit test suite — 6 files, 61 tests, zero Chrome dependency. Gate: 339/
 | `test/unit/flakiness-detector.test.js` | v9.1.10 | 13 — findingKey normalization + mergeRunResults |
 | `test/unit/baseline-manager.test.js` | v9.1.10 | 9 — loadBaseline/saveBaseline/applyBaseline (real tmp dirs) |
 | `test/unit/flow-runner.test.js` | v9.1.10 | 11 — normalizeArray (pure) + runFlow with mock browser |
-
-**New harness blocks**: [81] `createFinding()` (4 assertions — required fields, invalid severity, immutability, url default) + [82] `withRetry()` (4 assertions — success once, retries, rethrows, env override). Total: 8 new assertions → 339/342.
-
-**New scripts in `package.json`**: `"test:unit": "vitest run test/unit"` + `"test": "npm run test:unit && npm run test:harness"`. `vitest ^4.1.7` added to `devDependencies`.
-
-**Run unit tests** (no Chrome required): `npm run test:unit`
-
----
-
-OpenTelemetry tracing + metrics — zero-overhead by default, OTLP-exportable for production observability. Gate: 345/348 (no new assertions).
-
-| New file | Purpose |
-| --- | --- |
-| `src/utils/telemetry.js` | Central OTel module — `startSpan()`, `recordFinding()`, `recordFlaky()`, `recordNewFindings()`; SDK lazy-init; no-op when env vars absent |
-
-**Spans instrumented:**
-
-| Span | Attributes | Where |
-| --- | --- | --- |
-| `argus.run_crawl` | `baseUrl` | `runCrawl()` outer wrap |
-| `argus.crawl_route` | `url`, `critical`, `pass` | Each cheap/expensive pass + per-route wrap in `crawlAndAnalyzeRoute()` |
-| `argus.analyzer` | `name`, `url` | Per registry-analyzer call in `crawlAndAnalyzeRoute()` |
-| `argus.dispatch` | `baseUrl`, `channel` | `dispatchAll()` + per-channel sub-spans (slack/github/html) |
-| `argus.flow` | `flow_name`, `url` | `runFlow()` wrap in `flow-runner.js` |
-| `argus.flow_step` | `flow_name`, `action`, `selector` | Per-step wrap in `runFlow()` |
-
-**Metrics recorded:**
-
-| Metric | Type | Description |
-| --- | --- | --- |
-| `argus.findings` | Counter | Total findings by type/severity/route |
-| `argus.flaky_findings` | Counter | Findings downgraded to flaky |
-| `argus.analyzer.duration` | Histogram | Per-analyzer wall-clock ms |
-| `argus.crawl.duration` | Histogram | Per-route wall-clock ms |
-| `argus.new_findings` | UpDownCounter | Net new findings vs baseline |
-
-**Environment variables added:**
-
-- `OTEL_EXPORTER_OTLP_ENDPOINT` — ship spans/metrics to Jaeger / Grafana Tempo / any OTLP collector
-- `ARGUS_OTEL_CONSOLE=1` — dev mode: print spans to stdout (no OTLP endpoint needed)
-
-**Dependencies added:** `@opentelemetry/api ^1.9.1`, `@opentelemetry/sdk-node ^0.218.0`
-
-**No-op default**: when neither env var is set, `startSpan()` delegates directly to the OTel no-op provider — zero allocations, zero I/O, transparent pass-through.
-
----
-
-Argus MCP server — Argus exposed as an MCP tool server. Gate: 345/348.
-
-| New file | Purpose |
-| --- | --- |
-| `src/mcp-server.js` | MCP server — exposes `argus_audit`, `argus_audit_full`, `argus_compare`, `argus_last_report` |
-| `.mcp.json` | MCP server registration — `"argus": { "command": "node", "args": ["src/mcp-server.js"] }` |
-
-**New harness block**: [80] MCP server registration (6 assertions — file exists, all 4 tool names present, `.mcp.json` has "argus" entry). Total: 6 new assertions → 345/348.
-
-**New script in `package.json`**: `"mcp-server": "node src/mcp-server.js"`. `@modelcontextprotocol/sdk ^1.29.0` added to `dependencies`.
-
-**Architecture**: MCP-inside-MCP. Argus MCP server consumes `createMcpClient()` (headless chrome-devtools-mcp) then calls `crawlRouteCheap` / `runCrawl` / `runComparison` using the raw `mcp` interface (same as CLI). All tool handlers wrapped in `withMcp()` for clean teardown.
-
-**Tool note**: `argus_compare` reads URLs from `TARGET_DEV_URL` / `TARGET_STAGING_URL` in `.env` / targets.js (same as `npm run compare`).
-
----
-
-Vitest unit test suite — 6 files, 61 tests, zero Chrome dependency. Gate: 339/342.
-
-| New file | Tests |
-| --- | --- |
-| `test/unit/finding.test.js` | 8 — createFinding() fields, throws, frozen, extra fields |
-| `test/unit/config-schema.test.js` | 8 — validateConfig() valid/invalid, ConfigSchema.safeParse |
-| `test/unit/report-processor.test.js` | 11 — deduplicateFindings + rebuildSummary |
-| `test/unit/flakiness-detector.test.js` | 13 — findingKey normalization + mergeRunResults |
-| `test/unit/baseline-manager.test.js` | 9 — loadBaseline/saveBaseline/applyBaseline (real tmp dirs) |
-| `test/unit/flow-runner.test.js` | 11 — normalizeArray (pure) + runFlow with mock browser |
 
 **New harness blocks**: [81] `createFinding()` (4 assertions — required fields, invalid severity, immutability, url default) + [82] `withRetry()` (4 assertions — success once, retries, rethrows, env override). Total: 8 new assertions → 339/342.
 

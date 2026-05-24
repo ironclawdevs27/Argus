@@ -4,6 +4,8 @@
 
 Automated browser testing pipeline that catches bugs, compares environments, and sends rich reports to Slack (or generates a self-contained HTML dashboard when Slack is not configured) — powered by Chrome DevTools MCP and Claude Code.
 
+The `landing/` directory contains the product landing page (React + Vite + Tailwind + Framer Motion) with Supabase-backed waitlist and enterprise contact forms. See [landing/README.md](landing/README.md) for setup.
+
 <div align="center">
 
 [![Tech stack icons](https://skillicons.dev/icons?i=nodejs,js,expressjs,react,css,sass,github,githubactions,vscode)](https://skillicons.dev)
@@ -325,6 +327,7 @@ In interactive mode (running from Claude Code), MCP tools are called natively. I
 git clone <your-repo-url>
 cd argus
 npm install
+npm run setup   # creates reports/ directory
 ```
 
 ### 2. Configure environment variables
@@ -612,6 +615,10 @@ Go to GitHub repo → **Settings** → **Secrets and variables** → **Actions**
 | `SLACK_CHANNEL_WARNINGS` | No* | Channel ID (required when Slack is configured) |
 | `SLACK_CHANNEL_DIGEST` | No* | Channel ID (required when Slack is configured) |
 | `TARGET_STAGING_URL` | Yes | Your staging base URL |
+| `GITHUB_TOKEN` | No | For C2 PR integration — auto-injected by GitHub Actions as `secrets.GITHUB_TOKEN` |
+| `GITHUB_REPOSITORY` | No | For C2 PR integration — `owner/repo` format (e.g., `acme/my-app`) |
+
+> **C2 PR integration**: when `GITHUB_TOKEN` and `GITHUB_REPOSITORY` are set, Argus posts a PR comment and commit status check for every crawl. `GITHUB_PR_NUMBER` is injected automatically by the workflow from `github.event.pull_request.number`. The included workflow does not wire these up by default — add them to the `env:` block in `.github/workflows/argus.yml` if you want PR-level comments.
 
 The workflow at [.github/workflows/argus.yml](.github/workflows/argus.yml) runs:
 
@@ -700,6 +707,18 @@ argus/
 │       ├── flakiness-detector.test.js # findingKey normalization + mergeRunResults (13 tests)
 │       ├── baseline-manager.test.js  # loadBaseline/saveBaseline/applyBaseline (9 tests)
 │       └── flow-runner.test.js       # normalizeArray (pure) + runFlow mock browser (11 tests)
+├── landing/                          # Product landing page (React 18 + Vite + Tailwind + Framer Motion)
+│   ├── src/
+│   │   ├── App.jsx                   # Single-page app — hero, features, comparison, waitlist + enterprise modals
+│   │   └── supabase.js               # Supabase client factory (null-safe when env vars missing)
+│   ├── public/
+│   │   └── favicon.svg
+│   ├── index.html
+│   ├── package.json
+│   ├── .env.example                  # VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY template
+│   └── README.md                     # Setup guide, Supabase SQL schema, env vars
+├── scripts/
+│   └── dispatch-report.js            # Standalone Slack re-dispatch script (re-posts last report.json to Slack)
 ├── test-harness/                     # Fixture server + test runner (82 blocks, 348 hard assertions, 54 fixture pages)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
@@ -707,6 +726,7 @@ argus/
 │   ├── validate.js                   # Test runner — 82 numbered blocks ([80] MCP server, [81] createFinding, [82] withRetry)
 │   ├── pages/                        # 54 fixture pages (one per detection category)
 │   ├── nextjs-fixture/               # Next.js app structure for C3 discovery tests (10 files)
+│   ├── source-fixture/               # Minimal app.js for C1 codebase-analyzer tests (env var audit)
 │   └── static/
 │       └── button-styles.css         # BEM card selectors in button file → component leak
 └── reports/                          # Output: JSON reports + screenshots (gitignored)
