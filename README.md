@@ -639,15 +639,25 @@ argus/
 │       └── argus.yml                 # CI pipeline
 ├── .vscode/
 │   └── mcp.json                      # Chrome DevTools MCP config for VS Code
-├── .mcp.json                         # Argus MCP server registration — exposes argus_audit/argus_audit_full/argus_compare/argus_last_report to Claude├── src/
+├── .mcp.json                         # Argus MCP server registration — exposes argus_audit/argus_audit_full/argus_compare/argus_last_report to Claude
+├── src/
 │   ├── argus.js                      # Single-page audit entry point
 │   ├── batch-runner.js               # Multi-page batch audit
-│   ├── mcp-server.js                 # Argus MCP server — argus_audit / argus_audit_full / argus_compare / argus_last_report│   ├── adapters/
-│   │   └── browser.js                # CdpBrowserAdapter — facade over all chrome-devtools-mcp calls│   ├── domain/
-│   │   └── finding.js                # createFinding() factory — canonical finding shape│   ├── registry.js                   # Analyzer plugin registry — registerExpensive/getCheap/getExpensive│   ├── config/
+│   ├── mcp-server.js                 # Argus MCP server — argus_audit / argus_audit_full / argus_compare / argus_last_report
+│   ├── adapters/
+│   │   └── browser.js                # CdpBrowserAdapter — facade over all chrome-devtools-mcp calls
+│   ├── domain/
+│   │   └── finding.js                # createFinding() factory — canonical finding shape
+│   ├── registry.js                   # Analyzer plugin registry — registerExpensive/getCheap/getExpensive
+│   ├── config/
 │   │   ├── targets.js                # Routes to test, thresholds, config
-│   │   └── schema.js                 # Zod validation schema; validateConfig() called inside runCrawl()│   ├── orchestration/
-│   │   ├── crawl-and-report.js       # Backward-compat re-export shell → orchestrator + report-processor + dispatcher│   │   ├── orchestrator.js           # Crawl loop, route/flow crawl, runCrawl()│   │   ├── report-processor.js       # Dedup → severity overrides → baseline → JSON write│   │   ├── dispatcher.js             # Slack / GitHub / HTML dispatch│   │   ├── env-comparison.js         # Dev vs staging diff + CSS analysis mode
+│   │   └── schema.js                 # Zod validation schema; validateConfig() called inside runCrawl()
+│   ├── orchestration/
+│   │   ├── crawl-and-report.js       # Backward-compat re-export shell → orchestrator + report-processor + dispatcher
+│   │   ├── orchestrator.js           # Crawl loop, route/flow crawl, runCrawl()
+│   │   ├── report-processor.js       # Dedup → severity overrides → baseline → JSON write
+│   │   ├── dispatcher.js             # Slack / GitHub / HTML dispatch
+│   │   ├── env-comparison.js         # Dev vs staging diff + CSS analysis mode
 │   │   ├── watch-mode.js             # Passive browser monitoring (WatchSession + runWatchMode)
 │   │   └── slack-notifier.js         # Slack Block Kit dispatcher
 │   ├── server/
@@ -683,7 +693,8 @@ argus/
 │   └── cli/
 │       └── init.js                   # argus init setup wizard — detect framework, discover routes, write .env + targets.js (C4)
 ├── test/
-│   └── unit/                         # Vitest unit tests — no Chrome required│       ├── finding.test.js           # createFinding() — fields, throws, frozen, extra fields (8 tests)
+│   └── unit/                         # Vitest unit tests — no Chrome required
+│       ├── finding.test.js           # createFinding() — fields, throws, frozen, extra fields (8 tests)
 │       ├── config-schema.test.js     # validateConfig() + ConfigSchema.safeParse (8 tests)
 │       ├── report-processor.test.js  # deduplicateFindings + rebuildSummary (11 tests)
 │       ├── flakiness-detector.test.js # findingKey normalization + mergeRunResults (13 tests)

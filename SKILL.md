@@ -1233,6 +1233,46 @@ for (const bp of breakpoints) {
 
 Expected harness output: `345/348 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
 
+### v9 Sprint 6 additions (2026-05-23)
+
+Argus MCP server — Argus exposed as an MCP tool server. Gate: 345/348.
+
+| New file | Purpose |
+| --- | --- |
+| `src/mcp-server.js` | MCP server — exposes `argus_audit`, `argus_audit_full`, `argus_compare`, `argus_last_report` |
+| `.mcp.json` | MCP server registration — `"argus": { "command": "node", "args": ["src/mcp-server.js"] }` |
+
+**New harness block**: [80] MCP server registration (6 assertions — file exists, all 4 tool names present, `.mcp.json` has "argus" entry). Total: 6 new assertions → 345/348.
+
+**New script in `package.json`**: `"mcp-server": "node src/mcp-server.js"`. `@modelcontextprotocol/sdk ^1.29.0` added to `dependencies`.
+
+**Architecture**: MCP-inside-MCP. Argus MCP server consumes `createMcpClient()` (headless chrome-devtools-mcp) then calls `crawlRouteCheap` / `runCrawl` / `runComparison` using the raw `mcp` interface (same as CLI). All tool handlers wrapped in `withMcp()` for clean teardown.
+
+**Tool note**: `argus_compare` reads URLs from `TARGET_DEV_URL` / `TARGET_STAGING_URL` in `.env` / targets.js (same as `npm run compare`).
+
+---
+
+### v9 Sprint 5 additions (2026-05-23)
+
+Vitest unit test suite — 6 files, 61 tests, zero Chrome dependency. Gate: 339/342.
+
+| New file | Sprint | Tests |
+| --- | --- | --- |
+| `test/unit/finding.test.js` | v9.1.10 | 8 — createFinding() fields, throws, frozen, extra fields |
+| `test/unit/config-schema.test.js` | v9.1.10 | 8 — validateConfig() valid/invalid, ConfigSchema.safeParse |
+| `test/unit/report-processor.test.js` | v9.1.10 | 11 — deduplicateFindings + rebuildSummary |
+| `test/unit/flakiness-detector.test.js` | v9.1.10 | 13 — findingKey normalization + mergeRunResults |
+| `test/unit/baseline-manager.test.js` | v9.1.10 | 9 — loadBaseline/saveBaseline/applyBaseline (real tmp dirs) |
+| `test/unit/flow-runner.test.js` | v9.1.10 | 11 — normalizeArray (pure) + runFlow with mock browser |
+
+**New harness blocks**: [81] `createFinding()` (4 assertions — required fields, invalid severity, immutability, url default) + [82] `withRetry()` (4 assertions — success once, retries, rethrows, env override). Total: 8 new assertions → 339/342.
+
+**New scripts in `package.json`**: `"test:unit": "vitest run test/unit"` + `"test": "npm run test:unit && npm run test:harness"`. `vitest ^4.1.7` added to `devDependencies`.
+
+**Run unit tests** (no Chrome required): `npm run test:unit`
+
+---
+
 OpenTelemetry tracing + metrics — zero-overhead by default, OTLP-exportable for production observability. Gate: 345/348 (no new assertions).
 
 | New file | Purpose |
