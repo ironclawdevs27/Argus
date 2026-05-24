@@ -332,6 +332,16 @@ npm run setup   # creates reports/ directory
 
 ### 2. Configure environment variables
 
+**Recommended: use the interactive setup wizard**
+
+```bash
+npm run init
+```
+
+The wizard prompts for your dev and staging URLs, detects your framework (Next.js / React Router), auto-discovers routes from `sitemap.xml` and your file structure, and optionally collects Slack and GitHub credentials. It writes a populated `.env` and a pre-filled `src/config/targets.js` — no manual editing required.
+
+**Alternative: manual setup**
+
 ```bash
 cp .env.example .env
 ```
@@ -356,7 +366,9 @@ TARGET_STAGING_URL=https://staging.yourapp.com   # leave blank → CSS-only anal
 
 ### 3. Configure your routes
 
-Edit [src/config/targets.js](src/config/targets.js) — add every key page of your app:
+If you used `npm run init` in Step 2, this file was generated for you — skip to Step 4.
+
+Otherwise, edit [src/config/targets.js](src/config/targets.js) — add every key page of your app:
 
 ```js
 export const routes = [
@@ -799,8 +811,12 @@ These constraints are documented with workarounds in [SKILL.md §10](SKILL.md).
 | `ARGUS_OTEL_CONSOLE` | No | Set to `1` to print OTel spans to stdout without an OTLP endpoint (dev tracing) |
 | `ARGUS_WATCH_INTERVAL_MS` | No | Watch mode poll interval in milliseconds (default: `3000`) |
 | `ARGUS_SOURCE_DIR` | No | Path to your app's source directory — enables codebase cross-reference (env var detection, feature flag leakage, dead routes) |
+| `ARGUS_ENV_FILE` | No | Path to your app's `.env` file — C1 cross-references env vars used in source code against this file to detect missing declarations |
 | `GITHUB_TOKEN` | No | GitHub personal access token — required for PR comment + commit status integration |
 | `GITHUB_REPOSITORY` | No | Repository in `owner/repo` format — required for GitHub PR integration |
+| `GITHUB_SHA` | No | Commit SHA for the commit status check — injected automatically by GitHub Actions (`${{ github.sha }}`) |
+| `GITHUB_PR_NUMBER` | No | PR number for comment targeting — set via `${{ github.event.pull_request.number }}` in your workflow |
+| `ARGUS_REPORT_URL` | No | Full URL to the hosted HTML report — linked from the GitHub commit status check |
 
 ---
 

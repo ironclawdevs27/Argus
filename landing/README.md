@@ -56,6 +56,10 @@ CREATE TABLE IF NOT EXISTS enterprise_contacts (
   name text NOT NULL,
   email text NOT NULL,
   company text NOT NULL,
+  team_size text,
+  region text,
+  use_case text,
+  workflow text,
   message text,
   created_at timestamptz DEFAULT now()
 );
@@ -99,4 +103,4 @@ All UI lives in `src/App.jsx` as a single-file app:
 3. **Video poster** — `<video>` needs a `poster` attribute; iOS battery saver can block autoplay
 4. **Modal viewport height** — replace `100vh` with `100dvh` + `100vh` fallback for iOS <15.4
 5. **Reduced motion** — wrap Framer Motion animations with `useReducedMotion()` hook
-6. **Hero font size** — use `clamp(2rem, 5vw, 3.5rem)` for 375px screens
+6. **Missing `@media` edge cases** — stat counter row, detection category grid, and nav spacing at 768px need targeted rules in `index.css`
