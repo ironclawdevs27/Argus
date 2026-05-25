@@ -79,28 +79,40 @@ npm run build    # outputs to landing/dist/
 npm run preview  # serve the production build locally
 ```
 
-`landing/dist/` is gitignored — deploy the `dist/` folder to your static host (Netlify, Vercel, Cloudflare Pages, etc.).
+`landing/dist/` is gitignored. **Live deployment**: [argus-qa.com](https://argus-qa.com) via Cloudflare Pages (project: `argus-landing`). Background video served from Cloudflare R2 (`pub-4a48bc28d90e4425a6fb87b164225d13.r2.dev`).
+
+To redeploy: select all files **inside** `dist/` (not the folder itself), zip them, and upload via Cloudflare Pages → Deployments → Upload assets. Uploading the `dist/` folder as a zip creates a nested path that returns 404.
 
 ## Component Structure
 
-All UI lives in `src/App.jsx` as a single-file app:
+All UI lives in `src/App.jsx` as a single-file app. Hero section is built inline inside `App()`:
 
 | Component | Purpose |
 |---|---|
 | `Logo` | SVG icon — purple ring + dot |
-| `HeroSection` | Headline, subheadline, CTA buttons |
-| `FeaturesSection` | Feature grid with icons |
-| `ComparisonSection` | Pricing comparison table |
+| `BetaBadge` | "BETA" pill badge |
+| `SectionLabel` | Reusable section label chip |
+| `FeaturesSection` | Feature grid (12 cards with icons) |
+| `DetectionSection` | Detection category accordion |
+| `SetupSection` | Setup / code snippet tabs |
+| `ComparisonTable` | Pricing comparison table (3-column) |
+| `PricingSection` | Pricing cards + comparison table |
+| `DocsSection` | Collapsible docs accordion |
+| `Footer` | Nav links + copyright |
 | `WaitlistModal` | Email + plan selector → inserts into `waitlist` table |
-| `EnterpriseModal` | Name/email/company/message → inserts into `enterprise_contacts` table |
+| `EnterpriseModal` | name, email, company, team_size, region, use_case, workflow, message → inserts into `enterprise_contacts` table |
 
 `src/supabase.js` exports the singleton Supabase client (or `null` if env vars are absent).
 
-## Known Mobile Issues (Sprint 0 — pending)
+## Sprint 0 Mobile & SEO Status (2026-05-26)
 
-1. **Comparison table scroll** — `<table style={{ minWidth: 540 }}>` needs `overflowX: 'auto'` wrapper
-2. **Touch targets** — CTA buttons need `minHeight: 44` / `minWidth: 44` (Apple HIG / WCAG 2.5.5)
-3. **Video poster** — `<video>` needs a `poster` attribute; iOS battery saver can block autoplay
-4. **Modal viewport height** — replace `100vh` with `100dvh` + `100vh` fallback for iOS <15.4
-5. **Reduced motion** — wrap Framer Motion animations with `useReducedMotion()` hook
-6. **Missing `@media` edge cases** — stat counter row, detection category grid, and nav spacing at 768px need targeted rules in `index.css`
+| Issue | Status | Notes |
+|---|---|---|
+| Comparison table scroll | ✅ Already handled | `overflowX: 'auto'` was already on the inner wrapper |
+| Touch targets < 44px | ✅ Fixed | All 4 interactive buttons raised to 44×44px |
+| Video poster fallback | ✅ Fixed | `Argus_bg.png` → `landing/public/argus-poster.png`; `poster="/argus-poster.png"` on `<video>` tag |
+| Modal soft keyboard (iOS) | ✅ Fixed | Both modal wrappers now have `maxHeight: 100dvh` + `overflowY: auto` |
+| `prefers-reduced-motion` | ✅ Fixed | `<MotionConfig reducedMotion="user">` wraps the entire app |
+| `@media` edge cases | ✅ Fixed | `100dvh` via `@supports` in `index.css`; stat row / detection grid / nav handle narrow viewports natively |
+| SEO — OG / Twitter / JSON-LD | ✅ Added | `index.html` has full OG tags, Twitter card, canonical, JSON-LD schema |
+| `robots.txt` + `sitemap.xml` | ✅ Added | Both in `landing/public/` |

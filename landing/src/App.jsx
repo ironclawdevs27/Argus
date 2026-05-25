@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, MotionConfig } from 'framer-motion'
 import { supabase } from './supabase'
 import {
   ArrowUpRight, X, ChevronDown, ChevronRight, CheckCircle,
@@ -1386,7 +1386,7 @@ function EnterpriseModal({ onClose }) {
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.82)',
         backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
         zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '1.25rem', overflowY: 'auto',
+        padding: '1.25rem', overflowY: 'auto', maxHeight: '100dvh', WebkitOverflowScrolling: 'touch',
       }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
@@ -1411,7 +1411,7 @@ function EnterpriseModal({ onClose }) {
           aria-label="Close dialog"
           style={{
             position: 'absolute', top: '1.25rem', right: '1.25rem',
-            width: 32, height: 32, borderRadius: '50%',
+            width: 44, height: 44, borderRadius: '50%',
             background: 'rgba(255,255,255,0.08)', border: 'none',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer',
@@ -1661,6 +1661,7 @@ function WaitlistModal({ planName, onClose }) {
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)',
         backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
         zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.25rem',
+        overflowY: 'auto', maxHeight: '100dvh', WebkitOverflowScrolling: 'touch',
       }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
@@ -1682,7 +1683,7 @@ function WaitlistModal({ planName, onClose }) {
           aria-label="Close dialog"
           style={{
             position: 'absolute', top: '1.25rem', right: '1.25rem',
-            width: 30, height: 30, borderRadius: '50%',
+            width: 44, height: 44, borderRadius: '50%',
             background: 'rgba(0,0,0,0.06)', border: 'none',
             display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
           }}
@@ -2341,6 +2342,7 @@ export default function App() {
   }, [])
 
   return (
+    <MotionConfig reducedMotion="user">
     <div style={{ fontFamily: "'Inter', sans-serif" }}>
       {/* ═══════════════════════════════════════════════════════════════════════
           HERO SECTION
@@ -2350,6 +2352,7 @@ export default function App() {
         <video
           className="absolute inset-0 w-full h-full object-cover"
           src={VIDEO_URL}
+          poster="/argus-poster.png"
           autoPlay loop muted playsInline
           preload="metadata"
           aria-hidden="true"
@@ -2366,7 +2369,7 @@ export default function App() {
                 </span>
                 <BetaBadge />
               </div>
-              <button onClick={() => setMenuOpen(false)} aria-label="Close menu" className="w-9 h-9 rounded-full bg-black flex items-center justify-center">
+              <button onClick={() => setMenuOpen(false)} aria-label="Close menu" className="w-11 h-11 rounded-full bg-black flex items-center justify-center">
                 <X size={16} color="white" />
               </button>
             </div>
@@ -2474,7 +2477,7 @@ export default function App() {
             onClick={() => setMenuOpen(true)}
             aria-label="Open menu"
             aria-expanded={menuOpen}
-            className="w-9 h-9 rounded-full bg-black flex flex-col items-center justify-center gap-1"
+            className="w-11 h-11 rounded-full bg-black flex flex-col items-center justify-center gap-1"
           >
             <span className="w-4 h-0.5 bg-white" aria-hidden="true" />
             <span className="w-4 h-0.5 bg-white" aria-hidden="true" />
@@ -2610,5 +2613,6 @@ export default function App() {
       <DocsSection />
       <Footer />
     </div>
+    </MotionConfig>
   )
 }

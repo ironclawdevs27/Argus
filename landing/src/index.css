@@ -33,3 +33,25 @@ html {
 html {
   scrollbar-gutter: stable;
 }
+
+/* Dynamic viewport height — fixes iOS Safari 100vh including browser chrome */
+@supports (height: 100dvh) {
+  .h-screen {
+    height: 100dvh;
+  }
+}
+
+/* Note: stat counters, detection grid, and nav spacing handle narrow viewports
+   natively — Tailwind responsive variants and clamp() on gap cover all cases. */
+
+/* Respect prefers-reduced-motion for any remaining CSS transitions */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}

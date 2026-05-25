@@ -4,7 +4,7 @@
 
 Automated browser testing pipeline that catches bugs, compares environments, and sends rich reports to Slack (or generates a self-contained HTML dashboard when Slack is not configured) — powered by Chrome DevTools MCP and Claude Code.
 
-The `landing/` directory contains the product landing page (React + Vite + Tailwind + Framer Motion) with Supabase-backed waitlist and enterprise contact forms. See [landing/README.md](landing/README.md) for setup.
+The `landing/` directory contains the product landing page (React + Vite + Tailwind + Framer Motion) with Supabase-backed waitlist and enterprise contact forms. Live at **[argus-qa.com](https://argus-qa.com)** (deployed via Cloudflare Pages; background video served from Cloudflare R2). See [landing/README.md](landing/README.md) for setup.
 
 <div align="center">
 
