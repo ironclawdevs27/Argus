@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 
 const ACCENT = '#5E0ED7'
-const VIDEO_URL = '/argus-video.mp4'
+const VIDEO_URL = 'https://pub-4a48bc28d90e4425a6fb87b164225d13.r2.dev/argus-video.mp4'
 const GITHUB_URL = 'https://github.com/ironclawdevs27/Argus'
 const SLIDE_INTERVAL = 5000
 const SCROLL_SHOW_DELAY = 1500
