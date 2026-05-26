@@ -724,11 +724,15 @@ argus/
 │   │   ├── App.jsx                   # Single-page app — hero, features, comparison, waitlist + enterprise modals
 │   │   └── supabase.js               # Supabase client factory (null-safe when env vars missing)
 │   ├── public/
-│   │   └── favicon.svg
-│   ├── index.html
+│   │   ├── favicon.svg               # SVG favicon — purple ring + dot
+│   │   ├── argus-poster.png          # Video poster fallback (1918×1078)
+│   │   ├── og-image-v2.jpg           # OG social card — 1200×630 JPEG, branded overlay, black-outlined stat numbers
+│   │   ├── robots.txt                # Allows all crawlers; Sitemap reference
+│   │   └── sitemap.xml               # Canonical URL for argus-qa.com/
+│   ├── index.html                    # Vite entry; OG/Twitter/JSON-LD SEO tags; canonical; favicon
 │   ├── package.json
 │   ├── .env.example                  # VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY template
-│   └── README.md                     # Setup guide, Supabase SQL schema, env vars
+│   └── README.md                     # Setup guide, Supabase SQL schema, env vars, deployment
 ├── scripts/
 │   └── dispatch-report.js            # Standalone Slack re-dispatch script (re-posts last report.json to Slack)
 ├── test-harness/                     # Fixture server + test runner (82 blocks, 348 hard assertions, 54 fixture pages)
