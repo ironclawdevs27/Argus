@@ -30,6 +30,7 @@ landing/node_modules/
 landing/dist/
 landing/vite.config.js.timestamp-*.mjs
 landing/.env.local
+landing/public/og-image.jpg
 Animated Argus Panoptes.mp4
 *.mp4
 
