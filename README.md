@@ -4,6 +4,42 @@
 
 Automated browser testing pipeline that catches bugs, compares environments, and sends rich reports to Slack (or generates a self-contained HTML dashboard when Slack is not configured) — powered by Chrome DevTools MCP and Claude Code.
 
+---
+
+## MCP Quick Start
+
+Add to your `.mcp.json` (or ask Claude Code: `claude mcp add argus -- npx -y argusqa-os`):
+
+```json
+{
+  "mcpServers": {
+    "argus": {
+      "command": "npx",
+      "args": ["-y", "argusqa-os"]
+    }
+  }
+}
+```
+
+Then ask Claude (or any MCP client):
+
+```
+Run argus_audit on http://localhost:3000
+```
+
+**Four tools are exposed:**
+
+| Tool | What it does |
+| --- | --- |
+| `argus_audit` | Fast QA pass — JS errors, network failures, accessibility, SEO, security, CSS, content |
+| `argus_audit_full` | Deep QA pass — adds Lighthouse scoring, responsive layout checks across 4 viewports, memory leak detection via heap snapshot, hover-state bug detection, and accessibility tree snapshot |
+| `argus_compare` | Diff dev vs staging side-by-side — screenshots, findings delta, environment regressions |
+| `argus_last_report` | Return the last saved report JSON from the most recent audit |
+
+> **Requires**: Node.js ≥ 20.19, Chrome running with `--remote-debugging-port=9222`, and the [`chrome-devtools-mcp`](https://www.npmjs.com/package/chrome-devtools-mcp) MCP server registered alongside Argus.
+
+---
+
 The `landing/` directory contains the product landing page (React + Vite + Tailwind + Framer Motion) with Supabase-backed waitlist and enterprise contact forms. Live at **[argus-qa.com](https://argus-qa.com)** (deployed via Cloudflare Pages; background video served from Cloudflare R2). See [landing/README.md](landing/README.md) for setup.
 
 <div align="center">
