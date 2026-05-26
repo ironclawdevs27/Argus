@@ -284,7 +284,7 @@ Argus watches your running application and automatically surfaces issues that te
 | **Slack Notifications** | Rich Block Kit reports with inline screenshots routed to `#bugs-critical`, `#bugs-warnings`, `#bugs-digest` |
 | **Slash Command** | `/argus-retest <url>` triggers an on-demand test from any Slack channel |
 | **CI Integration** | GitHub Actions workflow runs daily at 6 AM UTC and on every push to `main` |
-| **MCP Server (AI-callable Argus)** | Register Argus as an MCP server via `.mcp.json`; Claude (or any MCP client) can call `argus_audit`, `argus_audit_full`, `argus_compare`, `argus_last_report` directly from a conversation — no CLI, no terminal required (`npm run mcp-server`) |
+| **MCP Server (AI-callable Argus)** | Register Argus as an MCP server via `.mcp.json`; Claude (or any MCP client) can call `argus_audit`, `argus_audit_full`, `argus_compare`, `argus_last_report` directly from a conversation — no CLI, no terminal required. Published to npm as **[argusqa-os](https://www.npmjs.com/package/argusqa-os)** — add via `{ "command": "npx", "args": ["-y", "argusqa-os"] }` in `.mcp.json` |
 
 Works with **React + SCSS**, CSS Modules, CSS-in-JS (styled-components / emotion), and plain HTML/CSS apps.
 
