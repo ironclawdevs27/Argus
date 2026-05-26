@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * Argus MCP Server (v9.2.0)
  *
@@ -49,19 +50,19 @@ const TOOLS = [
   },
   {
     name: 'argus_audit_full',
-    description: 'Run a full QA pass (cheap + all expensive analyzers: Lighthouse, responsive, memory, hover, snapshot) on a URL.',
+    description: 'Run a deep QA pass on a URL using all analyzers — Lighthouse performance/accessibility scoring, responsive layout checks across mobile/tablet/desktop viewports, memory leak detection via heap snapshot, hover-state bug detection, and accessibility tree snapshot. Returns a full JSON report with findings grouped by severity.',
     inputSchema: {
       type: 'object',
       properties: {
-        url:      { type: 'string' },
-        critical: { type: 'boolean', default: false },
+        url:      { type: 'string',  description: 'Full URL to audit (e.g. https://example.com/dashboard)' },
+        critical: { type: 'boolean', description: 'Mark this route as critical — console errors are escalated to critical severity', default: false },
       },
       required: ['url'],
     },
   },
   {
     name: 'argus_compare',
-    description: 'Compare dev vs staging environments using TARGET_DEV_URL and TARGET_STAGING_URL from .env / targets.js. Returns regression report.',
+    description: 'Snapshot and diff two environments (dev vs staging) side-by-side. Navigates both URLs, captures screenshots, runs the full analyzer suite on each, then diffs the findings to surface regressions — things that appear in staging but not dev, or changed severity. Configure the two target URLs via TARGET_DEV_URL and TARGET_STAGING_URL environment variables before starting the server.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
