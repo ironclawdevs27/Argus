@@ -10,6 +10,10 @@
     "type": "git",
     "url": "https://github.com/ironclawdevs27/Argus"
   },
+  "files": [
+    "src/",
+    ".mcp.json"
+  ],
   "type": "module",
   "engines": {
     "node": ">=20.19.0"

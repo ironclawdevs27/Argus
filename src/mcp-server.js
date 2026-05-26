@@ -24,14 +24,12 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import fs   from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
 import { createMcpClient }                    from './utils/mcp-client.js';
 import { crawlRouteCheap, runCrawl }          from './orchestration/crawl-and-report.js';
 import { runComparison }                      from './orchestration/env-comparison.js';
 
-const __dirname   = path.dirname(fileURLToPath(import.meta.url));
-const REPORTS_DIR = path.resolve(__dirname, '../reports');
+const REPORTS_DIR = path.resolve(process.cwd(), 'reports');
 
 // ── Tool definitions ─────────────────────────────────────────────────────────
 
