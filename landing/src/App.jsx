@@ -36,12 +36,10 @@ const headingWords = ['Every', 'Bug', 'Caught']
 const slides = [
   'AI-Powered QA Engine Built Around Chrome DevTools Protocol And Real Browser Automation',
   'Catching Bugs Before\nThey Hit Your\nProduction',
-  '82 Test Blocks · 348 Assertions\n54 Detection Categories',
   'Zero Test Scripts — Add One Block\nTo Your Claude Config.\nQA Runs Automatically',
   'Open Source Forever — MCP Server,\nCLI, Slack & GitHub Alerts,\nAll Included At No Cost',
   'Watch Mode — Passive Bug Detection\nWhile You Browse\nYour Own App',
   'Dev vs Staging Diff —\nCatch Environment-Only\nRegressions Automatically',
-  'Plugin Registry · Structured Logging\nExponential Retry · Zod Config Validation\nProduction-Grade From Day One',
 ]
 
 const fadeDown = {
@@ -2486,20 +2484,20 @@ export default function App() {
         </nav>
 
         {/* Stats row */}
-        <div className="flex-1 flex items-center justify-between px-5 sm:px-8 md:px-12 py-8 md:py-0 relative z-10">
+        <div className="flex-1 flex flex-col sm:flex-row items-center sm:justify-between px-5 sm:px-8 md:px-12 py-6 sm:py-8 md:py-0 gap-6 sm:gap-0 relative z-10">
           <motion.div
             custom={7} variants={fadeUp} initial="initial" animate="animate"
-            className="w-[144px] sm:w-[198px] md:w-[270px]"
+            className="w-full max-w-[300px] sm:w-[198px] sm:max-w-none md:w-[270px]"
             style={{
               background: 'linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(94,14,215,0.18) 55%, rgba(94,14,215,0.12) 100%)',
               backdropFilter: 'blur(40px) saturate(200%) brightness(1.08)',
               WebkitBackdropFilter: 'blur(40px) saturate(200%) brightness(1.08)',
               border: '1px solid rgba(255,255,255,0.72)', borderRadius: '1.25rem',
-              padding: 'clamp(0.75rem, 1.8vw, 1.35rem)',
+              padding: 'clamp(0.85rem, 1.8vw, 1.35rem)',
               boxShadow: '0 8px 40px rgba(94,14,215,0.18), 0 2px 8px rgba(0,0,0,0.06), inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -1px 0 rgba(94,14,215,0.08), inset 1px 0 0 rgba(255,255,255,0.55)',
             }}
           >
-            <div style={{ position: 'relative', minHeight: 'clamp(4.5rem, 8.1vw, 6.75rem)', overflow: 'hidden' }}>
+            <div style={{ position: 'relative', minHeight: 'clamp(6.5rem, 8.1vw, 6.75rem)', overflow: 'hidden' }}>
               <AnimatePresence mode="wait">
                 <motion.div
                   key={slideIndex}
@@ -2508,7 +2506,7 @@ export default function App() {
                   style={{ position: 'absolute', top: 0, left: 0, right: 0 }}
                 >
                   <div className="mb-3 sm:mb-4" style={{ width: '2rem', height: '2px', background: ACCENT, borderRadius: 2 }} />
-                  <p className="font-semibold tracking-widest uppercase text-black leading-relaxed text-left whitespace-pre-line" style={{ fontSize: 'clamp(0.55rem, 1.1vw, 0.85rem)' }}>
+                  <p className="font-semibold tracking-widest uppercase text-black leading-relaxed text-left whitespace-pre-line" style={{ fontSize: 'clamp(0.75rem, 1.6vw, 0.85rem)' }}>
                     {slides[slideIndex]}
                   </p>
                 </motion.div>
@@ -2516,14 +2514,14 @@ export default function App() {
             </div>
           </motion.div>
 
-          <div className="flex gap-5 sm:gap-8 md:gap-10">
+          <div className="flex gap-8 sm:gap-8 md:gap-10">
             {stats.map((stat, i) => (
-              <motion.div key={stat.num} custom={i + 2} variants={fadeUp} initial="initial" animate="animate" className="flex flex-col items-end">
-                <div style={{ fontSize: 'clamp(1.5rem, 5vw, 3.5rem)', fontWeight: 600, lineHeight: 1 }}>
+              <motion.div key={stat.num} custom={i + 2} variants={fadeUp} initial="initial" animate="animate" className="flex flex-col items-center sm:items-end">
+                <div style={{ fontSize: 'clamp(2rem, 5vw, 3.5rem)', fontWeight: 600, lineHeight: 1 }}>
                   <span style={{ color: ACCENT, fontSize: '0.5em' }}>+</span>
                   <span className="text-black">{stat.num}</span>
                 </div>
-                <p className="text-[10px] sm:text-xs md:text-sm font-semibold tracking-widest uppercase text-black whitespace-pre-line leading-tight text-right">
+                <p className="text-[11px] sm:text-xs md:text-sm font-semibold tracking-widest uppercase text-black whitespace-pre-line leading-tight text-center sm:text-right">
                   {stat.label}
                 </p>
               </motion.div>
