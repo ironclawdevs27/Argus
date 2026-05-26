@@ -24,14 +24,15 @@ function usePrettyOutput() {
 
 function createLogger() {
   const level = process.env.ARGUS_LOG_LEVEL ?? 'info';
+  // Always write to stderr — stdout is reserved for the MCP stdio JSON-RPC channel.
   if (usePrettyOutput()) {
     try {
-      return pino({ level, transport: { target: 'pino-pretty', options: { colorize: true } } });
+      return pino({ level, transport: { target: 'pino-pretty', options: { colorize: true, destination: 2 } } });
     } catch {
       // pino-pretty not installed or failed to load — fall back to JSON
     }
   }
-  return pino({ level });
+  return pino({ level }, process.stderr);
 }
 
 export const logger = createLogger();

@@ -129,7 +129,7 @@ async function handleLastReport() {
 // ── Server bootstrap ──────────────────────────────────────────────────────────
 
 const server = new Server(
-  { name: 'argus', version: '9.2.1' },
+  { name: 'argus', version: '9.2.2' },
   { capabilities: { tools: {} } },
 );
 
