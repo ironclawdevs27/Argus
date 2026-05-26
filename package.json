@@ -1,14 +1,24 @@
 {
-  "name": "argus",
+  "name": "argusqa-os",
   "version": "9.2.0",
   "description": "Argus — AI-powered automated dev-testing platform using Chrome DevTools MCP and Claude Code",
-  "keywords": ["mcp", "mcp-server", "claude", "qa", "testing", "accessibility", "automation", "chrome-devtools", "web-testing"],
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "claude",
+    "qa",
+    "testing",
+    "accessibility",
+    "automation",
+    "chrome-devtools",
+    "web-testing"
+  ],
   "author": "ironclawdevs",
   "license": "MIT",
   "homepage": "https://argus-qa.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ironclawdevs27/Argus"
+    "url": "git+https://github.com/ironclawdevs27/Argus.git"
   },
   "files": [
     "src/",
@@ -20,7 +30,8 @@
   },
   "bin": {
     "argus": "src/cli/init.js",
-    "argus-mcp": "src/mcp-server.js"
+    "argus-mcp": "src/mcp-server.js",
+    "argusqa-os": "src/mcp-server.js"
   },
   "scripts": {
     "setup": "node -e \"import('fs').then(fs => fs.default.mkdirSync('./reports', { recursive: true }))\"",

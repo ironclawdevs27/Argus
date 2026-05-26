@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "argus": {
-      "command": "node",
-      "args": ["src/mcp-server.js"]
+      "command": "npx",
+      "args": ["-y", "argusqa-os"]
     }
   }
 }
