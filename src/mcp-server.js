@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Argus MCP Server (v9.2.0)
+ * Argus MCP Server (v9.2.3)
  *
  * Exposes Argus as an MCP server so Claude (or any MCP client) can call
  * argus_audit, argus_audit_full, argus_compare, and argus_last_report
@@ -36,7 +36,7 @@ const REPORTS_DIR = path.resolve(process.cwd(), 'reports');
 const TOOLS = [
   {
     name: 'argus_audit',
-    description: 'Run a quick (cheap) QA pass on a URL. Returns findings as JSON.',
+    description: 'Run a quick QA pass on a URL using core analyzers — JavaScript runtime errors and uncaught exceptions, network failures (4xx/5xx), API frequency loops, CSS cascade issues, SEO checks (meta, OG tags, canonical), security vulnerabilities (localStorage tokens, eval, missing CSP), content quality (null text, broken images), and accessibility. Returns findings as JSON grouped by severity (critical/warning/info).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -129,7 +129,7 @@ async function handleLastReport() {
 // ── Server bootstrap ──────────────────────────────────────────────────────────
 
 const server = new Server(
-  { name: 'argus', version: '9.2.2' },
+  { name: 'argus', version: '9.2.3' },
   { capabilities: { tools: {} } },
 );
 
