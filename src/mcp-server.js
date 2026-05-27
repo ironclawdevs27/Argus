@@ -36,7 +36,7 @@ const REPORTS_DIR = path.resolve(process.cwd(), 'reports');
 const TOOLS = [
   {
     name: 'argus_audit',
-    description: 'Run a quick QA pass on a URL using core analyzers — JavaScript runtime errors and uncaught exceptions, network failures (4xx/5xx), API frequency loops, CSS cascade issues, SEO checks (meta, OG tags, canonical), security vulnerabilities (localStorage tokens, eval, missing CSP), content quality (null text, broken images), and accessibility. Returns findings as JSON grouped by severity (critical/warning/info).',
+    description: 'Run a fast QA audit on a URL. Detects JavaScript errors, unhandled promise rejections, network failures (4xx/5xx), API frequency loops, CSS cascade issues, SEO problems, security vulnerabilities, content quality issues, and accessibility violations. Returns findings as JSON grouped by severity (critical/warning/info).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -129,7 +129,7 @@ async function handleLastReport() {
 // ── Server bootstrap ──────────────────────────────────────────────────────────
 
 const server = new Server(
-  { name: 'argus', version: '9.2.3' },
+  { name: 'argus', version: '9.2.4' },
   { capabilities: { tools: {} } },
 );
 
