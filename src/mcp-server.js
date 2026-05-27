@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Argus MCP Server (v9.2.3)
+ * Argus MCP Server (v9.2.6)
  *
  * Exposes Argus as an MCP server so Claude (or any MCP client) can call
  * argus_audit, argus_audit_full, argus_compare, and argus_last_report
@@ -129,7 +129,7 @@ async function handleLastReport() {
 // ── Server bootstrap ──────────────────────────────────────────────────────────
 
 const server = new Server(
-  { name: 'argus', version: '9.2.5' },
+  { name: 'argus', version: '9.2.6' },
   { capabilities: { tools: {} } },
 );
 
