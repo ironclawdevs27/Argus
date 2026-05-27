@@ -1,5 +1,7 @@
 # Argus — AI-Powered Dev Testing Tool
 
+[![Argus MCP server](https://glama.ai/mcp/servers/ironclawdevs27/Argus/badges/card.svg)](https://glama.ai/mcp/servers/ironclawdevs27/Argus)
+
 > *Argus Panoptes — the all-seeing giant of Greek mythology with a hundred eyes who never slept.*
 
 Automated browser testing pipeline that catches bugs, compares environments, and sends rich reports to Slack (or generates a self-contained HTML dashboard when Slack is not configured) — powered by Chrome DevTools MCP and Claude Code.
