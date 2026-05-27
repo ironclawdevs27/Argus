@@ -276,70 +276,85 @@ const setupMethods = [
     steps: [
       {
         num: '01',
-        title: 'Install',
-        desc: 'Install argus-qa and create the reports output directory.',
-        code: `npm install -g argus-qa
-# or as a project dev dependency:
-npm install --save-dev argus-qa
-npm run setup    # creates reports/ directory`,
+        title: 'Register Argus',
+        desc: 'Add Argus to your .mcp.json — no local install needed, npx auto-downloads it when Claude starts the server.',
+        code: `# Add to .mcp.json in your project root:
+{
+  "mcpServers": {
+    "argus": {
+      "command": "npx",
+      "args": ["-y", "argusqa-os"]
+    }
+  }
+}
+
+# Or via Claude Code CLI:
+claude mcp add argus -- npx -y argusqa-os`,
       },
       {
         num: '02',
-        title: 'Initialize',
-        desc: 'Run the interactive setup wizard. It detects your framework, auto-discovers routes via sitemap + filesystem, and writes a populated .env and targets.js — no manual config editing required.',
-        code: `npm run init
-# Wizard prompts:
-#  1. Dev URL + staging URL (optional)
-#  2. App source directory (enables C1 env-var audit + C3 route discovery)
-#  3. Route discovery: sitemap.xml, Next.js pages/, React Router config
-#  4. Slack bot token + channel IDs (optional)
-#  5. GitHub token + repository (optional)
-# Writes: .env  +  src/config/targets.js`,
+        title: 'Set Environment Variables',
+        desc: 'Create a .env file with your target URLs. Run the interactive wizard to auto-generate it — it detects your framework, discovers routes, and optionally collects Slack and GitHub credentials.',
+        code: `# Recommended — use the init wizard:
+npx argus   # interactive setup: URLs, routes, Slack, GitHub
+
+# Or create .env manually:
+TARGET_DEV_URL=http://localhost:3000
+TARGET_STAGING_URL=https://staging.yourapp.com   # optional
+
+# If not using the wizard, also configure your routes:
+# edit src/config/targets.js — add each page with { path, name, critical, waitFor }`,
       },
       {
         num: '03',
-        title: 'Configure MCP',
-        desc: 'Create .mcp.json in your project root to register Argus and Chrome DevTools with Claude.',
-        code: `{
+        title: 'Add Chrome DevTools MCP',
+        desc: 'Argus drives Chrome via the chrome-devtools MCP server. Register it alongside Argus so Claude can control the browser.',
+        code: `# Add to your .mcp.json:
+{
   "mcpServers": {
     "chrome-devtools": {
       "command": "npx",
       "args": ["-y", "chrome-devtools-mcp@latest"]
     },
     "argus": {
-      "command": "node",
-      "args": ["node_modules/argus-qa/src/mcp-server.js"]
+      "command": "npx",
+      "args": ["-y", "argusqa-os"]
     }
   }
-}`,
+}
+
+# Verify the connection — ask Claude:
+# "List all open Chrome pages"`,
       },
       {
         num: '04',
         title: 'Start Chrome',
-        desc: 'Launch Chrome with remote debugging enabled on port 9222. Argus drives this browser instance.',
+        desc: 'Launch Chrome with remote debugging enabled on port 9222. Argus drives this browser instance via CDP.',
         code: `# macOS
-/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --headless=new
+/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\
+  --remote-debugging-port=9222 --headless=new
 
 # Windows
-"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222 --headless=new
+"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" \\
+  --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu
 
-# Linux
-google-chrome --remote-debugging-port=9222 --headless=new`,
+# Linux / CI
+google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu`,
       },
       {
         num: '05',
         title: 'Audit via Claude',
-        desc: 'Ask Claude directly. Argus crawls the URL, runs all 54 detection passes, and returns structured findings.',
-        code: `# Quick audit (cheap pass):
-"Run argus_audit on https://your-app.com"
+        desc: 'Ask Claude directly. Argus crawls the URL, runs all detection passes, and returns structured findings grouped by severity.',
+        code: `# Fast audit — JS errors, network, a11y, SEO, security, CSS, content:
+"Run argus_audit on http://localhost:3000/checkout"
 
-# Full audit (all analyzers):
-"Run argus_audit_full on https://your-app.com/dashboard"
+# Deep audit — adds Lighthouse, responsive layout, memory leak detection:
+"Run argus_audit_full on http://localhost:3000/dashboard"
 
-# Compare dev vs staging:
+# Compare dev vs staging environments:
 "Run argus_compare"
 
-# Retrieve last report:
+# Retrieve last saved report:
 "Run argus_last_report"`,
       },
     ],
@@ -350,38 +365,41 @@ google-chrome --remote-debugging-port=9222 --headless=new`,
     badge: 'Open Source',
     tagline: 'For pipelines and automation. Run headless audits in GitHub Actions or any CI system.',
     prereqs: [
-      { label: 'Node.js 20+', detail: 'Required for the argus-qa CLI' },
+      { label: 'Node.js 20+', detail: 'Required for argusqa-os and the crawl scripts' },
       { label: 'Google Chrome', detail: 'Pre-installed on most CI runners (ubuntu-latest)' },
     ],
     steps: [
       {
         num: '01',
         title: 'Install & Initialize',
-        desc: 'Install argus-qa, create the reports directory, then run the interactive setup wizard to generate .env and targets.js.',
-        code: `npm install --save-dev argus-qa
-npm run setup    # creates reports/ directory
-npm run init     # interactive wizard: URLs, framework detection, route discovery, Slack/GitHub config`,
+        desc: 'Install argusqa-os, then run the interactive setup wizard to generate .env and targets.js.',
+        code: `npm install --save-dev argusqa-os
+npx argus   # interactive wizard: URLs, framework detection, route discovery, Slack/GitHub config
+# Writes: .env  +  src/config/targets.js`,
       },
       {
         num: '02',
         title: 'Start Chrome',
         desc: 'Launch Chrome in headless mode. On CI, use the Chrome pre-installed on the runner.',
         code: `# Local (macOS / Linux):
-google-chrome --remote-debugging-port=9222 --headless=new &
+google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox &
 
 # GitHub Actions (Chrome is pre-installed on ubuntu-latest):
 - name: Start Chrome
-  run: google-chrome --remote-debugging-port=9222 --headless=new &`,
+  run: google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu &`,
       },
       {
         num: '03',
         title: 'Run a Crawl',
-        desc: 'Crawl a single URL or compare two environments. Results are saved as JSON and HTML.',
+        desc: 'Crawl a single URL or compare two environments. Results are saved as JSON in reports/.',
         code: `# Single URL audit:
-npx argus-qa crawl --url https://staging.myapp.com
+TARGET_DEV_URL=https://staging.myapp.com \\
+  node node_modules/argusqa-os/src/orchestration/crawl-and-report.js
 
 # Dev vs staging comparison:
-npx argus-qa compare --dev http://localhost:3000 --staging https://staging.myapp.com`,
+TARGET_DEV_URL=http://localhost:3000 \\
+TARGET_STAGING_URL=https://staging.myapp.com \\
+  node node_modules/argusqa-os/src/orchestration/env-comparison.js`,
       },
       {
         num: '04',
@@ -403,11 +421,11 @@ jobs:
         with: { node-version: '20' }
       - run: npm ci
       - name: Start Chrome
-        run: google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox &
+        run: google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu &
       - name: Run Argus
-        run: npx argus-qa crawl --url \${{ secrets.TARGET_STAGING_URL }}
+        run: node node_modules/argusqa-os/src/orchestration/crawl-and-report.js
         env:
-          TARGET_STAGING_URL: \${{ secrets.TARGET_STAGING_URL }}
+          TARGET_DEV_URL: \${{ secrets.TARGET_STAGING_URL }}
           SLACK_BOT_TOKEN: \${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_CRITICAL: \${{ secrets.SLACK_CHANNEL_CRITICAL }}
           SLACK_CHANNEL_WARNINGS: \${{ secrets.SLACK_CHANNEL_WARNINGS }}

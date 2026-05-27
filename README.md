@@ -10,17 +10,40 @@ Automated browser testing pipeline that catches bugs, compares environments, and
 
 ## MCP Quick Start
 
-Add to your `.mcp.json` (or ask Claude Code: `claude mcp add argus -- npx -y argusqa-os`):
+Add both servers to your `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest"]
+    },
     "argus": {
       "command": "npx",
       "args": ["-y", "argusqa-os"]
     }
   }
 }
+```
+
+Or register via the Claude Code CLI:
+
+```bash
+claude mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest
+claude mcp add argus -- npx -y argusqa-os
+```
+
+Set your target URL and start Chrome with remote debugging:
+
+```bash
+# .env
+TARGET_DEV_URL=http://localhost:3000
+
+# Start Chrome (required — Argus drives this instance via CDP)
+# macOS:   open -a "Google Chrome" --args --remote-debugging-port=9222 --headless=new
+# Windows: "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --headless=new
+# Linux:   google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox
 ```
 
 Then ask Claude (or any MCP client):
@@ -38,7 +61,7 @@ Run argus_audit on http://localhost:3000
 | `argus_compare` | Diff dev vs staging side-by-side — screenshots, findings delta, environment regressions |
 | `argus_last_report` | Return the last saved report JSON from the most recent audit |
 
-> **Requires**: Node.js ≥ 20.19, Chrome running with `--remote-debugging-port=9222`, and the [`chrome-devtools-mcp`](https://www.npmjs.com/package/chrome-devtools-mcp) MCP server registered alongside Argus.
+> **Requires**: Node.js ≥ 20.19, Chrome (desktop or headless), and the `chrome-devtools-mcp` server registered alongside Argus (shown above).
 
 ---
 
