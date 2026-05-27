@@ -1,0 +1,43 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ironclawdevs27/argus",
+  "description": "AI-powered QA harness — catch JS errors, a11y violations, visual regressions, and security issues.",
+  "repository": {
+    "url": "https://github.com/ironclawdevs27/Argus",
+    "source": "github"
+  },
+  "version": "9.2.5",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "argusqa-os",
+      "version": "9.2.5",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "TARGET_DEV_URL",
+          "description": "Base URL of the dev environment to audit (e.g. http://localhost:3000)",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "TARGET_STAGING_URL",
+          "description": "Base URL of the staging environment — used by argus_compare for dev vs staging diff. Omit to use CSS analysis mode.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "SLACK_BOT_TOKEN",
+          "description": "Slack bot token (xoxb-...) for posting reports. Omit to generate a local report.html instead.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
