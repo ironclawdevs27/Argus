@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Argus MCP Server (v9.2.6)
+ * Argus MCP Server (v9.2.7)
  *
  * Exposes Argus as an MCP server so Claude (or any MCP client) can call
  * argus_audit, argus_audit_full, argus_compare, and argus_last_report
@@ -36,36 +36,36 @@ const REPORTS_DIR = path.resolve(process.cwd(), 'reports');
 const TOOLS = [
   {
     name: 'argus_audit',
-    description: 'Run a fast QA audit on a URL. Detects JavaScript errors, unhandled promise rejections, network failures (4xx/5xx), API frequency loops, CSS cascade issues, SEO problems, security vulnerabilities, content quality issues, and accessibility violations. Returns findings as JSON grouped by severity (critical/warning/info).',
+    description: 'Fast QA audit on a URL via Chrome DevTools Protocol. Runs 8 analyzers in one pass: JS errors, unhandled rejections, network failures (4xx/5xx), API frequency loops, CSS cascade issues, SEO violations, security header checks, and accessibility. Returns { findings: [{severity, type, message, url}], summary: {critical, warning, info} }. Use for CI smoke tests and pre-deploy gates. For Lighthouse scoring and memory leak detection, use argus_audit_full. Requires Chrome running with --remote-debugging-port=9222.',
     inputSchema: {
       type: 'object',
       properties: {
-        url:      { type: 'string',  description: 'Full URL to audit (e.g. http://localhost:3000/checkout)' },
-        critical: { type: 'boolean', description: 'Treat this route as critical — console errors become critical severity', default: false },
+        url:      { type: 'string',  description: 'Full URL to audit, including protocol and path (e.g. http://localhost:3000/checkout). Must be reachable by the running Chrome instance.' },
+        critical: { type: 'boolean', description: 'When true, console.error calls are escalated to critical severity. Set true for business-critical routes (login, checkout, dashboard) where any error is a blocker.', default: false },
       },
       required: ['url'],
     },
   },
   {
     name: 'argus_audit_full',
-    description: 'Run a deep QA pass on a URL using all analyzers — Lighthouse performance/accessibility scoring, responsive layout checks across mobile/tablet/desktop viewports, memory leak detection via heap snapshot, hover-state bug detection, and accessibility tree snapshot. Returns a full JSON report with findings grouped by severity.',
+    description: 'Deep QA audit — extends argus_audit with Lighthouse performance/accessibility scoring, responsive layout checks across 4 viewports (320/768/1280/1920px), memory leak detection via heap snapshot, hover-state regression detection, and accessibility tree snapshot. Returns full JSON report with findings by severity, Lighthouse scores, and layout overflow details. Use when argus_audit passes clean but visual or performance regressions are suspected. Requires Chrome running with --remote-debugging-port=9222.',
     inputSchema: {
       type: 'object',
       properties: {
-        url:      { type: 'string',  description: 'Full URL to audit (e.g. https://example.com/dashboard)' },
-        critical: { type: 'boolean', description: 'Mark this route as critical — console errors are escalated to critical severity', default: false },
+        url:      { type: 'string',  description: 'Full URL to audit, including protocol and path (e.g. https://example.com/dashboard). Must be reachable by the running Chrome instance.' },
+        critical: { type: 'boolean', description: 'When true, console.error calls are escalated to critical severity. Set true for business-critical routes (login, checkout, dashboard) where any error is a blocker.', default: false },
       },
       required: ['url'],
     },
   },
   {
     name: 'argus_compare',
-    description: 'Snapshot and diff two environments (dev vs staging) side-by-side. Navigates both URLs, captures screenshots, runs the full analyzer suite on each, then diffs the findings to surface regressions — things that appear in staging but not dev, or changed severity. Configure the two target URLs via TARGET_DEV_URL and TARGET_STAGING_URL environment variables before starting the server.',
+    description: 'Diffs dev vs staging environments side-by-side. Navigates both URLs, captures screenshots, and runs the full analyzer suite on each, then surfaces regressions — findings present in staging but not dev, or with changed severity. Returns { regressions: [{type, devSeverity, stagingSeverity}], screenshots, summary }. Run before promoting a build to staging to catch environment-specific bugs. Set TARGET_DEV_URL and TARGET_STAGING_URL env vars before starting the server; omit TARGET_STAGING_URL to run CSS-analysis-only mode.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'argus_last_report',
-    description: 'Return the most recent Argus JSON report from the reports/ directory.',
+    description: 'Returns the most recent Argus JSON report from the reports/ directory. Report includes a findings array and severity summary (critical/warning/info counts). Returns { "error": "No reports found in reports/" } when no audits have been run yet. Use to retrieve prior results without re-running a scan, or to pipe findings into another analysis tool.',
     inputSchema: { type: 'object', properties: {} },
   },
 ];
@@ -129,7 +129,7 @@ async function handleLastReport() {
 // ── Server bootstrap ──────────────────────────────────────────────────────────
 
 const server = new Server(
-  { name: 'argus', version: '9.2.6' },
+  { name: 'argus', version: '9.2.7' },
   { capabilities: { tools: {} } },
 );
 
