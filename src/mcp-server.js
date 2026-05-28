@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Argus MCP Server (v9.2.7)
+ * Argus MCP Server (v9.2.8)
  *
  * Exposes Argus as an MCP server so Claude (or any MCP client) can call
  * argus_audit, argus_audit_full, argus_compare, and argus_last_report
@@ -28,6 +28,9 @@ import path from 'path';
 import { createMcpClient }                    from './utils/mcp-client.js';
 import { crawlRouteCheap, runCrawl }          from './orchestration/crawl-and-report.js';
 import { runComparison }                      from './orchestration/env-comparison.js';
+import { WatchSession }                       from './orchestration/watch-mode.js';
+import { CdpBrowserAdapter }                  from './adapters/browser.js';
+import { generateHtmlReport }                 from './utils/html-reporter.js';
 
 const REPORTS_DIR = path.resolve(process.cwd(), 'reports');
 
@@ -66,6 +69,21 @@ const TOOLS = [
   {
     name: 'argus_last_report',
     description: 'Returns the most recent Argus JSON report from the reports/ directory. Report includes a findings array and severity summary (critical/warning/info counts). Returns { "error": "No reports found in reports/" } when no audits have been run yet. Use to retrieve prior results without re-running a scan, or to pipe findings into another analysis tool.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'argus_watch_snapshot',
+    description: 'Snapshots the currently open Chrome tab without navigating — captures console errors, network failures (4xx/5xx), CORS blocks, and auth failures in one poll. Returns { findings: [{severity, type, message, url}], newConsole, newNetwork }. Use during active development to inspect what is happening on the current page without running a full audit. Requires Chrome on --remote-debugging-port=9222 with a page already open.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Optional base URL to attribute findings to (default: TARGET_DEV_URL env var). Does not navigate — reads the currently open Chrome tab.' },
+      },
+    },
+  },
+  {
+    name: 'argus_report_html',
+    description: 'Generates a self-contained reports/report.html from the most recent Argus JSON report. Inlines all screenshots and findings into a portable single-file HTML dashboard shareable with designers, PMs, or reviewable offline. Returns { path: "reports/report.html" }. Run after argus_audit or argus_audit_full. Returns an error if no JSON reports exist in the reports/ directory.',
     inputSchema: { type: 'object', properties: {} },
   },
 ];
@@ -111,6 +129,31 @@ async function handleCompare() {
   });
 }
 
+async function handleWatchSnapshot({ url } = {}) {
+  return withMcp(async (mcp) => {
+    const browser = new CdpBrowserAdapter(mcp);
+    const baseUrl = url ?? process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
+    const session = new WatchSession(browser, baseUrl);
+    const result  = await session.poll();
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  });
+}
+
+async function handleReportHtml() {
+  if (!fs.existsSync(REPORTS_DIR)) {
+    return { content: [{ type: 'text', text: JSON.stringify({ error: 'No reports directory. Run argus_audit first.' }) }] };
+  }
+  const files = fs.readdirSync(REPORTS_DIR)
+    .filter(f => f.startsWith('error-report-') && f.endsWith('.json'))
+    .map(f => ({ f, mt: fs.statSync(path.join(REPORTS_DIR, f)).mtimeMs }))
+    .sort((a, b) => b.mt - a.mt);
+  if (files.length === 0) {
+    return { content: [{ type: 'text', text: JSON.stringify({ error: 'No reports found. Run argus_audit first.' }) }] };
+  }
+  const outPath = await generateHtmlReport(path.join(REPORTS_DIR, files[0].f));
+  return { content: [{ type: 'text', text: JSON.stringify({ path: outPath }) }] };
+}
+
 async function handleLastReport() {
   if (!fs.existsSync(REPORTS_DIR)) {
     return { content: [{ type: 'text', text: '{"error":"No reports found in reports/"}' }] };
@@ -129,7 +172,7 @@ async function handleLastReport() {
 // ── Server bootstrap ──────────────────────────────────────────────────────────
 
 const server = new Server(
-  { name: 'argus', version: '9.2.7' },
+  { name: 'argus', version: '9.2.8' },
   { capabilities: { tools: {} } },
 );
 
@@ -141,7 +184,9 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       case 'argus_audit':       return await handleAudit(req.params.arguments ?? {});
       case 'argus_audit_full':  return await handleAuditFull(req.params.arguments ?? {});
       case 'argus_compare':     return await handleCompare();
-      case 'argus_last_report': return await handleLastReport();
+      case 'argus_last_report':     return await handleLastReport();
+      case 'argus_watch_snapshot':  return await handleWatchSnapshot(req.params.arguments ?? {});
+      case 'argus_report_html':     return await handleReportHtml();
       default: throw new Error(`Unknown tool: ${req.params.name}`);
     }
   } catch (err) {
