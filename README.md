@@ -52,14 +52,16 @@ Then ask Claude (or any MCP client):
 Run argus_audit on http://localhost:3000
 ```
 
-**Four tools are exposed:**
+**Six tools are exposed:**
 
 | Tool | What it does |
 | --- | --- |
 | `argus_audit` | Fast QA pass — JS errors, network failures, accessibility, SEO, security, CSS, content |
-| `argus_audit_full` | Deep QA pass — adds Lighthouse scoring, responsive layout checks across 4 viewports, memory leak detection via heap snapshot, hover-state bug detection, and accessibility tree snapshot |
+| `argus_audit_full` | Deep QA pass — adds Lighthouse scoring, responsive layout checks across 4 viewports, memory leak detection, hover-state bug detection, and accessibility tree snapshot |
 | `argus_compare` | Diff dev vs staging side-by-side — screenshots, findings delta, environment regressions |
-| `argus_last_report` | Return the last saved report JSON from the most recent audit |
+| `argus_last_report` | Return the last saved JSON report without re-running a scan |
+| `argus_watch_snapshot` | Snapshot the currently open Chrome tab without navigating — raw console + network capture |
+| `argus_get_context` | Capture everything broken on the open tab, formatted as a diagnostic context for Claude to diagnose and suggest fixes |
 
 > **Requires**: Node.js ≥ 20.19, Chrome (desktop or headless), and the `chrome-devtools-mcp` server registered alongside Argus (shown above).
 
@@ -339,13 +341,13 @@ Argus watches your running application and automatically surfaces issues that te
 | **GitHub PR Integration** | Posts a structured Markdown findings table as a PR comment (updates in-place — one comment per PR, no spam); sets an `argus-qa` commit status check (`failure` when new criticals exist, `success` otherwise) — blocks merge via branch protection when regressions are introduced. Requires `GITHUB_TOKEN` + `GITHUB_REPOSITORY` env vars |
 | **Auto Route Discovery** | Augments manual `routes[]` with paths from three sources: fetches `/sitemap.xml` (follows one sitemap-index level, 10s timeout), scans Next.js `pages/` (Next 12) and `app/` (Next 13+) directories stripping route groups `(auth)`, and greps JS/TS source for React Router `<Route path>` declarations. Dynamic `[param]` segments are skipped — no concrete URL to crawl. Manual route config (`critical`, `waitFor`) always takes precedence. |
 | **`argus init` Setup Wizard** | `npm run init` (or `npx argus init`) guides first-time setup: collects target URLs, detects the app framework (Next.js / React Router / unknown) from the source directory's `package.json`, runs C3 route discovery against the dev URL, prompts for optional Slack tokens and GitHub credentials, then writes a populated `.env` and a pre-filled `src/config/targets.js` — zero manual config editing required. |
-| **Watch Mode** | `npm run watch` attaches to whatever Chrome tab is open and polls `list_console_messages` + `list_network_requests` every 3 s (configurable via `ARGUS_WATCH_INTERVAL_MS`). Reports new console errors, network failures (4xx/5xx), CORS blocks, and auth failures in real time — without navigating. On `Ctrl+C`, generates a final `reports/report.html`. No route config needed. |
+| **Watch Mode** | `npm run watch` attaches to whatever Chrome tab is open and polls `list_console_messages` + `list_network_requests` every 1 s (configurable via `ARGUS_WATCH_INTERVAL_MS`). Reports new console errors, network failures (4xx/5xx), CORS blocks, and auth failures in real time — without navigating. On `Ctrl+C`, generates a final `reports/report.html`. No route config needed. |
 | **Full Lighthouse Suite** | All 4 Lighthouse categories (performance, SEO, best-practices, accessibility) with per-audit items |
 | **Performance Budgets** | Enforces LCP < 2500ms, CLS < 0.1, FID < 100ms, TTFB < 800ms per route |
 | **Slack Notifications** | Rich Block Kit reports with inline screenshots routed to `#bugs-critical`, `#bugs-warnings`, `#bugs-digest` |
 | **Slash Command** | `/argus-retest <url>` triggers an on-demand test from any Slack channel |
 | **CI Integration** | GitHub Actions workflow runs daily at 6 AM UTC and on every push to `main` |
-| **MCP Server (AI-callable Argus)** | Register Argus as an MCP server via `.mcp.json`; Claude (or any MCP client) can call `argus_audit`, `argus_audit_full`, `argus_compare`, `argus_last_report` directly from a conversation — no CLI, no terminal required. Published to npm as **[argusqa-os](https://www.npmjs.com/package/argusqa-os)** — add via `{ "command": "npx", "args": ["-y", "argusqa-os"] }` in `.mcp.json` |
+| **MCP Server (AI-callable Argus)** | Register Argus as an MCP server via `.mcp.json`; Claude (or any MCP client) can call `argus_audit`, `argus_audit_full`, `argus_compare`, `argus_last_report`, `argus_watch_snapshot`, and `argus_get_context` directly from a conversation — no CLI, no terminal required. Published to npm as **[argusqa-os](https://www.npmjs.com/package/argusqa-os)** — add via `{ "command": "npx", "args": ["-y", "argusqa-os"] }` in `.mcp.json` |
 
 Works with **React + SCSS**, CSS Modules, CSS-in-JS (styled-components / emotion), and plain HTML/CSS apps.
 
@@ -382,26 +384,126 @@ In interactive mode (running from Claude Code), MCP tools are called natively. I
 
 ## One-Time Setup
 
-### 1. Clone and install
+### Option A — MCP Server (Claude Code / any MCP client)
+
+No local install required. `npx` auto-downloads `argusqa-os` on first use.
+
+#### 1. Register both MCP servers
+
+Add to `.mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest"]
+    },
+    "argus": {
+      "command": "npx",
+      "args": ["-y", "argusqa-os"]
+    }
+  }
+}
+```
+
+Or via Claude Code CLI:
 
 ```bash
-git clone <your-repo-url>
-cd argus
+claude mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest
+claude mcp add argus -- npx -y argusqa-os
+```
+
+#### 2. Environment variables
+
+Create a `.env` file in your project root:
+
+```env
+TARGET_DEV_URL=http://localhost:3000
+TARGET_STAGING_URL=https://staging.yourapp.com   # optional — enables argus_compare
+```
+
+#### 3. Start Chrome with remote debugging
+
+```bash
+# macOS
+open -a "Google Chrome" --args --remote-debugging-port=9222 --headless=new
+
+# Windows
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu
+
+# Linux
+google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox
+```
+
+#### 4. Slack notifications (optional)
+
+> Skip to use local `report.html` mode — Argus generates a self-contained HTML report when Slack is not configured.
+
+1. [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → name it **BugBot**
+2. **OAuth & Permissions** → Bot Token Scopes: `chat:write`, `files:write`, `files:read`
+3. Install to workspace → copy **Bot User OAuth Token** (`xoxb-...`) to `.env` as `SLACK_BOT_TOKEN`
+4. Create `#bugs-critical`, `#bugs-warnings`, `#bugs-digest` and `/invite @BugBot` in each
+
+```env
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_CHANNEL_CRITICAL=C0000000000
+SLACK_CHANNEL_WARNINGS=C0000000001
+SLACK_CHANNEL_DIGEST=C0000000002
+```
+
+---
+
+### Option B — npm Package (dev dependency / CI/CD)
+
+#### 1. Install
+
+```bash
+npm install --save-dev argusqa-os
+```
+
+#### 2. Environment variables
+
+Run the interactive wizard to auto-generate `.env` and `src/config/targets.js`:
+
+```bash
+npx argus
+```
+
+The wizard detects your framework (Next.js / React Router), discovers routes from `sitemap.xml` and your file structure, and optionally collects Slack and GitHub credentials.
+
+**Alternative — manual setup:** Create a `.env` with `TARGET_DEV_URL` and optionally `TARGET_STAGING_URL`.
+
+#### 3. Start Chrome with remote debugging
+
+Same as Option A — see above.
+
+#### 4. Slack notifications (optional)
+
+Same as Option A — see above.
+
+---
+
+### Option C — Clone the Repository (full source / contributors)
+
+#### 1. Clone and install
+
+```bash
+git clone https://github.com/ironclawdevs27/Argus.git
+cd Argus
 npm install
 npm run setup   # creates reports/ directory
 ```
 
-### 2. Configure environment variables
+#### 2. Environment variables
 
-**Recommended: use the interactive setup wizard**
+**Recommended — use the interactive setup wizard:**
 
 ```bash
 npm run init
 ```
 
-The wizard prompts for your dev and staging URLs, detects your framework (Next.js / React Router), auto-discovers routes from `sitemap.xml` and your file structure, and optionally collects Slack and GitHub credentials. It writes a populated `.env` and a pre-filled `src/config/targets.js` — no manual editing required.
-
-**Alternative: manual setup**
+**Alternative — manual setup:**
 
 ```bash
 cp .env.example .env
@@ -410,26 +512,22 @@ cp .env.example .env
 Open `.env` and fill in:
 
 ```env
-# Your app URLs (required)
 TARGET_DEV_URL=http://localhost:3000
 TARGET_STAGING_URL=https://staging.yourapp.com   # leave blank → CSS-only analysis mode
 
-# Slack — OPTIONAL. Omit to get a local report.html instead of Slack messages.
-# Get from: api.slack.com/apps → BugBot → OAuth & Permissions
+# Slack — OPTIONAL. Omit to get a local report.html instead.
 # SLACK_BOT_TOKEN=xoxb-...
 # SLACK_SIGNING_SECRET=...
-
-# Channel IDs — only needed when SLACK_BOT_TOKEN is set
 # SLACK_CHANNEL_CRITICAL=C0000000000
 # SLACK_CHANNEL_WARNINGS=C0000000001
 # SLACK_CHANNEL_DIGEST=C0000000002
 ```
 
-### 3. Configure your routes
+#### 3. Configure routes
 
-If you used `npm run init` in Step 2, this file was generated for you — skip to Step 4.
+If you ran `npm run init` — skip this step.
 
-Otherwise, edit [src/config/targets.js](src/config/targets.js) — add every key page of your app:
+Otherwise, edit [src/config/targets.js](src/config/targets.js):
 
 ```js
 export const routes = [
@@ -440,111 +538,160 @@ export const routes = [
 ];
 ```
 
-- `critical: true` — any error on this route goes to `#bugs-critical`
+- `critical: true` — errors on this route go to `#bugs-critical`
 - `waitFor` — CSS selector Argus waits for before capturing (signals the page is ready)
 
-### 4. Connect Chrome DevTools MCP to Claude Code
+#### 4. Connect Chrome DevTools MCP to Claude Code
 
 ```bash
 claude mcp add chrome-devtools -- npx chrome-devtools-mcp@latest
 ```
 
-Verify it's working — in Claude Code, ask:
-> "List all open Chrome pages"
+Verify — ask Claude: *"List all open Chrome pages"* — you should see your tabs.
 
-You should see a list of tabs. If you do, the MCP connection is live.
+#### 5. Start Chrome with remote debugging
 
-### 5. Set up the Slack App (BugBot) *(optional)*
+Same as Option A — see above.
 
-> Skip this step if you don't need Slack notifications. Argus will generate a local `report.html` and open it in the browser instead.
+#### 6. Slack notifications (optional)
 
-1. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → From scratch → name it **BugBot**
-2. **OAuth & Permissions** → Bot Token Scopes: add `chat:write`, `files:write`, `files:read`
-3. Click **Install to Workspace** → Authorize
-4. Copy the **Bot User OAuth Token** (`xoxb-...`) into `.env` as `SLACK_BOT_TOKEN`
-5. **Basic Information** → copy **Signing Secret** into `.env` as `SLACK_SIGNING_SECRET`
-6. Create channels: `#bugs-critical`, `#bugs-warnings`, `#bugs-digest`
-7. In each channel: `/invite @BugBot`
+Same as Option A — see above.
 
 ---
 
 ## Running Argus
 
-### Option A: From Claude Code (interactive — recommended)
+### Option A — Via MCP (Claude Code / any MCP client)
 
-Open Claude Code in this project directory. With Chrome DevTools MCP connected, ask:
+Ask Claude directly — no terminal needed.
+
+**Available tools:**
+
+| Tool | What it does |
+| --- | --- |
+| `argus_audit` | Fast QA pass — JS errors, network failures, accessibility, SEO, security, CSS, content |
+| `argus_audit_full` | Deep QA pass — adds Lighthouse, responsive layout checks across 4 viewports, memory leak detection, hover-state bug detection, and accessibility tree snapshot |
+| `argus_compare` | Diff dev vs staging — screenshots, findings delta, environment regressions |
+| `argus_last_report` | Return the last saved JSON report without re-running a scan |
+| `argus_watch_snapshot` | Snapshot the currently open Chrome tab without navigating — raw console + network capture |
+| `argus_get_context` | Capture everything broken on the open tab, formatted as a diagnostic context for Claude to diagnose and suggest fixes |
+
+**`argus_audit`** — fast audit of any URL:
 
 ```text
-Run the Argus error detection crawl on localhost:3000
+Run argus_audit on http://localhost:3000/checkout
+Run argus_audit on http://localhost:3000/login with critical: true
 ```
 
-Claude calls `runCrawl(mcp)` with live MCP tools — navigates pages, captures errors, posts to Slack.
+**`argus_audit_full`** — deep audit with Lighthouse + memory + responsive checks:
 
 ```text
-Run the Argus environment comparison between localhost:3000 and staging
+Run argus_audit_full on http://localhost:3000/dashboard
 ```
 
-Claude calls `runComparison(mcp)` — screenshots both, diffs them, posts results.
+**`argus_compare`** — dev vs staging diff (reads `TARGET_DEV_URL` and `TARGET_STAGING_URL` from `.env`):
 
-### Option B: From the terminal (CI / headless)
+```text
+Run argus_compare
+```
+
+**`argus_last_report`** — retrieve last audit without re-running Chrome:
+
+```text
+Run argus_last_report
+```
+
+**`argus_watch_snapshot`** — snapshot the currently open tab without navigating. Useful when the page is in an authenticated or post-interaction state that navigation would reset:
+
+```text
+Run argus_watch_snapshot
+Run argus_watch_snapshot with url: http://localhost:3000
+```
+
+**`argus_get_context`** — when your app is stuck or throwing errors, run this to capture everything that's broken and feed it to Claude for diagnosis:
+
+```text
+Run argus_get_context
+```
+
+Then follow with: *"Here's the context — what's causing these errors and how do I fix them?"*
+
+---
+
+### Option B & C — Via CLI / npm scripts
+
+**Available commands:**
+
+| Command | What it does |
+| --- | --- |
+| `npm run crawl` | Multi-page batch audit of all routes in `targets.js` |
+| `npm run compare` | Dev vs staging diff (or CSS analysis if no `TARGET_STAGING_URL`) |
+| `npm run watch` | Passive monitor — polls the open Chrome tab every 1s, no navigation |
+| `npm run report:html` | Generate `reports/report.html` from the latest JSON audit |
+| `npm run server` | Start the Slack slash command + interaction server (port 3001) |
+| `npm run init` | Interactive setup wizard — generates `.env` + `targets.js` |
+| `npm run test:unit` | Run 61 unit tests (no Chrome required) |
+| `npm run test:harness` | Run 82-block correctness harness (requires Chrome) |
+
+**`npm run crawl`** — full audit of all configured routes:
 
 ```bash
-# Error detection crawl
 npm run crawl
-
-# Generate a self-contained HTML report from the latest JSON (offline-friendly)
-npm run report:html
-
-# Environment comparison (or CSS analysis if no staging URL)
-npm run compare
-
-# Start the Slack interaction server
-npm run server
 ```
 
-Reports are saved to `reports/` as JSON files. Screenshots saved alongside. Run `npm run report:html` after any crawl to get a portable `reports/report.html` with all screenshots inlined — useful for sharing with designers, PMs, or reviewing offline.
+Reports are saved to `reports/` as JSON files. Run `npm run report:html` after any crawl for a portable `reports/report.html` with all screenshots inlined — useful for sharing with designers or reviewing offline.
 
-### Option C: Watch Mode (passive monitoring)
+**`npm run compare`** — dev vs staging diff:
 
-Watch mode attaches to whatever page Chrome already has open and polls for new issues at a 3-second interval — without navigating anywhere. Use this for real-time reporting while you develop.
+```bash
+npm run compare
+```
 
-**Requires 2 terminals:**
+When `TARGET_STAGING_URL` is not set, automatically switches to **CSS analysis mode** — cascade overrides, component style leaks, unused rules, and React inline style conflicts on the dev environment only.
 
-| Terminal | Command | Purpose |
-| --- | --- | --- |
-| 1 | `npm start` *(or your app's dev command)* | Your application |
-| 2 | `npm run watch` | Argus passive monitor |
+**`npm run watch`** — passive monitoring (polls every 1s, no navigation):
 
-**Sequential steps:**
+Attaches to whatever Chrome tab is open and reports new issues in real time without navigating anywhere. Use this while developing.
 
-1. Open Chrome and navigate to your app's local URL
+```text
+Requires 2 terminals:
+  Terminal 1 — your app (npm start / npm run dev)
+  Terminal 2 — npm run watch
+```
+
+Steps:
+1. Open Chrome and navigate to your app
 2. Terminal 1: start your application
 3. Terminal 2: `npm run watch` — Argus begins polling
-4. Develop normally — any new console errors, network failures (4xx/5xx), CORS blocks, or auth failures are printed in Terminal 2 in real time
-5. `Ctrl+C` in Terminal 2 — stops the monitor and writes `reports/report.html` if any issues were found
-
-**To target a specific URL:**
+4. Develop normally — console errors, network failures (4xx/5xx), CORS blocks, and auth failures print in real time
+5. `Ctrl+C` — stops the monitor and writes `reports/report.html`
 
 ```bash
+# Attribute findings to a specific URL:
 npm run watch http://localhost:4000
 ```
 
-**Environment variables:**
-
 | Variable | Default | Description |
 | --- | --- | --- |
-| `ARGUS_WATCH_INTERVAL_MS` | `3000` | Poll interval in milliseconds |
-| `TARGET_DEV_URL` | `http://localhost:3000` | URL attributed to findings when none passed as argument |
+| `ARGUS_WATCH_INTERVAL_MS` | `1000` | Poll interval in milliseconds |
+| `TARGET_DEV_URL` | `http://localhost:3000` | URL attributed to findings when none passed |
 
-Watch mode uses the same Slack integration as `npm run crawl` — if `SLACK_BOT_TOKEN` is configured, new findings are posted to Slack in real time. On `Ctrl+C`, the HTML report is generated from all accumulated findings for the session.
+**`npm run report:html`** — generate HTML dashboard from last audit:
 
-### Option D: From Slack (on-demand)
+```bash
+npm run report:html
+# → reports/report.html (all findings + inline screenshots, portable, no server needed)
+```
+
+---
+
+### Option D — From Slack (on-demand)
 
 ```text
 /argus-retest https://staging.yourapp.com/checkout
 ```
 
-BugBot responds immediately, runs the test, and posts results back to the channel. Detailed bug reports go to `#bugs-critical`.
+BugBot responds immediately, runs the test, and posts results back. Detailed bug reports go to `#bugs-critical`. See [Slack Slash Command Setup](#slack-slash-command-setup) for configuration.
 
 ---
 
@@ -874,7 +1021,7 @@ These constraints are documented with workarounds in [SKILL.md §10](SKILL.md).
 | `ARGUS_RETRY_ATTEMPTS` | No | Max retry attempts for `navigate`/`fill` MCP calls (default: `3`) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | No | OTLP collector endpoint — enables span/metric export to Jaeger, Grafana Tempo, Datadog, etc. |
 | `ARGUS_OTEL_CONSOLE` | No | Set to `1` to print OTel spans to stdout without an OTLP endpoint (dev tracing) |
-| `ARGUS_WATCH_INTERVAL_MS` | No | Watch mode poll interval in milliseconds (default: `3000`) |
+| `ARGUS_WATCH_INTERVAL_MS` | No | Watch mode poll interval in milliseconds (default: `1000`) |
 | `ARGUS_SOURCE_DIR` | No | Path to your app's source directory — enables codebase cross-reference (env var detection, feature flag leakage, dead routes) |
 | `ARGUS_ENV_FILE` | No | Path to your app's `.env` file — C1 cross-references env vars used in source code against this file to detect missing declarations |
 | `GITHUB_TOKEN` | No | GitHub personal access token — required for PR comment + commit status integration |

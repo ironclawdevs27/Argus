@@ -344,7 +344,7 @@ google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox --disable
       {
         num: '05',
         title: 'Audit via Claude',
-        desc: 'Ask Claude directly. Argus crawls the URL, runs all detection passes, and returns structured findings grouped by severity.',
+        desc: 'Ask Claude directly. Six tools available — from fast audits to live context capture for debugging broken apps.',
         code: `# Fast audit — JS errors, network, a11y, SEO, security, CSS, content:
 "Run argus_audit on http://localhost:3000/checkout"
 
@@ -355,7 +355,13 @@ google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox --disable
 "Run argus_compare"
 
 # Retrieve last saved report:
-"Run argus_last_report"`,
+"Run argus_last_report"
+
+# Snapshot the currently open tab without navigating:
+"Run argus_watch_snapshot"
+
+# App broken? Get full context for Claude to diagnose and fix:
+"Run argus_get_context"`,
       },
     ],
   },
@@ -391,7 +397,7 @@ google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox &
       {
         num: '03',
         title: 'Run a Crawl',
-        desc: 'Crawl a single URL or compare two environments. Results are saved as JSON in reports/.',
+        desc: 'Crawl a single URL, compare environments, or watch a live tab. Results saved as JSON in reports/.',
         code: `# Single URL audit:
 TARGET_DEV_URL=https://staging.myapp.com \\
   node node_modules/argusqa-os/src/orchestration/crawl-and-report.js
@@ -399,7 +405,10 @@ TARGET_DEV_URL=https://staging.myapp.com \\
 # Dev vs staging comparison:
 TARGET_DEV_URL=http://localhost:3000 \\
 TARGET_STAGING_URL=https://staging.myapp.com \\
-  node node_modules/argusqa-os/src/orchestration/env-comparison.js`,
+  node node_modules/argusqa-os/src/orchestration/env-comparison.js
+
+# Passive watch mode — polls open Chrome tab every 1s, no navigation:
+node node_modules/argusqa-os/src/orchestration/watch-mode.js`,
       },
       {
         num: '04',

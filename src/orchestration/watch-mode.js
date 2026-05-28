@@ -13,7 +13,7 @@
  * individual poll() calls without running the interval loop.
  *
  * Environment variables:
- *   ARGUS_WATCH_INTERVAL_MS  — poll interval in ms (default: 3000)
+ *   ARGUS_WATCH_INTERVAL_MS  — poll interval in ms (default: 1000)
  *   TARGET_DEV_URL           — base URL to monitor (default: http://localhost:3000)
  */
 
@@ -217,7 +217,7 @@ export class WatchSession {
  */
 export async function runWatchMode(baseUrl) {
   const target          = baseUrl ?? process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
-  const pollIntervalMs  = parseInt(process.env.ARGUS_WATCH_INTERVAL_MS ?? '3000', 10);
+  const pollIntervalMs  = parseInt(process.env.ARGUS_WATCH_INTERVAL_MS ?? '1000', 10);
 
   const mcp     = await createMcpClient();
   const browser = new CdpBrowserAdapter(mcp);
