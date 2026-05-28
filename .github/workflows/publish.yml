@@ -4,11 +4,6 @@ on:
   release:
     types: [created]
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to publish (leave blank to use package.json version)'
-        required: false
-        default: ''
 
 jobs:
   publish-npm:
@@ -19,13 +14,20 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
       - run: npm ci
 
       - name: Publish argusqa-os to npm registry
-        run: npm publish --access public
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          PUBLISHED=$(npm view argusqa-os@$VERSION version 2>/dev/null || echo "")
+          if [ -z "$PUBLISHED" ]; then
+            npm publish --access public
+          else
+            echo "argusqa-os@$VERSION already published — skipping."
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -40,7 +42,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://npm.pkg.github.com'
           scope: '@ironclawdevs27'
 
@@ -49,6 +51,12 @@ jobs:
       - name: Publish @ironclawdevs27/argusqa-os to GitHub Packages
         run: |
           npm pkg set name="@ironclawdevs27/argusqa-os"
-          npm publish
+          VERSION=$(node -p "require('./package.json').version")
+          PUBLISHED=$(npm view @ironclawdevs27/argusqa-os@$VERSION version 2>/dev/null || echo "")
+          if [ -z "$PUBLISHED" ]; then
+            npm publish
+          else
+            echo "@ironclawdevs27/argusqa-os@$VERSION already published — skipping."
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
