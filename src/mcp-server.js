@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Argus MCP Server (v9.2.8)
+ * Argus MCP Server (v9.2.9)
  *
  * Exposes Argus as an MCP server so Claude (or any MCP client) can call
  * argus_audit, argus_audit_full, argus_compare, and argus_last_report
@@ -30,7 +30,6 @@ import { crawlRouteCheap, runCrawl }          from './orchestration/crawl-and-re
 import { runComparison }                      from './orchestration/env-comparison.js';
 import { WatchSession }                       from './orchestration/watch-mode.js';
 import { CdpBrowserAdapter }                  from './adapters/browser.js';
-import { generateHtmlReport }                 from './utils/html-reporter.js';
 
 const REPORTS_DIR = path.resolve(process.cwd(), 'reports');
 
@@ -82,9 +81,14 @@ const TOOLS = [
     },
   },
   {
-    name: 'argus_report_html',
-    description: 'Generates a self-contained reports/report.html from the most recent Argus JSON report. Inlines all screenshots and findings into a portable single-file HTML dashboard shareable with designers, PMs, or reviewable offline. Returns { path: "reports/report.html" }. Run after argus_audit or argus_audit_full. Returns an error if no JSON reports exist in the reports/ directory.',
-    inputSchema: { type: 'object', properties: {} },
+    name: 'argus_get_context',
+    description: 'Captures everything currently broken on the open Chrome tab and formats it as a diagnostic context for Claude to read and suggest fixes. Does NOT navigate — reads the live tab state after user interactions, in authenticated sessions, or mid-flow. Returns { summary, url, timestamp, critical_issues, warnings, js_errors, network_failures, console_errors, recent_requests } where summary is a plain-English description of what is broken. Use when the app is stuck, throwing errors, or behaving unexpectedly — run this, then paste the output to Claude and ask for fixes. Requires Chrome on --remote-debugging-port=9222.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Optional base URL to attribute findings to (default: TARGET_DEV_URL env var). Does not navigate — inspects the currently open Chrome tab.' },
+      },
+    },
   },
 ];
 
@@ -139,19 +143,39 @@ async function handleWatchSnapshot({ url } = {}) {
   });
 }
 
-async function handleReportHtml() {
-  if (!fs.existsSync(REPORTS_DIR)) {
-    return { content: [{ type: 'text', text: JSON.stringify({ error: 'No reports directory. Run argus_audit first.' }) }] };
-  }
-  const files = fs.readdirSync(REPORTS_DIR)
-    .filter(f => f.startsWith('error-report-') && f.endsWith('.json'))
-    .map(f => ({ f, mt: fs.statSync(path.join(REPORTS_DIR, f)).mtimeMs }))
-    .sort((a, b) => b.mt - a.mt);
-  if (files.length === 0) {
-    return { content: [{ type: 'text', text: JSON.stringify({ error: 'No reports found. Run argus_audit first.' }) }] };
-  }
-  const outPath = await generateHtmlReport(path.join(REPORTS_DIR, files[0].f));
-  return { content: [{ type: 'text', text: JSON.stringify({ path: outPath }) }] };
+async function handleGetContext({ url } = {}) {
+  return withMcp(async (mcp) => {
+    const browser = new CdpBrowserAdapter(mcp);
+    const baseUrl = url ?? process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
+    const session = new WatchSession(browser, baseUrl);
+    const { findings, newConsole, newNetwork } = await session.poll();
+
+    const critical = findings.filter(f => f.severity === 'critical');
+    const warnings  = findings.filter(f => f.severity === 'warning');
+
+    let summary;
+    if (critical.length === 0 && warnings.length === 0) {
+      summary = `No issues detected on ${baseUrl} — console and network are clean.`;
+    } else if (critical.length > 0) {
+      summary = `${critical.length} critical issue${critical.length > 1 ? 's' : ''} + ${warnings.length} warning${warnings.length !== 1 ? 's' : ''} detected on ${baseUrl}. Focus on critical issues first.`;
+    } else {
+      summary = `${warnings.length} warning${warnings.length !== 1 ? 's' : ''} detected on ${baseUrl}. No critical errors.`;
+    }
+
+    const context = {
+      summary,
+      url:              baseUrl,
+      timestamp:        new Date().toISOString(),
+      critical_issues:  critical,
+      warnings,
+      js_errors:        findings.filter(f => f.type === 'js-error' || f.type === 'unhandled-rejection'),
+      network_failures: findings.filter(f => f.type === 'network-error' || f.type === 'cors-error' || f.type === 'auth-error'),
+      console_errors:   newConsole.filter(m => m.level === 'error' || m.level === 'warning'),
+      recent_requests:  newNetwork.slice(-20),
+    };
+
+    return { content: [{ type: 'text', text: JSON.stringify(context, null, 2) }] };
+  });
 }
 
 async function handleLastReport() {
@@ -172,7 +196,7 @@ async function handleLastReport() {
 // ── Server bootstrap ──────────────────────────────────────────────────────────
 
 const server = new Server(
-  { name: 'argus', version: '9.2.8' },
+  { name: 'argus', version: '9.2.9' },
   { capabilities: { tools: {} } },
 );
 
@@ -186,7 +210,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       case 'argus_compare':     return await handleCompare();
       case 'argus_last_report':     return await handleLastReport();
       case 'argus_watch_snapshot':  return await handleWatchSnapshot(req.params.arguments ?? {});
-      case 'argus_report_html':     return await handleReportHtml();
+      case 'argus_get_context':     return await handleGetContext(req.params.arguments ?? {});
       default: throw new Error(`Unknown tool: ${req.params.name}`);
     }
   } catch (err) {
