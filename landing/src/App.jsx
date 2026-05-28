@@ -276,40 +276,9 @@ const setupMethods = [
     steps: [
       {
         num: '01',
-        title: 'Register Argus',
-        desc: 'Add Argus to your .mcp.json — no local install needed, npx auto-downloads it when Claude starts the server.',
+        title: 'Register Both MCP Servers',
+        desc: 'Add both Argus and Chrome DevTools to your .mcp.json. No local install — npx auto-downloads both when Claude starts.',
         code: `# Add to .mcp.json in your project root:
-{
-  "mcpServers": {
-    "argus": {
-      "command": "npx",
-      "args": ["-y", "argusqa-os"]
-    }
-  }
-}
-
-# Or via Claude Code CLI:
-claude mcp add argus -- npx -y argusqa-os`,
-      },
-      {
-        num: '02',
-        title: 'Set Environment Variables',
-        desc: 'Create a .env file with your target URLs. Run the interactive wizard to auto-generate it — it detects your framework, discovers routes, and optionally collects Slack and GitHub credentials.',
-        code: `# Recommended — use the init wizard:
-npx argus   # interactive setup: URLs, routes, Slack, GitHub
-
-# Or create .env manually:
-TARGET_DEV_URL=http://localhost:3000
-TARGET_STAGING_URL=https://staging.yourapp.com   # optional
-
-# If not using the wizard, also configure your routes:
-# edit src/config/targets.js — add each page with { path, name, critical, waitFor }`,
-      },
-      {
-        num: '03',
-        title: 'Add Chrome DevTools MCP',
-        desc: 'Argus drives Chrome via the chrome-devtools MCP server. Register it alongside Argus so Claude can control the browser.',
-        code: `# Add to your .mcp.json:
 {
   "mcpServers": {
     "chrome-devtools": {
@@ -323,23 +292,45 @@ TARGET_STAGING_URL=https://staging.yourapp.com   # optional
   }
 }
 
-# Verify the connection — ask Claude:
-# "List all open Chrome pages"`,
+# Or via Claude Code CLI:
+claude mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest
+claude mcp add argus -- npx -y argusqa-os`,
       },
       {
-        num: '04',
+        num: '02',
+        title: 'Set Environment Variables',
+        desc: 'Create a .env file in your project root with your target URLs.',
+        code: `# .env
+TARGET_DEV_URL=http://localhost:3000
+TARGET_STAGING_URL=https://staging.yourapp.com   # optional — enables argus_compare`,
+      },
+      {
+        num: '03',
         title: 'Start Chrome',
-        desc: 'Launch Chrome with remote debugging enabled on port 9222. Argus drives this browser instance via CDP.',
+        desc: 'Launch Chrome with remote debugging on port 9222. Argus drives this instance via CDP — no navigation needed for snapshot tools.',
         code: `# macOS
-/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\
-  --remote-debugging-port=9222 --headless=new
+open -a "Google Chrome" --args --remote-debugging-port=9222 --headless=new
 
 # Windows
 "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" \\
   --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu
 
 # Linux / CI
-google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu`,
+google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox`,
+      },
+      {
+        num: '04',
+        title: 'Slack Notifications (Optional)',
+        desc: 'Skip this step to use local report.html mode — Argus auto-generates a self-contained HTML report when Slack is not configured.',
+        code: `# api.slack.com/apps → Create New App → name it BugBot
+# OAuth & Permissions → Bot Token Scopes: chat:write, files:write, files:read
+# Install to workspace → copy Bot User OAuth Token
+
+# .env (add to existing):
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_CHANNEL_CRITICAL=C0000000000   # #bugs-critical
+SLACK_CHANNEL_WARNINGS=C0000000001   # #bugs-warnings
+SLACK_CHANNEL_DIGEST=C0000000002     # #bugs-digest`,
       },
       {
         num: '05',
@@ -354,13 +345,13 @@ google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox --disable
 # Compare dev vs staging environments:
 "Run argus_compare"
 
-# Retrieve last saved report:
+# Retrieve last saved report without re-running:
 "Run argus_last_report"
 
-# Snapshot the currently open tab without navigating:
+# Snapshot current tab without navigating (post-auth, mid-flow):
 "Run argus_watch_snapshot"
 
-# App broken? Get full context for Claude to diagnose and fix:
+# App broken? Capture full context for Claude to diagnose and fix:
 "Run argus_get_context"`,
       },
     ],
@@ -378,9 +369,9 @@ google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox --disable
       {
         num: '01',
         title: 'Install & Initialize',
-        desc: 'Install argusqa-os, then run the interactive setup wizard to generate .env and targets.js.',
+        desc: 'Install argusqa-os, then run the interactive setup wizard to generate .env and targets.js — detects your framework, discovers routes, optionally collects Slack and GitHub credentials.',
         code: `npm install --save-dev argusqa-os
-npx argus   # interactive wizard: URLs, framework detection, route discovery, Slack/GitHub config
+npx argus   # wizard: URLs, framework detection, route discovery, Slack/GitHub config
 # Writes: .env  +  src/config/targets.js`,
       },
       {
@@ -396,24 +387,24 @@ google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox &
       },
       {
         num: '03',
-        title: 'Run a Crawl',
-        desc: 'Crawl a single URL, compare environments, or watch a live tab. Results saved as JSON in reports/.',
-        code: `# Single URL audit:
-TARGET_DEV_URL=https://staging.myapp.com \\
-  node node_modules/argusqa-os/src/orchestration/crawl-and-report.js
+        title: 'Run Argus',
+        desc: 'All commands available via npx or npm scripts. Results saved as JSON in reports/.',
+        code: `# Full audit of all configured routes:
+node node_modules/argusqa-os/src/orchestration/crawl-and-report.js
 
-# Dev vs staging comparison:
-TARGET_DEV_URL=http://localhost:3000 \\
-TARGET_STAGING_URL=https://staging.myapp.com \\
-  node node_modules/argusqa-os/src/orchestration/env-comparison.js
+# Dev vs staging diff (or CSS analysis if no TARGET_STAGING_URL):
+node node_modules/argusqa-os/src/orchestration/env-comparison.js
 
-# Passive watch mode — polls open Chrome tab every 1s, no navigation:
-node node_modules/argusqa-os/src/orchestration/watch-mode.js`,
+# Passive watch — polls open Chrome tab every 1s, no navigation:
+node node_modules/argusqa-os/src/orchestration/watch-mode.js
+
+# Generate HTML report from last audit:
+node node_modules/argusqa-os/src/utils/html-reporter.js`,
       },
       {
         num: '04',
         title: 'GitHub Actions Workflow',
-        desc: 'Add to your workflow to run QA on every pull request. New criticals will fail the status check.',
+        desc: 'Add to your workflow to run QA on every pull request. New criticals fail the status check and block merge.',
         code: `# .github/workflows/argus.yml
 name: Argus QA
 on:
