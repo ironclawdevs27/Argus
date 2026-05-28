@@ -6,12 +6,12 @@
     "url": "https://github.com/ironclawdevs27/Argus",
     "source": "github"
   },
-  "version": "9.3.0",
+  "version": "9.3.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "argusqa-os",
-      "version": "9.3.0",
+      "version": "9.3.1",
       "transport": {
         "type": "stdio"
       },

@@ -1224,14 +1224,14 @@ for (const bp of breakpoints) {
 
 | Metric | Value |
 | --- | --- |
-| Test blocks | 82 |
-| Hard assertions | 348 |
+| Test blocks | 83 |
+| Hard assertions | 360 |
 | Detection categories | 54 in production code; **47 positively verified** by harness fixtures |
 | Fixture pages | 54 |
 | Flow step actions | 11 (navigate, waitFor, sleep, fill, click, drag, upload_file, select_option, press_key, handle_dialog, assert) |
-| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring, 1 s default poll), adapter layer (CdpBrowserAdapter), plugin registry, god object split, threshold centralization + Zod validation, session split, Pino logging, retry logic, Vitest unit tests (61 tests, blocks [81]+[82]), Argus MCP server (6 tools, block [80]), OpenTelemetry tracing, npm publication (`argusqa-os@9.3.0`) |
+| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring, 1 s default poll, live web dashboard port 3002), adapter layer (CdpBrowserAdapter), plugin registry, god object split, threshold centralization + Zod validation, session split, Pino logging, retry logic, Vitest unit tests (61 tests, blocks [81]+[82]), Argus MCP server (6 tools, block [80]), argus_get_context fix loop (snapshot_id + diff mode), OpenTelemetry tracing, npm publication (`argusqa-os@9.3.1`) |
 
-Expected harness output: `345/348 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
+Expected harness output: `357/360 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
 
 ### v9 Sprint 7 additions (2026-05-24)
 
@@ -1267,6 +1267,27 @@ OpenTelemetry tracing + metrics — zero-overhead by default, OTLP-exportable fo
 **Dependencies added:** `@opentelemetry/api ^1.9.1`, `@opentelemetry/sdk-node ^0.218.0`
 
 **No-op default**: when neither env var is set, `startSpan()` delegates to the OTel no-op provider — zero allocations, zero I/O.
+
+---
+
+### v9 Sprint 9 additions (2026-05-29)
+
+Fix loop, watch dashboard, and harness coverage for the two new tools. Gate: 360/360.
+
+| Change | Detail |
+| --- | --- |
+| `argus_get_context` fix loop | `snapshot_id` returned on every call; pass it back to get `resolved / new_issues / persisting` diff arrays — closes the detect → fix → verify loop without leaving the conversation |
+| Watch mode web dashboard | `npm run watch` now starts a live HTML dashboard at `http://localhost:3002` (configurable via `ARGUS_WATCH_UI_PORT`). `GET /data` serves current findings as JSON; the dashboard auto-polls every 2 s with severity pills + findings table |
+| `snapshotStore` | Module-level `Map` in `mcp-server.js` stores up to 20 snapshots (oldest-first LRU eviction); keyed by `snapshot_id` (base-36 timestamp + random suffix) |
+| Harness block [80] extended | 6 new assertions [80g]–[80l]: `argus_watch_snapshot` registered, `argus_get_context` registered, `snapshot_id` in inputSchema, `snapshotStore` present, diff fields (`resolved/new_issues/persisting`) present |
+| New harness block [83] | 6 assertions for watch dashboard: `DASHBOARD_HTML` constant, `startDashboard` function, `/data` endpoint, `ARGUS_WATCH_UI_PORT` env var, `WatchSession`/`runWatchMode` still exported |
+| npm version | `argusqa-os@9.3.1` |
+
+**Fix loop workflow:**
+1. App broken → user runs `argus_get_context` → gets `snapshot_id: "abc123"` + current errors
+2. Claude suggests a fix → user applies it
+3. User runs `argus_get_context` with `snapshot_id: "abc123"` → response shows `resolved`, `new_issues`, `persisting` + updated summary
+4. Repeat until `resolved.length > 0 && critical.length === 0`
 
 ---
 

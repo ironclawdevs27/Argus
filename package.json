@@ -1,6 +1,6 @@
 {
   "name": "argusqa-os",
-  "version": "9.3.0",
+  "version": "9.3.1",
   "mcpName": "io.github.ironclawdevs27/argus",
   "description": "Argus — AI-powered automated dev-testing platform using Chrome DevTools MCP and Claude Code",
   "keywords": [

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Argus MCP Server (v9.2.9)
+ * Argus MCP Server (v9.3.1)
  *
  * Exposes Argus as an MCP server so Claude (or any MCP client) can call
- * argus_audit, argus_audit_full, argus_compare, and argus_last_report
- * directly from a conversation without using the CLI.
+ * argus_audit, argus_audit_full, argus_compare, argus_last_report, and
+ * argus_get_context (fix loop) directly from a conversation without using the CLI.
  *
  * Architecture: MCP-inside-MCP
  *   Claude (MCP client)
@@ -32,6 +32,18 @@ import { WatchSession }                       from './orchestration/watch-mode.j
 import { CdpBrowserAdapter }                  from './adapters/browser.js';
 
 const REPORTS_DIR = path.resolve(process.cwd(), 'reports');
+
+// Fix loop: stores up to 20 snapshots keyed by snapshot_id so argus_get_context
+// can diff before/after a fix. Keys are evicted oldest-first when the limit is hit.
+const snapshotStore = new Map();
+const MAX_SNAPSHOTS = 20;
+
+function storeSnapshot(id, findings) {
+  snapshotStore.set(id, findings);
+  if (snapshotStore.size > MAX_SNAPSHOTS) {
+    snapshotStore.delete(snapshotStore.keys().next().value);
+  }
+}
 
 // ── Tool definitions ─────────────────────────────────────────────────────────
 
@@ -82,11 +94,12 @@ const TOOLS = [
   },
   {
     name: 'argus_get_context',
-    description: 'Captures everything currently broken on the open Chrome tab and formats it as a diagnostic context for Claude to read and suggest fixes. Does NOT navigate — reads the live tab state after user interactions, in authenticated sessions, or mid-flow. Returns { summary, url, timestamp, critical_issues, warnings, js_errors, network_failures, console_errors, recent_requests } where summary is a plain-English description of what is broken. Use when the app is stuck, throwing errors, or behaving unexpectedly — run this, then paste the output to Claude and ask for fixes. Requires Chrome on --remote-debugging-port=9222.',
+    description: 'Captures everything currently broken on the open Chrome tab and formats it as a diagnostic context for Claude to read and suggest fixes. Does NOT navigate — reads the live tab state after user interactions, in authenticated sessions, or mid-flow. Returns { snapshot_id, summary, url, timestamp, critical_issues, warnings, js_errors, network_failures, console_errors, recent_requests }. Fix loop: pass the snapshot_id from a previous call as snapshot_id to get a diff — the response will include resolved (cleared since last snapshot), new_issues (appeared since last snapshot), and persisting (unchanged). Workflow: call argus_get_context → Claude suggests fix → apply fix → call argus_get_context with snapshot_id → verify resolved array is non-empty. Requires Chrome on --remote-debugging-port=9222.',
     inputSchema: {
       type: 'object',
       properties: {
         url: { type: 'string', description: 'Optional base URL to attribute findings to (default: TARGET_DEV_URL env var). Does not navigate — inspects the currently open Chrome tab.' },
+        snapshot_id: { type: 'string', description: 'Optional snapshot_id from a previous argus_get_context call. When provided, the response includes resolved/new_issues/persisting arrays showing what changed since that snapshot.' },
       },
     },
   },
@@ -143,26 +156,56 @@ async function handleWatchSnapshot({ url } = {}) {
   });
 }
 
-async function handleGetContext({ url } = {}) {
+async function handleGetContext({ url, snapshot_id: prevId } = {}) {
   return withMcp(async (mcp) => {
     const browser = new CdpBrowserAdapter(mcp);
     const baseUrl = url ?? process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
     const session = new WatchSession(browser, baseUrl);
     const { findings, newConsole, newNetwork } = await session.poll();
 
+    const newId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    storeSnapshot(newId, findings);
+
     const critical = findings.filter(f => f.severity === 'critical');
     const warnings  = findings.filter(f => f.severity === 'warning');
 
+    const findingKey = (f) => `${f.type}::${(f.message ?? '').slice(0, 120)}`;
+
+    let resolved = [];
+    let persisting = [];
+    let new_issues = findings;
+    const isDiff = prevId && snapshotStore.has(prevId);
+
+    if (isDiff) {
+      const prev     = snapshotStore.get(prevId);
+      const prevKeys = new Set(prev.map(findingKey));
+      const curKeys  = new Set(findings.map(findingKey));
+      resolved   = prev.filter(f => !curKeys.has(findingKey(f)));
+      persisting = findings.filter(f => prevKeys.has(findingKey(f)));
+      new_issues = findings.filter(f => !prevKeys.has(findingKey(f)));
+    }
+
     let summary;
-    if (critical.length === 0 && warnings.length === 0) {
+    if (isDiff) {
+      if (resolved.length > 0 && critical.length === 0 && warnings.length === 0) {
+        summary = `All issues resolved on ${baseUrl}. ${resolved.length} finding${resolved.length > 1 ? 's' : ''} cleared since last snapshot.`;
+      } else if (resolved.length > 0) {
+        summary = `${resolved.length} issue${resolved.length > 1 ? 's' : ''} resolved on ${baseUrl}. ${new_issues.length} new + ${persisting.length} persisting (${critical.length} critical). Pass the new snapshot_id to continue the fix loop.`;
+      } else if (critical.length === 0 && warnings.length === 0) {
+        summary = `No issues on ${baseUrl} — console and network are clean.`;
+      } else {
+        summary = `No change on ${baseUrl}: ${critical.length} critical + ${warnings.length} warning${warnings.length !== 1 ? 's' : ''} still present. Check the persisting array for what hasn't been fixed.`;
+      }
+    } else if (critical.length === 0 && warnings.length === 0) {
       summary = `No issues detected on ${baseUrl} — console and network are clean.`;
     } else if (critical.length > 0) {
-      summary = `${critical.length} critical issue${critical.length > 1 ? 's' : ''} + ${warnings.length} warning${warnings.length !== 1 ? 's' : ''} detected on ${baseUrl}. Focus on critical issues first.`;
+      summary = `${critical.length} critical issue${critical.length > 1 ? 's' : ''} + ${warnings.length} warning${warnings.length !== 1 ? 's' : ''} detected on ${baseUrl}. Focus on critical issues first. Pass snapshot_id to the next argus_get_context call after applying a fix to see what changed.`;
     } else {
-      summary = `${warnings.length} warning${warnings.length !== 1 ? 's' : ''} detected on ${baseUrl}. No critical errors.`;
+      summary = `${warnings.length} warning${warnings.length !== 1 ? 's' : ''} detected on ${baseUrl}. No critical errors. Pass snapshot_id to the next call to verify fixes.`;
     }
 
     const context = {
+      snapshot_id:      newId,
       summary,
       url:              baseUrl,
       timestamp:        new Date().toISOString(),
@@ -172,6 +215,7 @@ async function handleGetContext({ url } = {}) {
       network_failures: findings.filter(f => f.type === 'network-error' || f.type === 'cors-error' || f.type === 'auth-error'),
       console_errors:   newConsole.filter(m => m.level === 'error' || m.level === 'warning'),
       recent_requests:  newNetwork.slice(-20),
+      ...(isDiff ? { resolved, new_issues, persisting } : {}),
     };
 
     return { content: [{ type: 'text', text: JSON.stringify(context, null, 2) }] };
@@ -196,7 +240,7 @@ async function handleLastReport() {
 // ── Server bootstrap ──────────────────────────────────────────────────────────
 
 const server = new Server(
-  { name: 'argus', version: '9.3.0' },
+  { name: 'argus', version: '9.3.1' },
   { capabilities: { tools: {} } },
 );
 

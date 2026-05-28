@@ -2,7 +2,7 @@
 
 Validates that every Argus detection category fires correctly by running the full crawl pipeline against deliberately broken fixture pages hosted on a local Express server.
 
-> **v4 Quality Audit complete** — all 30 gaps resolved. **v5 Correctness Hardening complete** (20 gaps). **v6 Detection Expansion complete** (10 new detection categories). **v7 Final Production Hardening complete** (2026-05-05) — 50+ security and robustness fixes across 17 source files. **v8 Harness Correctness** (2026-05-10) — uid regex rewrite, sync-xhr timing fix, select_option label resolution. **Watch Mode** (2026-05-17) — passive browser monitoring; block [78] added. **v9 Sprint 1** (2026-05-17) — CdpBrowserAdapter migration complete; all 13 files migrated from `mcp.*` → `browser.*`; 327/330. **v9 Sprint 2** (2026-05-18) — Plugin registry + god object split; `crawl-and-report.js` reduced to 20-line re-export shell; 6 analyzers self-register; harness gate: 327/330. **v9 Sprint 3** (2026-05-18) — Threshold centralization + Zod config validation; block [79] added; harness gate: 331/334. **v9 Sprint 4** (2026-05-18) — Session split (`session-persistence.js` + `login-orchestrator.js`), Pino structured logging across all src/ files, `withRetry()` on navigate and fill (`click` excluded — not idempotent); 6 gap fixes across two audit passes (pino-pretty load fallback, retry debug labels, clearSession `.tmp` log, doc corrections for click exclusion, NaN guard in `withRetry()`, `mkdirSync` in `saveSession()`); harness gate: 331/334 (no new assertions). **v9 Sprint 5** (2026-05-23) — Vitest unit test suite: 6 files, 61 tests, zero Chrome dependency (`npm run test:unit`); harness blocks [81] (`createFinding()` — 4 assertions) + [82] (`withRetry()` — 4 assertions); harness gate: 339/342. **v9 Sprint 6** (2026-05-23) — Argus MCP server (`src/mcp-server.js`): `argus_audit`, `argus_audit_full`, `argus_compare`, `argus_last_report`; `.mcp.json` registration; `@modelcontextprotocol/sdk`; harness block [80] (6 file-read assertions); harness gate: 345/348. Published to npm as **`argusqa-os@9.2.0`** (2026-05-27) — add via `{ "command": "npx", "args": ["-y", "argusqa-os"] }` in `.mcp.json`. **v9 Sprint 7** (2026-05-24) — OpenTelemetry tracing + metrics (`src/utils/telemetry.js`); spans in `runCrawl`, per-route/analyzer, `dispatchAll`, `runFlow`/steps; 5 metrics; no-op default; no new assertions; harness gate unchanged: 345/348.
+> **v4 Quality Audit complete** — all 30 gaps resolved. **v5 Correctness Hardening complete** (20 gaps). **v6 Detection Expansion complete** (10 new detection categories). **v7 Final Production Hardening complete** (2026-05-05) — 50+ security and robustness fixes across 17 source files. **v8 Harness Correctness** (2026-05-10) — uid regex rewrite, sync-xhr timing fix, select_option label resolution. **Watch Mode** (2026-05-17) — passive browser monitoring; block [78] added. **v9 Sprint 1** (2026-05-17) — CdpBrowserAdapter migration complete; all 13 files migrated from `mcp.*` → `browser.*`; 327/330. **v9 Sprint 2** (2026-05-18) — Plugin registry + god object split; `crawl-and-report.js` reduced to 20-line re-export shell; 6 analyzers self-register; harness gate: 327/330. **v9 Sprint 3** (2026-05-18) — Threshold centralization + Zod config validation; block [79] added; harness gate: 331/334. **v9 Sprint 4** (2026-05-18) — Session split (`session-persistence.js` + `login-orchestrator.js`), Pino structured logging across all src/ files, `withRetry()` on navigate and fill (`click` excluded — not idempotent); 6 gap fixes across two audit passes (pino-pretty load fallback, retry debug labels, clearSession `.tmp` log, doc corrections for click exclusion, NaN guard in `withRetry()`, `mkdirSync` in `saveSession()`); harness gate: 331/334 (no new assertions). **v9 Sprint 5** (2026-05-23) — Vitest unit test suite: 6 files, 61 tests, zero Chrome dependency (`npm run test:unit`); harness blocks [81] (`createFinding()` — 4 assertions) + [82] (`withRetry()` — 4 assertions); harness gate: 339/342. **v9 Sprint 6** (2026-05-23) — Argus MCP server (`src/mcp-server.js`): `argus_audit`, `argus_audit_full`, `argus_compare`, `argus_last_report`; `.mcp.json` registration; `@modelcontextprotocol/sdk`; harness block [80] (6 file-read assertions); harness gate: 345/348. Published to npm as **`argusqa-os@9.2.0`** (2026-05-27) — add via `{ "command": "npx", "args": ["-y", "argusqa-os"] }` in `.mcp.json`. **v9 Sprint 7** (2026-05-24) — OpenTelemetry tracing + metrics (`src/utils/telemetry.js`); spans in `runCrawl`, per-route/analyzer, `dispatchAll`, `runFlow`/steps; 5 metrics; no-op default; no new assertions; harness gate unchanged: 345/348. **v9 Sprint 8** (2026-05-29) — `argus_watch_snapshot` + `argus_get_context` MCP tools; watch interval 3000→1000ms; block [80] extended with [80g–80l] (12 new assertions); harness gate: 357/360. Published to npm as **`argusqa-os@9.3.0`**. **v9 Sprint 9** (2026-05-29) — Fix loop (snapshot diff via `snapshot_id`, `snapshotStore` Map, `resolved`/`new_issues`/`persisting` diff arrays); watch mode web dashboard (Node `http` server port 3002, `/data` endpoint, inline `DASHBOARD_HTML`); harness block [83] (6 assertions for watch-mode dashboard contracts); version bumped to **`argusqa-os@9.3.1`**; harness gate: 357/360.
 
 <br/>
 
@@ -17,7 +17,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 ## What It Tests
 
-82 test blocks · 348 hard assertions · 47 verified detection categories · 54 fixture pages
+83 test blocks · 360 hard assertions · 47 verified detection categories · 54 fixture pages
 
 > **Coverage note**: 54 detection categories exist in production code. 47 are positively exercised by the harness. The remaining 7 have no fixture trigger yet — see [argus-v6-strategy.md §10](../argus-v6-strategy.md) for details and planned fixtures.
 
@@ -107,6 +107,7 @@ Hard assertions fail the run (exit code 1). Soft assertions are logged only — 
 | 80 | _(file-read — no fixture page)_ | Argus MCP server registration — `src/mcp-server.js` exists · contains `argus_audit` · contains `argus_compare` · contains `argus_audit_full` · contains `argus_last_report` · `.mcp.json` has `"argus"` entry (v9 Sprint 6) | Hard |
 | 81 | _(pure function — no fixture page)_ | `createFinding()` factory — correct field values · throws on missing type · throws on invalid severity · returns frozen object (v9 Sprint 5) | Hard |
 | 82 | _(pure function — no fixture page)_ | `withRetry()` exponential backoff — fn called once on success · retries on transient failure · rethrows after all attempts · `ARGUS_RETRY_ATTEMPTS=1` disables retries (v9 Sprint 5) | Hard |
+| 83 | _(file-read — no fixture page)_ | Watch mode dashboard — `src/orchestration/watch-mode.js` exists · `DASHBOARD_HTML` constant present · `startDashboard` exported · `/data` endpoint string present · `ARGUS_WATCH_UI_PORT` env var referenced · `WatchSession` and `runWatchMode` still exported (v9 Sprint 9) | Hard |
 
 ---
 
@@ -257,7 +258,7 @@ The validator will:
 5. Print pass / fail for each assertion
 6. Shut down both fixture servers and exit
 
-**Expected output (345/348 — 3 permanent MCP-limited failures):**
+**Expected output (357/360 — 3 permanent MCP-limited failures):**
 
 ```
 ╔══════════════════════════════════════════════════════╗
@@ -311,7 +312,7 @@ The validator will:
   ✓ Flaky count: 2 (expected 2)
 
 ────────────────────────────────────────────────────────
-Results: 345/348 hard assertions passed, 3 failed
+Results: 357/360 hard assertions passed, 3 failed
 
 ✗ [49b] drag uses mouse simulation — HTML5 drop event never fires (MCP behavioral limit)
 ✗ [67b] Chrome DevTools Issues panel not returned by list_console_messages (MCP behavioral limit)

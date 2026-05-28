@@ -3332,7 +3332,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
 
   // ── Block [80] Argus MCP server registration ─────────────────────────────
   {
-    console.log('\n[80] Argus MCP server — file registration (v9.2.0)');
+    console.log('\n[80] Argus MCP server — file registration (v9.3.0)');
 
     const mcpServerPath = path.join(__dirname, '../src/mcp-server.js');
     const mcpJsonPath   = path.join(__dirname, '../.mcp.json');
@@ -3372,6 +3372,44 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
     assert(
       mcpJsonContent !== null && mcpJsonContent.includes('"argus"'),
       '[80f] .mcp.json exists and contains "argus" server entry',
+    );
+
+    // [80g] file contains 'argus_watch_snapshot' tool name
+    assert(
+      serverContent !== null && serverContent.includes('argus_watch_snapshot'),
+      '[80g] src/mcp-server.js registers the argus_watch_snapshot tool',
+    );
+
+    // [80h] argus_watch_snapshot inputSchema includes a url property
+    assert(
+      serverContent !== null && serverContent.includes('argus_watch_snapshot') &&
+        serverContent.includes('"url"'),
+      '[80h] argus_watch_snapshot inputSchema defines a url property',
+    );
+
+    // [80i] file contains 'argus_get_context' tool name
+    assert(
+      serverContent !== null && serverContent.includes('argus_get_context'),
+      '[80i] src/mcp-server.js registers the argus_get_context tool',
+    );
+
+    // [80j] argus_get_context inputSchema includes snapshot_id for fix loop
+    assert(
+      serverContent !== null && serverContent.includes('snapshot_id'),
+      '[80j] argus_get_context inputSchema includes snapshot_id for fix loop',
+    );
+
+    // [80k] snapshotStore present — fix loop state management
+    assert(
+      serverContent !== null && serverContent.includes('snapshotStore'),
+      '[80k] src/mcp-server.js contains snapshotStore for fix loop state',
+    );
+
+    // [80l] fix loop diff fields present in handleGetContext
+    assert(
+      serverContent !== null && serverContent.includes('resolved') &&
+        serverContent.includes('new_issues') && serverContent.includes('persisting'),
+      '[80l] handleGetContext emits resolved / new_issues / persisting diff fields',
     );
   }
 
@@ -3438,6 +3476,50 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
     if (prev === undefined) delete process.env.ARGUS_RETRY_ATTEMPTS;
     else process.env.ARGUS_RETRY_ATTEMPTS = prev;
     assert(threw82d && calls82d === 1, '[82d] ARGUS_RETRY_ATTEMPTS=1 limits withRetry to one attempt');
+  }
+
+  // ── Block [83] Watch dashboard + fix loop contracts ──────────────────────
+  {
+    console.log('\n[83] Watch dashboard + argus_get_context fix loop');
+
+    const watchModePath = path.join(__dirname, '../src/orchestration/watch-mode.js');
+    let watchContent = null;
+    try { watchContent = fs.readFileSync(watchModePath, 'utf8'); } catch { /* file missing */ }
+
+    // [83a] watch-mode.js exists and is readable
+    assert(watchContent !== null, '[83a] src/orchestration/watch-mode.js exists and is readable');
+
+    // [83b] DASHBOARD_HTML constant present
+    assert(
+      watchContent !== null && watchContent.includes('DASHBOARD_HTML'),
+      '[83b] watch-mode.js defines the DASHBOARD_HTML constant',
+    );
+
+    // [83c] startDashboard function present
+    assert(
+      watchContent !== null && watchContent.includes('startDashboard'),
+      '[83c] watch-mode.js exports/defines startDashboard',
+    );
+
+    // [83d] dashboard /data endpoint present
+    assert(
+      watchContent !== null && watchContent.includes('/data'),
+      '[83d] watch-mode.js dashboard serves a /data JSON endpoint',
+    );
+
+    // [83e] ARGUS_WATCH_UI_PORT env var referenced
+    assert(
+      watchContent !== null && watchContent.includes('ARGUS_WATCH_UI_PORT'),
+      '[83e] watch-mode.js reads ARGUS_WATCH_UI_PORT for dashboard port',
+    );
+
+    // [83f] WatchSession and runWatchMode still exported
+    assert(
+      watchContent !== null &&
+        watchContent.includes('export class WatchSession') &&
+        watchContent.includes('export async function runWatchMode'),
+      '[83f] watch-mode.js still exports WatchSession and runWatchMode',
+    );
   }
 }
 

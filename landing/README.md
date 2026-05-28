@@ -79,9 +79,15 @@ npm run build    # outputs to landing/dist/
 npm run preview  # serve the production build locally
 ```
 
-`landing/dist/` is gitignored. **Live deployment**: [argus-qa.com](https://argus-qa.com) via Cloudflare Pages (project: `argus-landing`). Background video served from Cloudflare R2 (`pub-4a48bc28d90e4425a6fb87b164225d13.r2.dev`).
+`landing/dist/` is gitignored. **Live deployment**: [argus-qa.com](https://argus-qa.com) via Cloudflare Pages (project: `argus-qa`). Background video served from Cloudflare R2 (`pub-4a48bc28d90e4425a6fb87b164225d13.r2.dev`).
 
-To redeploy: select all files **inside** `dist/` (not the folder itself), zip them, and upload via Cloudflare Pages → Deployments → Upload assets. Uploading the `dist/` folder as a zip creates a nested path that returns 404.
+To redeploy:
+
+```bash
+cd landing
+npm run build
+npx wrangler pages deploy dist --project-name argus-qa
+```
 
 ## Component Structure
 
@@ -116,6 +122,6 @@ All UI lives in `src/App.jsx` as a single-file app. Hero section is built inline
 | `@media` edge cases | ✅ Fixed | `100dvh` via `@supports` in `index.css`; stat row / detection grid / nav handle narrow viewports natively |
 | SEO — OG / Twitter / JSON-LD | ✅ Added | `index.html` has full OG tags, Twitter card, canonical, JSON-LD schema |
 | `robots.txt` + `sitemap.xml` | ✅ Added | Both in `landing/public/` |
-| OG social card | ✅ Done | `og-image-v2.jpg` — 1200×630 JPEG, cover-mode scaled from `argus-poster.png`, branded overlay, black-outlined purple stat numbers (54 / 82 / 348), CTA pill; `og-image.jpg` gitignored |
+| OG social card | ✅ Done | `og-image-v2.jpg` — 1200×630 JPEG, cover-mode scaled from `argus-poster.png`, branded overlay, black-outlined purple stat numbers (54 / 83 / 360), CTA pill; `og-image.jpg` gitignored |
 | Mobile stats layout | ✅ Fixed | Stats row stacks vertically on mobile (`flex-col sm:flex-row`); slide widget reduced from 8 → 6 slides; `clamp()`-based fluid typography |
 | Deployment | ✅ Live | `npx wrangler pages deploy dist --project-name argus-qa`; custom domain `argus-qa.com` active |
