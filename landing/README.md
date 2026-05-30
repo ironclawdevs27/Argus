@@ -6,10 +6,10 @@ Product marketing site for Argus. Runs independently from the main Argus QA harn
 
 | Layer | Library |
 |---|---|
-| Framework | React 18 |
-| Build tool | Vite |
+| Framework | React 19 |
+| Build tool | Vite 8 |
 | Styling | Tailwind CSS + inline styles |
-| Animations | Framer Motion |
+| Animations | Framer Motion 12 |
 | Forms backend | Supabase Postgres (REST via `@supabase/supabase-js`) |
 
 ## Local Development

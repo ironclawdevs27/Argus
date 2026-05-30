@@ -420,7 +420,7 @@ Create a `.env` file in your project root:
 
 ```env
 TARGET_DEV_URL=http://localhost:3000
-TARGET_STAGING_URL=https://staging.yourapp.com   # optional — enables argus_compare
+TARGET_STAGING_URL=https://staging.example.com   # optional — enables argus_compare
 ```
 
 #### 3. Start Chrome with remote debugging
@@ -513,7 +513,7 @@ Open `.env` and fill in:
 
 ```env
 TARGET_DEV_URL=http://localhost:3000
-TARGET_STAGING_URL=https://staging.yourapp.com   # leave blank → CSS-only analysis mode
+TARGET_STAGING_URL=https://staging.example.com   # leave blank → CSS-only analysis mode
 
 # Slack — OPTIONAL. Omit to get a local report.html instead.
 # SLACK_BOT_TOKEN=xoxb-...
@@ -688,7 +688,7 @@ npm run report:html
 ### Option D — From Slack (on-demand)
 
 ```text
-/argus-retest https://staging.yourapp.com/checkout
+/argus-retest https://staging.example.com/checkout
 ```
 
 BugBot responds immediately, runs the test, and posts results back. Detailed bug reports go to `#bugs-critical`. See [Slack Slash Command Setup](#slack-slash-command-setup) for configuration.
