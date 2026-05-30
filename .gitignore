@@ -17,6 +17,7 @@ solution.md
 *-strategy.md
 FINALIZE.md
 argus-vX1-roadmap.md
+argus-vX1-gaps.md
 business-analysis.md
 
 # Argus auth session files — contain live cookies/localStorage tokens, never commit
