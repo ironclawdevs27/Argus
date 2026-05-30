@@ -14,7 +14,7 @@ Argus is an AI-driven automated QA harness that audits web pages against 54 dete
 - `src/argus.js` — single-page audit (CLI)
 - `src/batch-runner.js` — multi-page batch audit
 - `src/mcp-server.js` — MCP server (AI-callable via Claude or any MCP client; registers argus_audit / argus_audit_full / argus_compare / argus_last_report / argus_watch_snapshot / argus_get_context)
-- `test-harness/validate.js` — 84-block correctness harness (367 hard assertions)
+- `test-harness/validate.js` — 93-block correctness harness (394 hard assertions)
 - `test-harness/harness-config.js` — fixture page routing table
 
 ---
@@ -1071,7 +1071,7 @@ Always walk at least 3 levels back — the proximate cause is almost never the r
 
 ### Known MCP Behavioral Limitations
 
-These are chrome-devtools-mcp restrictions that **cannot be worked around in Argus code**. They cause 3 permanent failures in the correctness harness (364/367 pass).
+These are chrome-devtools-mcp restrictions that **cannot be worked around in Argus code**. They cause 3 permanent failures in the correctness harness (391/394 pass).
 
 > **Note on `fill` vs `type_text` and DOM events**: Both tools fire DOM `input` events, but differently:
 >
@@ -1224,14 +1224,14 @@ for (const bp of breakpoints) {
 
 | Metric | Value |
 | --- | --- |
-| Test blocks | 84 |
-| Hard assertions | 367 |
+| Test blocks | 93 |
+| Hard assertions | 394 |
 | Detection categories | 54 in production code; **47 positively verified** by harness fixtures |
 | Fixture pages | 54 |
 | Flow step actions | 11 (navigate, waitFor, sleep, fill, click, drag, upload_file, select_option, press_key, handle_dialog, assert) |
-| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring, 1 s default poll, live web dashboard port 3002), adapter layer (CdpBrowserAdapter, + listPages/selectPage), plugin registry, god object split, threshold centralization + Zod validation, session split, Pino logging, retry logic, Vitest unit tests (61 tests, blocks [81]+[82]), Argus MCP server (6 tools: argus_audit + cache, argus_audit_full, argus_compare, argus_last_report, argus_watch_snapshot + tabId, argus_get_context + tabId + open_tabs; block [80]), fix loop (snapshot_id + diff), OTel tracing, npm publication (`argusqa-os@9.4.6`), CI harness gate (harness-ci.yml), glama.json expanded, block [84] (cli/init.js smoke), Sprint 0.5 Tier 1: `take_heapsnapshot` + `emulate({ cpuThrottlingRate })` fixes, Sprint 0.5 Tier 2 (v9.4.6): path traversal fix, withMcp error logging, Slack lazy-init, 401/403 severity gating, broken-link timeout, late JSON-RPC logging, CI docs |
+| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring, 1 s default poll, live web dashboard port 3002), adapter layer (CdpBrowserAdapter, + listPages/selectPage), plugin registry, god object split, threshold centralization + Zod validation, session split, Pino logging, retry logic, Vitest unit tests (61 tests, blocks [81]+[82]), Argus MCP server (6 tools: argus_audit + cache, argus_audit_full, argus_compare, argus_last_report, argus_watch_snapshot + tabId, argus_get_context + tabId + open_tabs; block [80]), fix loop (snapshot_id + diff), OTel tracing, npm publication (`argusqa-os@9.5.0`), CI harness gate (harness-ci.yml), glama.json expanded, block [84] (cli/init.js smoke), Sprint 0.5 Tier 1: `take_heapsnapshot` + `emulate({ cpuThrottlingRate })` fixes, Sprint 0.5 Tier 2 (v9.4.6): path traversal fix, withMcp error logging, Slack lazy-init, 401/403 severity gating, broken-link timeout, late JSON-RPC logging, CI docs, Sprint 0.5 Tier 3 (v9.5.0): 9 production-path regression blocks [85]–[93] + diff.js utilities |
 
-Expected harness output: `364/367 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b] — exits 0 when only these fail)
+Expected harness output: `391/394 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b] — exits 0 when only these fail)
 
 ### v9 Sprint 7 additions (2026-05-24)
 
@@ -1331,6 +1331,22 @@ Browser adapter fixes (Tier 1) + security/stability gaps (Tier 2). Gate: 364/367
 | GAP-006 CI docs | `harness-ci.yml` | KNOWN_PERMANENT block IDs `[49b]`/`[67b]`/`[68b]` documented in comment |
 
 **Also in v9.4.3–v9.4.5**: all 10 Dependabot PRs applied; phantom `chrome@0.1.0` + unused `sharp` removed; `y.com`/`yourapp.com` example URLs → `example.com`; OTel `service.version` corrected; MCP Registry published (`io.github.ironclawdevs27/argus@9.4.6`); awesome-mcp-servers PR #7022 opened.
+
+#### Tier 3 — Harness coverage (v9.5.0)
+
+9 new blocks [85]–[93] — all exercise the **production `crawlRouteCheap` code path** (no inline helper), closing GAP-009 regression + GAP-022–GAP-030. +27 hard assertions. Gate: **391/394**.
+
+| Block | GAP | What it proves |
+| --- | --- | --- |
+| [85] | GAP-022 / GAP-009 | `crawlRouteCheap` with `critical:true` → 401/403 = critical; `critical:false` → 401/403 = warning |
+| [86] | GAP-023 | `crawlRouteCheap` with `critical:true` → `console.error` = critical; `critical:false` → warning |
+| [87] | GAP-024 | `crawlRouteCheap` with `waitFor:'#never-appears'` → `load_failure` warning; message names selector |
+| [88] | GAP-025 | `crawlRouteCheap` on api-frequency → `api_call_summary` present; `data-loop` duplicate = critical |
+| [89] | GAP-028 | `crawlRouteCheap` on seo-issues → `seo_missing_description` warning with message |
+| [90] | GAP-027 | `crawlRouteCheap` on css-issues → `css_summary.scssSourceFiles` non-empty array |
+| [91] | GAP-026 | `crawlRouteCheap` on css-issues → `css_override` with `hasImportant:false` → `info`; has `property` |
+| [92] | GAP-029 | `checkLighthouse` always returns array; violations have type/severity/message/url (3 soft) |
+| [93] | GAP-030 | `diffNetworkRequests` detects added/removed/changed; `diffConsoleMessages` finds new staging errors |
 
 ---
 

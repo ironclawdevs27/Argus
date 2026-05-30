@@ -74,6 +74,7 @@ import { validateConfig } from '../src/config/schema.js';
 import * as argusTargets from '../src/config/targets.js';
 import { createFinding } from '../src/domain/finding.js';
 import { withRetry } from '../src/utils/retry.js';
+import { diffNetworkRequests, diffConsoleMessages } from '../src/utils/diff.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -3570,6 +3571,209 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
     assert(
       typeof generatedEnv === 'string' && generatedEnv.length > 0 && generatedEnv.includes('localhost:49999'),
       '[84g] generateEnvFile returns non-empty string containing the supplied TARGET_DEV_URL',
+    );
+  }
+
+  // ── Block [85] Production 401/403 severity (GAP-022 + GAP-009 regression) ──
+  {
+    console.log('\n[85] Production 401/403 severity — crawlRouteCheap critical:true vs false (GAP-022 / GAP-009)');
+
+    const crit85   = { name: 'Net-Errors-Crit',    path: '/network-errors.html', critical: true,  waitFor: null };
+    const nonCrit85 = { name: 'Net-Errors-NonCrit', path: '/network-errors.html', critical: false, waitFor: null };
+
+    const rc85 = await crawlRouteCheap(crit85, B, mcp);
+    const n401c = rc85.errors.filter(e => e.type === 'network' && e.status === 401);
+    const n403c = rc85.errors.filter(e => e.type === 'network' && e.status === 403);
+    assert(
+      n401c.length > 0 && n401c[0].severity === 'critical',
+      `[85a] Production: 401 → critical on critical route (classifyNetworkRequest) (got ${n401c[0]?.severity ?? 'none'})`,
+    );
+    assert(
+      n403c.length > 0 && n403c[0].severity === 'critical',
+      `[85b] Production: 403 → critical on critical route (got ${n403c[0]?.severity ?? 'none'})`,
+    );
+
+    const rn85 = await crawlRouteCheap(nonCrit85, B, mcp);
+    const n401n = rn85.errors.filter(e => e.type === 'network' && e.status === 401);
+    const n403n = rn85.errors.filter(e => e.type === 'network' && e.status === 403);
+    assert(
+      n401n.length > 0 && n401n[0].severity === 'warning',
+      `[85c] Production: 401 → warning on non-critical route (GAP-009) (got ${n401n[0]?.severity ?? 'none'})`,
+    );
+    assert(
+      n403n.length > 0 && n403n[0].severity === 'warning',
+      `[85d] Production: 403 → warning on non-critical route (GAP-009) (got ${n403n[0]?.severity ?? 'none'})`,
+    );
+  }
+
+  // ── Block [86] Production console.error severity (GAP-023) ──────────────────
+  {
+    console.log('\n[86] Production console.error severity — crawlRouteCheap critical:true vs false (GAP-023)');
+
+    const critCons86   = { name: 'JS-Crit',    path: '/js-errors-critical.html', critical: true,  waitFor: null };
+    const nonCritCons86 = { name: 'JS-NonCrit', path: '/js-errors.html',          critical: false, waitFor: null };
+
+    const rc86 = await crawlRouteCheap(critCons86, B, mcp);
+    const ce86c = rc86.errors.filter(e => e.type === 'console' && e.level === 'error');
+    assert(ce86c.length >= 1, `[86a] Production: console.error detected on critical route (got ${ce86c.length})`);
+    assert(
+      ce86c.every(e => e.severity === 'critical'),
+      `[86b] Production: all console.error → critical on critical route`,
+    );
+
+    const rn86 = await crawlRouteCheap(nonCritCons86, B, mcp);
+    const ce86n = rn86.errors.filter(e => e.type === 'console' && e.level === 'error');
+    assert(ce86n.length >= 1, `[86c] Production: console.error detected on non-critical route (got ${ce86n.length})`);
+    assert(
+      ce86n.every(e => e.severity === 'warning'),
+      `[86d] Production: all console.error → warning on non-critical route`,
+    );
+  }
+
+  // ── Block [87] Production load_failure via crawlRouteCheap (GAP-024) ────────
+  {
+    console.log('\n[87] Production load_failure — waitFor timeout via crawlRouteCheap (GAP-024)');
+
+    const lfRoute87 = { name: 'WaitFor-Timeout', path: '/waitfor-timeout.html', critical: false, waitFor: '#never-appears' };
+    const result87  = await crawlRouteCheap(lfRoute87, B, mcp);
+    const lf87      = result87.errors.filter(e => e.type === 'load_failure');
+    assert(lf87.length > 0, `[87a] Production: load_failure emitted when waitFor selector never appears`);
+    assert(
+      lf87[0]?.severity === 'warning',
+      `[87b] Production: load_failure → warning on non-critical route (got ${lf87[0]?.severity ?? 'none'})`,
+    );
+    assert(
+      typeof lf87[0]?.message === 'string' && lf87[0].message.includes('#never-appears'),
+      `[87c] Production: load_failure message names the missing selector`,
+    );
+  }
+
+  // ── Block [88] Production api_call_summary via crawlRouteCheap (GAP-025) ────
+  {
+    console.log('\n[88] Production api_call_summary — API frequency via crawlRouteCheap (GAP-025)');
+
+    const apiRoute88 = { name: 'API-Freq', path: '/api-frequency.html', critical: false, waitFor: null };
+    const result88   = await crawlRouteCheap(apiRoute88, B, mcp);
+    const summary88  = result88.errors.filter(e => e.type === 'api_call_summary');
+    const loop88     = result88.errors.filter(e => e.type === 'api_duplicate_call' && (e.endpoint ?? '').includes('data-loop'));
+    assert(summary88.length > 0, `[88a] Production: api_call_summary present in errors`);
+    assert(
+      loop88.length > 0 && loop88[0].severity === 'critical',
+      `[88b] Production: data-loop ×6+ → critical severity (got ${loop88[0]?.severity ?? 'none'})`,
+    );
+    assert(
+      typeof summary88[0]?.uniqueEndpoints === 'number',
+      `[88c] Production: api_call_summary.uniqueEndpoints is a number (got ${typeof summary88[0]?.uniqueEndpoints})`,
+    );
+  }
+
+  // ── Block [89] Production seo_missing_description (GAP-028) ─────────────────
+  {
+    console.log('\n[89] Production seo_missing_description — via crawlRouteCheap (GAP-028)');
+
+    const seoRoute89 = { name: 'SEO-Issues', path: '/seo-issues.html', critical: false, waitFor: null };
+    const result89   = await crawlRouteCheap(seoRoute89, B, mcp);
+    const misDesc89  = result89.errors.filter(e => e.type === 'seo_missing_description');
+    assert(misDesc89.length > 0, `[89a] Production: seo_missing_description detected`);
+    assert(
+      misDesc89[0]?.severity === 'warning',
+      `[89b] Production: seo_missing_description → warning (got ${misDesc89[0]?.severity ?? 'none'})`,
+    );
+    assert(
+      typeof misDesc89[0]?.message === 'string' && misDesc89[0].message.length > 0,
+      `[89c] Production: seo_missing_description has non-empty message`,
+    );
+  }
+
+  // ── Block [90] Production SCSS sourceMappingURL in css_summary (GAP-027) ────
+  {
+    console.log('\n[90] Production SCSS sourceMappingURL — css_summary.scssSourceFiles via crawlRouteCheap (GAP-027)');
+
+    const cssRoute90   = { name: 'CSS-Issues-Map', path: '/css-issues.html', critical: false, waitFor: null };
+    const result90     = await crawlRouteCheap(cssRoute90, B, mcp);
+    const cssSummary90 = result90.errors.find(e => e.type === 'css_summary');
+    assert(cssSummary90 !== undefined, `[90a] Production: css_summary finding present`);
+    assert(
+      Array.isArray(cssSummary90?.scssSourceFiles),
+      `[90b] Production: css_summary.scssSourceFiles is an array`,
+    );
+    assert(
+      (cssSummary90?.scssSourceFiles?.length ?? 0) > 0,
+      `[90c] Production: css_summary.scssSourceFiles has ≥1 entry (sourceMappingURL detected)`,
+    );
+  }
+
+  // ── Block [91] Production css_override (non-!important) (GAP-026) ───────────
+  {
+    console.log('\n[91] Production css_override (non-!important) — via crawlRouteCheap (GAP-026)');
+
+    const cssRoute91 = { name: 'CSS-Issues-Cascade', path: '/css-issues.html', critical: false, waitFor: null };
+    const result91   = await crawlRouteCheap(cssRoute91, B, mcp);
+    const nonImp91   = result91.errors.filter(e => e.type === 'css_override' && !e.hasImportant);
+    assert(
+      nonImp91.length > 0,
+      `[91a] Production: non-!important css_override detected (got ${nonImp91.length})`,
+    );
+    assert(
+      nonImp91[0]?.severity === 'info',
+      `[91b] Production: non-!important css_override → info severity (got ${nonImp91[0]?.severity ?? 'none'})`,
+    );
+    assert(
+      typeof nonImp91[0]?.property === 'string',
+      `[91c] Production: css_override has property field (got ${typeof nonImp91[0]?.property})`,
+    );
+  }
+
+  // ── Block [92] Lighthouse CLS soft assertion via checkLighthouse (GAP-029) ──
+  {
+    console.log('\n[92] Lighthouse contract — checkLighthouse shape on perf-cls.html (GAP-029, soft)');
+
+    const lhResult92 = await checkLighthouse(browser, `${B}/perf-cls.html`);
+    soft(
+      Array.isArray(lhResult92),
+      `[92a] checkLighthouse always returns an array (got ${typeof lhResult92})`,
+    );
+    soft(
+      lhResult92.length === 0 || lhResult92.every(v => v.type && v.severity && v.message),
+      `[92b] checkLighthouse violations have required fields: type, severity, message (or N/A in headless)`,
+    );
+    soft(
+      lhResult92.length === 0 || lhResult92.every(v => typeof v.url === 'string'),
+      `[92c] checkLighthouse violations carry url field (or N/A in headless)`,
+    );
+  }
+
+  // ── Block [93] diff.js utility unit tests (GAP-030) ─────────────────────────
+  {
+    console.log('\n[93] diff.js utilities — diffNetworkRequests + diffConsoleMessages (GAP-030)');
+
+    // diffNetworkRequests: added, removed, changed
+    const reqs93Dev = [
+      { url: 'http://localhost:3100/api/feature-flags', status: 200, method: 'GET' },
+      { url: 'http://localhost:3100/api/checkout',      status: 200, method: 'GET' },
+    ];
+    const reqs93Staging = [
+      { url: 'http://localhost:3101/api/checkout',  status: 500, method: 'GET' },
+      { url: 'http://localhost:3101/api/tracking',  status: 200, method: 'GET' },
+    ];
+    const diff93 = diffNetworkRequests(reqs93Dev, reqs93Staging);
+    assert(diff93.added.length > 0,
+      `[93a] diffNetworkRequests detects added endpoint in staging (got ${diff93.added.length})`);
+    assert(diff93.removed.length > 0,
+      `[93b] diffNetworkRequests detects removed endpoint (present in dev, absent in staging) (got ${diff93.removed.length})`);
+    assert(diff93.changed.length > 0,
+      `[93c] diffNetworkRequests detects status change (checkout 200→500) (got ${diff93.changed.length})`);
+
+    // diffConsoleMessages: new errors in staging not in dev
+    const msgs93Dev = [{ level: 'error', text: 'pre-existing error' }];
+    const msgs93Staging = [
+      { level: 'error', text: 'pre-existing error' },
+      { level: 'error', text: 'new staging regression error' },
+    ];
+    const newErrs93 = diffConsoleMessages(msgs93Dev, msgs93Staging);
+    assert(
+      newErrs93.length === 1 && newErrs93[0].text === 'new staging regression error',
+      `[93d] diffConsoleMessages detects new error in staging not in dev (got ${newErrs93.length}: "${newErrs93[0]?.text ?? 'none'}")`,
     );
   }
 }
