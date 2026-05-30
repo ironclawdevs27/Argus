@@ -13,8 +13,8 @@ Argus is an AI-driven automated QA harness that audits web pages against 54 dete
 
 - `src/argus.js` — single-page audit (CLI)
 - `src/batch-runner.js` — multi-page batch audit
-- `src/mcp-server.js` — MCP server (AI-callable via Claude or any MCP client; registers argus_audit / argus_audit_full / argus_compare / argus_last_report)
-- `test-harness/validate.js` — 82-block correctness harness (348 hard assertions)
+- `src/mcp-server.js` — MCP server (AI-callable via Claude or any MCP client; registers argus_audit / argus_audit_full / argus_compare / argus_last_report / argus_watch_snapshot / argus_get_context)
+- `test-harness/validate.js` — 84-block correctness harness (367 hard assertions)
 - `test-harness/harness-config.js` — fixture page routing table
 
 ---
@@ -294,7 +294,7 @@ await mcp.performance_analyze_insight({ insightName: 'DocumentLatency' }); // TT
 // Combined device + network
 await mcp.emulate({ device: 'iPhone 12', networkCondition: 'Slow 3G' });
 await mcp.emulate({ geolocation: { latitude: 37.7749, longitude: -122.4194 } });
-await mcp.emulate({ cpuThrottling: 4 });
+await mcp.emulate({ cpuThrottlingRate: 4 });
 await mcp.emulate({ device: null, networkCondition: null }); // reset
 
 // Change one dimension at a time — emulate only applies the properties you pass
@@ -1071,7 +1071,7 @@ Always walk at least 3 levels back — the proximate cause is almost never the r
 
 ### Known MCP Behavioral Limitations
 
-These are chrome-devtools-mcp restrictions that **cannot be worked around in Argus code**. They cause 3 permanent failures in the correctness harness (339/342 pass).
+These are chrome-devtools-mcp restrictions that **cannot be worked around in Argus code**. They cause 3 permanent failures in the correctness harness (364/367 pass).
 
 > **Note on `fill` vs `type_text` and DOM events**: Both tools fire DOM `input` events, but differently:
 >
@@ -1224,7 +1224,7 @@ for (const bp of breakpoints) {
 
 | Metric | Value |
 | --- | --- |
-| Test blocks | 83 |
+| Test blocks | 84 |
 | Hard assertions | 367 |
 | Detection categories | 54 in production code; **47 positively verified** by harness fixtures |
 | Fixture pages | 54 |
@@ -1272,7 +1272,7 @@ OpenTelemetry tracing + metrics — zero-overhead by default, OTLP-exportable fo
 
 ### v9 Sprint 9 additions (2026-05-29)
 
-Fix loop, watch dashboard, and harness coverage for the two new tools. Gate: 360/360.
+Fix loop, watch dashboard, and harness coverage for the two new tools. Gate: 357/360.
 
 | Change | Detail |
 | --- | --- |
@@ -1288,6 +1288,49 @@ Fix loop, watch dashboard, and harness coverage for the two new tools. Gate: 360
 2. Claude suggests a fix → user applies it
 3. User runs `argus_get_context` with `snapshot_id: "abc123"` → response shows `resolved`, `new_issues`, `persisting` + updated summary
 4. Repeat until `resolved.length > 0 && critical.length === 0`
+
+---
+
+### v9 Sprint 10 additions (2026-05-24)
+
+Audit caching, multi-tab watch mode, CI harness gate, glama.json, block [84]. Gate: 361/364 → published as `argusqa-os@9.4.0`.
+
+| Change | Detail |
+| --- | --- |
+| `argus_audit` caching | `cache: true` param; `auditCache` Map (max 20 LRU entries); cached result includes `_cached: true` + `_cachedAt` ISO timestamp |
+| Multi-tab `tabId` | `argus_watch_snapshot` + `argus_get_context` both accept `tabId`; `snapshotStore` keyed by tabId; `CdpBrowserAdapter.listPages()` + `.selectPage(tabId)` added |
+| CI harness gate | `.github/workflows/harness-ci.yml` — runs on every PR; exits 0 when only `[49b]`/`[67b]`/`[68b]` fail, exits 1 on any new regression |
+| `glama.json` expanded | Added `name`, `description`, `tools` (all 6) for Glama registry scoring (AAA) |
+| Block [84] | 7 assertions: `cli/init.js` smoke — `detectFramework`, `generateTargetsJs`, `generateEnvFile`, `main()` guard, stub validation |
+| Permanent-failure exit logic | `validate.js` exits 0 when only the 3 known permanent failures remain; unexpected failures still exit 1 |
+
+---
+
+### v9 Sprint 0.5 — Tier 1 + Tier 2 (2026-05-27–2026-05-28)
+
+Browser adapter fixes (Tier 1) + security/stability gaps (Tier 2). Gate: 364/367 → published as `argusqa-os@9.4.2`–`9.4.6`.
+
+#### Tier 1 — Browser adapter corrections (v9.4.2)
+
+| Fix | File | Change |
+| --- | --- | --- |
+| `browser.heapSnapshot` | `src/adapters/browser.js` | Was calling stale `take_heap_snapshot` → corrected to `take_heapsnapshot` |
+| `browser.emulateCpu` | `src/adapters/browser.js` | Was calling stale `emulate_cpu` (non-existent MCP tool) → corrected to `emulate({ cpuThrottlingRate: rate })` |
+| Stale tool entry | `src/utils/mcp-client.js` | `emulate_cpu` removed from known-tools map |
+
+#### Tier 2 — Security + stability (v9.4.6)
+
+| Gap | File | Fix |
+| --- | --- | --- |
+| GAP-002 path traversal | `contract-validator.js` | `path.relative()` + `..` check replaces brittle `startsWith(cwd + sep)` |
+| GAP-003 error logging | `mcp-server.js` `withMcp()` | `logger.error` on handler errors before re-throw |
+| GAP-008 Slack lazy-init | `slack-notifier.js` | `WebClient` moved into `getSlack()` — no crash when `SLACK_BOT_TOKEN` absent |
+| GAP-009 401/403 severity | `orchestrator.js` | Non-critical routes return `warning` instead of always `critical` |
+| GAP-010 broken-link timeout | `orchestrator.js` | `Promise.race` 15 s outer timeout wraps `Promise.all` for link batch |
+| GAP-001 late JSON-RPC log | `mcp-client.js` | Late responses / server notifications logged at `debug` level |
+| GAP-006 CI docs | `harness-ci.yml` | KNOWN_PERMANENT block IDs `[49b]`/`[67b]`/`[68b]` documented in comment |
+
+**Also in v9.4.3–v9.4.5**: all 10 Dependabot PRs applied; phantom `chrome@0.1.0` + unused `sharp` removed; `y.com`/`yourapp.com` example URLs → `example.com`; OTel `service.version` corrected; MCP Registry published (`io.github.ironclawdevs27/argus@9.4.6`); awesome-mcp-servers PR #7022 opened.
 
 ---
 
@@ -1315,7 +1358,7 @@ Argus MCP server — Argus exposed as an MCP tool server. Gate: 345/348.
 | `src/mcp-server.js` | MCP server — exposes `argus_audit`, `argus_audit_full`, `argus_compare`, `argus_last_report`, `argus_watch_snapshot`, `argus_get_context` (6 tools total) |
 | `.mcp.json` | MCP server registration — published to npm as `argusqa-os@9.3.0`; users run via `npx -y argusqa-os` |
 
-**New harness block**: [80] MCP server registration (6 assertions — file exists, all 4 original tool names present, `.mcp.json` has "argus" entry). Total: 6 new assertions → 345/348.
+**New harness block**: [80] MCP server registration (6 assertions — file exists, all 6 tool names present, `.mcp.json` has "argus" entry). Total: 6 new assertions → 345/348.
 
 **New script in `package.json`**: `"mcp-server": "node src/mcp-server.js"`. `@modelcontextprotocol/sdk ^1.29.0` added to `dependencies`.
 

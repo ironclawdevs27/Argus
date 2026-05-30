@@ -104,7 +104,8 @@ Argus runs **24 analysis engines** per run and detects **114 distinct issue type
 | Severity | Bug / Issue | Detection Method |
 | --- | --- | --- |
 | 🔴 Critical | HTTP 5xx server errors on any request | `list_network_requests` → status ≥ 500 |
-| 🔴 Critical | 401 / 403 auth failures — user is being kicked out | `list_network_requests` → status 401 or 403 |
+| 🔴 Critical | 401 / 403 auth failures on a **critical route** — user is being kicked out | `list_network_requests` → status 401 or 403 + `routeIsCritical` flag |
+| 🟡 Warning | 401 / 403 auth failures on a non-critical route | `list_network_requests` → status 401 or 403 (non-critical path) |
 | 🔴 Critical | API endpoint called 5+ times in one page load — likely an infinite loop | Network frequency grouping by normalized URL + method |
 | 🟡 Warning | HTTP 4xx client errors (404, 422, 429, etc.) | `list_network_requests` → status 400–499 (non-auth) |
 | 🟡 Warning | API endpoint called 3–4 times — likely a double-fetch bug | Frequency grouping → 3 ≤ count ≤ 4 (check `useEffect` deps) |
@@ -631,7 +632,7 @@ Then follow with: *"Here's the context — what's causing these errors and how d
 | `npm run server` | Start the Slack slash command + interaction server (port 3001) |
 | `npm run init` | Interactive setup wizard — generates `.env` + `targets.js` |
 | `npm run test:unit` | Run 61 unit tests (no Chrome required) |
-| `npm run test:harness` | Run 82-block correctness harness (requires Chrome) |
+| `npm run test:harness` | Run 84-block correctness harness (requires Chrome) |
 
 **`npm run crawl`** — full audit of all configured routes:
 
@@ -866,11 +867,11 @@ argus/
 │       └── argus.yml                 # CI pipeline
 ├── .vscode/
 │   └── mcp.json                      # Chrome DevTools MCP config for VS Code
-├── .mcp.json                         # Argus MCP server registration — exposes argus_audit/argus_audit_full/argus_compare/argus_last_report to Claude
+├── .mcp.json                         # Argus MCP server registration — exposes argus_audit/argus_audit_full/argus_compare/argus_last_report/argus_watch_snapshot/argus_get_context to Claude
 ├── src/
 │   ├── argus.js                      # Single-page audit entry point
 │   ├── batch-runner.js               # Multi-page batch audit
-│   ├── mcp-server.js                 # Argus MCP server — argus_audit / argus_audit_full / argus_compare / argus_last_report
+│   ├── mcp-server.js                 # Argus MCP server — argus_audit / argus_audit_full / argus_compare / argus_last_report / argus_watch_snapshot / argus_get_context
 │   ├── adapters/
 │   │   └── browser.js                # CdpBrowserAdapter — facade over all chrome-devtools-mcp calls
 │   ├── domain/
@@ -927,7 +928,7 @@ argus/
 │       ├── flakiness-detector.test.js # findingKey normalization + mergeRunResults (13 tests)
 │       ├── baseline-manager.test.js  # loadBaseline/saveBaseline/applyBaseline (9 tests)
 │       └── flow-runner.test.js       # normalizeArray (pure) + runFlow mock browser (11 tests)
-├── landing/                          # Product landing page (React 18 + Vite + Tailwind + Framer Motion)
+├── landing/                          # Product landing page (React 19 + Vite 8 + Tailwind + Framer Motion 12)
 │   ├── src/
 │   │   ├── App.jsx                   # Single-page app — hero, features, comparison, waitlist + enterprise modals
 │   │   └── supabase.js               # Supabase client factory (null-safe when env vars missing)
@@ -947,7 +948,7 @@ argus/
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner — 83 numbered blocks ([80] MCP server, [81] createFinding, [82] withRetry, [83] watch dashboard)
+│   ├── validate.js                   # Test runner — 84 numbered blocks ([80] MCP server, [81] createFinding, [82] withRetry, [83] watch dashboard, [84] cli/init.js)
 │   ├── pages/                        # 54 fixture pages (one per detection category)
 │   ├── nextjs-fixture/               # Next.js app structure for C3 discovery tests (10 files)
 │   ├── source-fixture/               # Minimal app.js for C1 codebase-analyzer tests (env var audit)
@@ -1022,6 +1023,7 @@ These constraints are documented with workarounds in [SKILL.md §10](SKILL.md).
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | No | OTLP collector endpoint — enables span/metric export to Jaeger, Grafana Tempo, Datadog, etc. |
 | `ARGUS_OTEL_CONSOLE` | No | Set to `1` to print OTel spans to stdout without an OTLP endpoint (dev tracing) |
 | `ARGUS_WATCH_INTERVAL_MS` | No | Watch mode poll interval in milliseconds (default: `1000`) |
+| `ARGUS_WATCH_UI_PORT` | No | Watch mode web dashboard port (default: `3002`) |
 | `ARGUS_SOURCE_DIR` | No | Path to your app's source directory — enables codebase cross-reference (env var detection, feature flag leakage, dead routes) |
 | `ARGUS_ENV_FILE` | No | Path to your app's `.env` file — C1 cross-references env vars used in source code against this file to detect missing declarations |
 | `GITHUB_TOKEN` | No | GitHub personal access token — required for PR comment + commit status integration |

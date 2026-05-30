@@ -90,7 +90,7 @@ landing/
     robots.txt                — allows all crawlers; Sitemap reference
     sitemap.xml               — canonical URL for argus-qa.com/
   index.html                  — Vite entry; OG/Twitter/JSON-LD SEO tags; canonical; favicon link
-  package.json                — React 18, Vite, Tailwind, Framer Motion, @supabase/supabase-js
+  package.json                — React 19, Vite 8, Tailwind, Framer Motion 12, @supabase/supabase-js
   .env.example                — committed template: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
   .env.local                  — gitignored — real Supabase credentials (copy from .env.example)
 test-harness/
