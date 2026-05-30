@@ -56,6 +56,10 @@ export class CdpBrowserAdapter {
   stopTrace()              { return this._mcp.performance_stop_trace({}); }
   analyzeInsight(opts)     { return this._mcp.performance_analyze_insight(opts); }
 
+  // ── Tab management ─────────────────────────────────────────────────────────
+  listPages()              { return this._mcp.list_pages({}); }
+  selectPage(tabId)        { return this._mcp.select_page({ pageId: tabId }); }
+
   // ── Lifecycle ───────────────────────────────────────────────────────────────
   close()                  { return this._mcp.close(); }
 

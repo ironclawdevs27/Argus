@@ -1,0 +1,57 @@
+name: Argus Harness CI
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+
+env:
+  NODE_VERSION: '20.x'
+
+jobs:
+  harness:
+    name: Test Harness (84 blocks · 367 assertions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Start Chrome with remote debugging
+        run: |
+          google-chrome \
+            --headless=new \
+            --remote-debugging-port=9222 \
+            --no-sandbox \
+            --disable-setuid-sandbox \
+            --disable-dev-shm-usage \
+            --disable-gpu \
+            --window-size=1920,1080 \
+            about:blank &
+          sleep 3
+          curl -sf http://127.0.0.1:9222/json/version | python3 -c "import sys,json; d=json.load(sys.stdin); print('Chrome ready:', d.get('Browser','?'))"
+
+      - name: Run test harness
+        run: npm run test:harness
+        # Exit code: 0 when only the 3 known permanent MCP-limited failures remain
+        # ([49b] drag, [67b]/[68b] DevTools Issues panel).
+        # Any new regression beyond those 3 exits with code 1 and blocks the merge.
+
+      - name: Run unit tests (no Chrome required)
+        run: npm run test:unit

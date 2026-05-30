@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Argus MCP Server (v9.3.1)
+ * Argus MCP Server (v9.4.0)
  *
  * Exposes Argus as an MCP server so Claude (or any MCP client) can call
  * argus_audit, argus_audit_full, argus_compare, argus_last_report, and
@@ -38,10 +38,21 @@ const REPORTS_DIR = path.resolve(process.cwd(), 'reports');
 const snapshotStore = new Map();
 const MAX_SNAPSHOTS = 20;
 
+// Audit cache: stores argus_audit results keyed by URL so cache:true skips re-crawl.
+const auditCache = new Map();
+const MAX_AUDIT_CACHE = 20;
+
 function storeSnapshot(id, findings) {
   snapshotStore.set(id, findings);
   if (snapshotStore.size > MAX_SNAPSHOTS) {
     snapshotStore.delete(snapshotStore.keys().next().value);
+  }
+}
+
+function cacheAudit(url, result) {
+  auditCache.set(url, { result, ts: Date.now() });
+  if (auditCache.size > MAX_AUDIT_CACHE) {
+    auditCache.delete(auditCache.keys().next().value);
   }
 }
 
@@ -50,12 +61,13 @@ function storeSnapshot(id, findings) {
 const TOOLS = [
   {
     name: 'argus_audit',
-    description: 'Fast QA audit on a URL via Chrome DevTools Protocol. Runs 8 analyzers in one pass: JS errors, unhandled rejections, network failures (4xx/5xx), API frequency loops, CSS cascade issues, SEO violations, security header checks, and accessibility. Returns { findings: [{severity, type, message, url}], summary: {critical, warning, info} }. Use for CI smoke tests and pre-deploy gates. For Lighthouse scoring and memory leak detection, use argus_audit_full. Requires Chrome running with --remote-debugging-port=9222.',
+    description: 'Fast QA audit on a URL via Chrome DevTools Protocol. Runs 8 analyzers in one pass: JS errors, unhandled rejections, network failures (4xx/5xx), API frequency loops, CSS cascade issues, SEO violations, security header checks, and accessibility. Returns { findings: [{severity, type, message, url}], summary: {critical, warning, info} }. Use for CI smoke tests and pre-deploy gates. Pass cache: true to skip re-crawl on repeat calls to the same URL within a session — useful in tight fix loops. For Lighthouse scoring and memory leak detection, use argus_audit_full. Requires Chrome running with --remote-debugging-port=9222.',
     inputSchema: {
       type: 'object',
       properties: {
         url:      { type: 'string',  description: 'Full URL to audit, including protocol and path (e.g. http://localhost:3000/checkout). Must be reachable by the running Chrome instance.' },
         critical: { type: 'boolean', description: 'When true, console.error calls are escalated to critical severity. Set true for business-critical routes (login, checkout, dashboard) where any error is a blocker.', default: false },
+        cache:    { type: 'boolean', description: 'When true, returns the cached result for this URL if one exists (from a previous argus_audit call in this session) without re-crawling. Use in fix loops to cheaply re-read the last audit while iterating on a fix. Cache is per-session, max 20 entries, LRU eviction.', default: false },
       },
       required: ['url'],
     },
@@ -84,22 +96,24 @@ const TOOLS = [
   },
   {
     name: 'argus_watch_snapshot',
-    description: 'Snapshots the currently open Chrome tab without navigating — captures console errors, network failures (4xx/5xx), CORS blocks, and auth failures in one poll. Returns { findings: [{severity, type, message, url}], newConsole, newNetwork }. Use during active development to inspect what is happening on the current page without running a full audit. Requires Chrome on --remote-debugging-port=9222 with a page already open.',
+    description: 'Snapshots the currently open Chrome tab without navigating — captures console errors, network failures (4xx/5xx), CORS blocks, and auth failures in one poll. Returns { findings: [{severity, type, message, url}], newConsole, newNetwork }. Use during active development to inspect what is happening on the current page without running a full audit. Pass tabId to inspect a specific tab (get IDs from argus_get_context or list_pages). Without tabId, reads the active tab. Requires Chrome on --remote-debugging-port=9222 with a page already open.',
     inputSchema: {
       type: 'object',
       properties: {
-        url: { type: 'string', description: 'Optional base URL to attribute findings to (default: TARGET_DEV_URL env var). Does not navigate — reads the currently open Chrome tab.' },
+        url:   { type: 'string', description: 'Optional base URL to attribute findings to (default: TARGET_DEV_URL env var). Does not navigate — reads the currently open Chrome tab.' },
+        tabId: { type: 'string', description: 'Optional Chrome page/tab ID (e.g. from a prior argus_get_context response). When provided, switches focus to that tab before snapshotting — useful for SPAs that spawn new windows or multi-tab flows.' },
       },
     },
   },
   {
     name: 'argus_get_context',
-    description: 'Captures everything currently broken on the open Chrome tab and formats it as a diagnostic context for Claude to read and suggest fixes. Does NOT navigate — reads the live tab state after user interactions, in authenticated sessions, or mid-flow. Returns { snapshot_id, summary, url, timestamp, critical_issues, warnings, js_errors, network_failures, console_errors, recent_requests }. Fix loop: pass the snapshot_id from a previous call as snapshot_id to get a diff — the response will include resolved (cleared since last snapshot), new_issues (appeared since last snapshot), and persisting (unchanged). Workflow: call argus_get_context → Claude suggests fix → apply fix → call argus_get_context with snapshot_id → verify resolved array is non-empty. Requires Chrome on --remote-debugging-port=9222.',
+    description: 'Captures everything currently broken on the open Chrome tab and formats it as a diagnostic context for Claude to read and suggest fixes. Does NOT navigate — reads the live tab state after user interactions, in authenticated sessions, or mid-flow. Returns { snapshot_id, summary, url, timestamp, critical_issues, warnings, js_errors, network_failures, console_errors, recent_requests, open_tabs }. Fix loop: pass the snapshot_id from a previous call as snapshot_id to get a diff — the response will include resolved (cleared since last snapshot), new_issues (appeared since last snapshot), and persisting (unchanged). Multi-tab: pass tabId to inspect a specific tab, or omit to read the active tab. The open_tabs array always lists all currently open Chrome tabs. Workflow: call argus_get_context → Claude suggests fix → apply fix → call argus_get_context with snapshot_id → verify resolved array is non-empty. Requires Chrome on --remote-debugging-port=9222.',
     inputSchema: {
       type: 'object',
       properties: {
-        url: { type: 'string', description: 'Optional base URL to attribute findings to (default: TARGET_DEV_URL env var). Does not navigate — inspects the currently open Chrome tab.' },
+        url:         { type: 'string', description: 'Optional base URL to attribute findings to (default: TARGET_DEV_URL env var). Does not navigate — inspects the currently open Chrome tab.' },
         snapshot_id: { type: 'string', description: 'Optional snapshot_id from a previous argus_get_context call. When provided, the response includes resolved/new_issues/persisting arrays showing what changed since that snapshot.' },
+        tabId:       { type: 'string', description: 'Optional Chrome page/tab ID. When provided, switches focus to that specific tab before capturing context — useful for SPAs that spawn new windows (e.g. OAuth popups, checkout flows). Get tab IDs from the open_tabs array in a prior argus_get_context response.' },
       },
     },
   },
@@ -118,11 +132,16 @@ async function withMcp(fn) {
 
 // ── Tool handlers ─────────────────────────────────────────────────────────────
 
-async function handleAudit({ url, critical = false }) {
+async function handleAudit({ url, critical = false, cache = false }) {
+  if (cache && auditCache.has(url)) {
+    const { result, ts } = auditCache.get(url);
+    return { content: [{ type: 'text', text: JSON.stringify({ ...result, _cached: true, _cachedAt: new Date(ts).toISOString() }, null, 2) }] };
+  }
   return withMcp(async (mcp) => {
     const parsed  = new URL(url);
     const route   = { path: parsed.pathname + parsed.search + parsed.hash, name: 'audit', critical };
     const findings = await crawlRouteCheap(route, parsed.origin, mcp);
+    if (cache) cacheAudit(url, findings);
     return { content: [{ type: 'text', text: JSON.stringify(findings, null, 2) }] };
   });
 }
@@ -146,9 +165,10 @@ async function handleCompare() {
   });
 }
 
-async function handleWatchSnapshot({ url } = {}) {
+async function handleWatchSnapshot({ url, tabId } = {}) {
   return withMcp(async (mcp) => {
     const browser = new CdpBrowserAdapter(mcp);
+    if (tabId) await browser.selectPage(tabId);
     const baseUrl = url ?? process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
     const session = new WatchSession(browser, baseUrl);
     const result  = await session.poll();
@@ -156,12 +176,22 @@ async function handleWatchSnapshot({ url } = {}) {
   });
 }
 
-async function handleGetContext({ url, snapshot_id: prevId } = {}) {
+async function handleGetContext({ url, snapshot_id: prevId, tabId } = {}) {
   return withMcp(async (mcp) => {
     const browser = new CdpBrowserAdapter(mcp);
+    if (tabId) await browser.selectPage(tabId);
     const baseUrl = url ?? process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
     const session = new WatchSession(browser, baseUrl);
     const { findings, newConsole, newNetwork } = await session.poll();
+
+    // List all open tabs so the caller can target a specific tab on the next call.
+    let open_tabs = [];
+    try {
+      const pages = await browser.listPages();
+      if (Array.isArray(pages)) {
+        open_tabs = pages.map(p => ({ id: p.id ?? p.pageId, url: p.url, title: p.title }));
+      }
+    } catch { /* list_pages not available in all Chrome configs — degrade gracefully */ }
 
     const newId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     storeSnapshot(newId, findings);
@@ -215,6 +245,7 @@ async function handleGetContext({ url, snapshot_id: prevId } = {}) {
       network_failures: findings.filter(f => f.type === 'network-error' || f.type === 'cors-error' || f.type === 'auth-error'),
       console_errors:   newConsole.filter(m => m.level === 'error' || m.level === 'warning'),
       recent_requests:  newNetwork.slice(-20),
+      open_tabs,
       ...(isDiff ? { resolved, new_issues, persisting } : {}),
     };
 
@@ -240,7 +271,7 @@ async function handleLastReport() {
 // ── Server bootstrap ──────────────────────────────────────────────────────────
 
 const server = new Server(
-  { name: 'argus', version: '9.3.1' },
+  { name: 'argus', version: '9.4.0' },
   { capabilities: { tools: {} } },
 );
 

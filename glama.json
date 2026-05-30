@@ -1,4 +1,32 @@
 {
   "$schema": "https://glama.ai/mcp/schemas/server.json",
-  "maintainers": ["ironclawdevs27"]
+  "name": "argus",
+  "description": "AI-powered QA harness that audits web apps via Chrome DevTools Protocol. Catches JS errors, network failures, a11y violations, SEO issues, security headers, CSS regressions, and more — directly from Claude conversations. 6 MCP tools: argus_audit (fast 8-analyzer pass), argus_audit_full (Lighthouse + memory + responsive), argus_compare (dev vs staging diff), argus_last_report (retrieve last JSON report), argus_watch_snapshot (live tab snapshot without navigating), argus_get_context (LLM-optimized context + fix loop with snapshot_id diff). 84 test blocks, 367 hard assertions, 54 detection categories.",
+  "maintainers": ["ironclawdevs27"],
+  "tools": [
+    {
+      "name": "argus_audit",
+      "description": "Fast QA audit — JS errors, network failures (4xx/5xx), API frequency loops, CSS cascade issues, SEO violations, security headers, accessibility, and content. Returns { findings, summary }. Supports cache: true to skip re-crawl on repeat calls."
+    },
+    {
+      "name": "argus_audit_full",
+      "description": "Deep QA audit — extends argus_audit with Lighthouse performance/accessibility scoring, responsive layout checks at 4 viewports, memory leak detection via heap snapshot, and accessibility tree analysis."
+    },
+    {
+      "name": "argus_compare",
+      "description": "Diffs dev vs staging environments side-by-side. Captures screenshots, runs all analyzers on each, and surfaces regressions — findings present in staging but not dev, or with changed severity."
+    },
+    {
+      "name": "argus_last_report",
+      "description": "Returns the most recent Argus JSON report from the reports/ directory without re-running a scan."
+    },
+    {
+      "name": "argus_watch_snapshot",
+      "description": "Snapshots the currently open Chrome tab without navigating — captures console errors, network failures, CORS blocks, and auth failures in one poll. Accepts optional tabId to inspect a specific tab."
+    },
+    {
+      "name": "argus_get_context",
+      "description": "LLM-optimized diagnostic context for the open Chrome tab. Returns snapshot_id for fix-loop diffing: pass it back on the next call to get resolved/new_issues/persisting arrays. Accepts optional tabId for multi-tab workflows."
+    }
+  ]
 }

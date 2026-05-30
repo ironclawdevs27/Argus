@@ -79,7 +79,7 @@ The `landing/` directory contains the product landing page (React + Vite + Tailw
 
 | 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
 | :---: | :---: | :---: | :---: |
-| **114 distinct issue types detected** | **24 analysis engines** | **360 test assertions** | **83 test blocks** |
+| **114 distinct issue types detected** | **24 analysis engines** | **367 test assertions** | **84 test blocks** |
 
 </div>
 
@@ -943,7 +943,7 @@ argus/
 │   └── README.md                     # Setup guide, Supabase SQL schema, env vars, deployment
 ├── scripts/
 │   └── dispatch-report.js            # Standalone Slack re-dispatch script (re-posts last report.json to Slack)
-├── test-harness/                     # Fixture server + test runner (83 blocks, 360 hard assertions, 54 fixture pages)
+├── test-harness/                     # Fixture server + test runner (84 blocks, 367 hard assertions, 54 fixture pages)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
@@ -988,7 +988,7 @@ argus/
 
 ## Known MCP Tool Limitations
 
-The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`357/360` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code.
+The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`364/367` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code. `validate.js` now exits with code 0 when only these 3 failures remain, making the CI harness gate reliable.
 
 > **`type_text` clarification**: `type_text` does fire DOM `input` events when the element is properly focused first with `mcp.click({ uid })`. Always use uid-based focus — passing `{ selector }` to `mcp.click` silently does nothing.
 

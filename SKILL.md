@@ -1225,13 +1225,13 @@ for (const bp of breakpoints) {
 | Metric | Value |
 | --- | --- |
 | Test blocks | 83 |
-| Hard assertions | 360 |
+| Hard assertions | 367 |
 | Detection categories | 54 in production code; **47 positively verified** by harness fixtures |
 | Fixture pages | 54 |
 | Flow step actions | 11 (navigate, waitFor, sleep, fill, click, drag, upload_file, select_option, press_key, handle_dialog, assert) |
-| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring, 1 s default poll, live web dashboard port 3002), adapter layer (CdpBrowserAdapter), plugin registry, god object split, threshold centralization + Zod validation, session split, Pino logging, retry logic, Vitest unit tests (61 tests, blocks [81]+[82]), Argus MCP server (6 tools, block [80]), argus_get_context fix loop (snapshot_id + diff mode), OpenTelemetry tracing, npm publication (`argusqa-os@9.3.1`) |
+| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring, 1 s default poll, live web dashboard port 3002), adapter layer (CdpBrowserAdapter, + listPages/selectPage), plugin registry, god object split, threshold centralization + Zod validation, session split, Pino logging, retry logic, Vitest unit tests (61 tests, blocks [81]+[82]), Argus MCP server (6 tools: argus_audit + cache, argus_audit_full, argus_compare, argus_last_report, argus_watch_snapshot + tabId, argus_get_context + tabId + open_tabs; block [80]), fix loop (snapshot_id + diff), OTel tracing, npm publication (`argusqa-os@9.4.0`), CI harness gate (harness-ci.yml), glama.json expanded, block [84] (cli/init.js smoke) |
 
-Expected harness output: `357/360 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b])
+Expected harness output: `364/367 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b] — exits 0 when only these fail)
 
 ### v9 Sprint 7 additions (2026-05-24)
 
