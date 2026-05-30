@@ -227,7 +227,7 @@ All network findings carry an `origin` field (`'first-party'` / `'third-party'`)
 
 | Severity | Bug / Issue | Detection Method |
 | --- | --- | --- |
-| 🔴 Critical | > 100 detached DOM nodes in V8 heap — severe leak | `take_memory_snapshot` → parse flat nodes array for "Detached Xxx" names |
+| 🔴 Critical | > 100 detached DOM nodes in V8 heap — severe leak | `take_heapsnapshot` → parse flat nodes array for "Detached Xxx" names |
 | 🟡 Warning | > 10 detached DOM nodes in V8 heap — probable leak | Same snapshot parse, lower threshold |
 | 🟡 Warning | Heap grew > 2 MB after navigate-away + navigate-back — probable per-load leak | `performance.memory.usedJSHeapSize` delta across round-trip (soft — GC-dependent) |
 
@@ -328,7 +328,7 @@ Argus watches your running application and automatically surfaces issues that te
 | **Accessibility Snapshot Analysis** | Calls `take_snapshot` then `evaluate_script`; flags interactive elements missing accessible names, unlabelled form controls, duplicate landmark regions, heading level skips, and `aria-expanded` buttons with missing/broken `aria-controls` |
 | **Keyboard Focus Analysis** | Tab-walks every focusable element (up to 20 steps); detects `focus_visible_missing` (button/link with `outline:0` and no `box-shadow` fallback — keyboard users cannot see where focus is) |
 | **Chrome DevTools Issues Panel** | Queries `list_console_messages({ types: ['issue'] })` for the Issues panel namespace, which is entirely separate from `console.error`; catches CSP violations and deprecated API usage (verified) — additional Chrome-surfaced types (CORS blocks, mixed content, cookie misconfiguration, low-contrast) are classified when present |
-| **Mobile CPU Throttling** | Applies 4× CPU throttle (`emulate_cpu({ throttlingRate: 4 })`) during ≤768px responsive breakpoints — finds layout reflow and animation jank that only manifests under realistic mobile CPU pressure |
+| **Mobile CPU Throttling** | Applies 4× CPU throttle (`emulate({ cpuThrottlingRate: 4 })`) during ≤768px responsive breakpoints — finds layout reflow and animation jank that only manifests under realistic mobile CPU pressure |
 | **Origin-Tagged Network Findings** | All network error and timing findings carry `origin: 'first-party' \| 'third-party'` so operators can triage critical first-party failures without digging through third-party CDN noise |
 | **Historical Baselines** | Saves finding keys after each run; subsequent runs only alert on *new* issues; trend summary in Slack digest |
 | **Flakiness Detection** | Crawls each route twice per run; findings in both runs are confirmed (original severity); findings in only one run are marked flaky (`severity: info`, `:zap: _flaky_` label) |
@@ -972,7 +972,7 @@ argus/
 | CSS analysis | Script injected via `evaluate_script` | Runs in page context so it sees the live computed styles, CSS Modules hashes, and React fiber properties |
 | Responsive viewport | `emulate` (not `resize_page`) | `resize_page` only resizes the browser window and does not update CSS viewport width — `emulate` is the correct API |
 | Viewport width measurement | `document.documentElement.clientWidth` | After `emulate` with mobile flag, `window.innerWidth` returns the legacy layout viewport (~952px), not the device width |
-| V8 heap snapshot | `take_memory_snapshot({ filePath })` → read from disk | The MCP tool writes JSON to disk (not inline); parse with `JSON.parse(fs.readFileSync(filePath))` then delete the temp file |
+| V8 heap snapshot | `take_heapsnapshot({ filePath })` → read from disk | The MCP tool writes JSON to disk (not inline); parse with `JSON.parse(fs.readFileSync(filePath))` then delete the temp file |
 | Detached DOM detection | Walk flat `nodes` array for "Detached " prefix in strings table | Chrome serializes detached elements as "Detached HTMLDivElement" etc.; secondary check on `detachedness === 2` (Chrome 90+) |
 | Baseline finding key | `type::message[:100]::status` | Excludes timestamps and dynamic URL path IDs; message truncated to 100 chars to handle slight wording variations; `::status` suffix only added when non-null |
 | Baseline alert filter | `isNew === true` (strict) | Only findings explicitly marked new by `applyBaseline` are dispatched to Slack — prevents stale re-dispatch if baseline-manager is not called (fails silently rather than spamming) |
