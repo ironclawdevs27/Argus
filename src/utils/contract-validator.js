@@ -108,10 +108,11 @@ export function matchesContract(reqUrl, reqMethod, contract) {
 function loadSchema(contract) {
   if (contract.schema) return contract.schema;
   if (contract.schemaFile) {
-    // Prevent path traversal — schemaFile must stay within the project directory
+    // Prevent path traversal — schemaFile must resolve inside the project directory.
+    // path.relative() + '..' check is robust across case differences and path separator variants.
     const resolved = path.resolve(contract.schemaFile);
-    const cwd = process.cwd();
-    if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
+    const rel = path.relative(process.cwd(), resolved);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
       logger.warn('[ARGUS] contract-validator: schemaFile outside project directory — skipping:', contract.schemaFile);
       return null;
     }

@@ -119,6 +119,13 @@ export async function createMcpClient() {
           } else {
             resolve(msg.result);
           }
+        } else if (msg.id !== undefined && !pending.has(msg.id)) {
+          // Response arrived after timeout already fired — log for observability
+          logger.debug(`[ARGUS] MCP late response for id=${msg.id} (already timed out or unknown)`);
+        } else if (msg.method) {
+          // Server-initiated notification (e.g. progress) — not an error, no action needed
+        } else {
+          logger.debug('[ARGUS] MCP unexpected message shape:', JSON.stringify(msg).slice(0, 200));
         }
       } catch {
         // non-JSON line from process — ignore

@@ -22,7 +22,13 @@ import { childLogger } from '../utils/logger.js';
 
 const logger = childLogger('slack-notifier');
 
-const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
+// Lazy-init — avoid constructing WebClient at module load so importing slack-notifier
+// when SLACK_BOT_TOKEN is absent (HTML-report mode) doesn't create a useless client.
+let _slack = null;
+function getSlack() {
+  if (!_slack) _slack = new WebClient(process.env.SLACK_BOT_TOKEN);
+  return _slack;
+}
 
 const CHANNELS = {
   critical: process.env.SLACK_CHANNEL_CRITICAL,
@@ -43,7 +49,7 @@ const SLACK_RATE_LIMIT_RETRIES = 3;
 async function slackPostWithBackoff(args) {
   for (let attempt = 0; attempt < SLACK_RATE_LIMIT_RETRIES; attempt++) {
     try {
-      return await slack.chat.postMessage(args);
+      return await getSlack().chat.postMessage(args);
     } catch (err) {
       const isRateLimit = err.code === 'slack_webapi_rate_limited'
         || err.message?.toLowerCase().includes('ratelimited');
@@ -75,7 +81,7 @@ async function uploadFileToSlack(filePath, channelId, filename) {
   // Step 1: Get a pre-signed upload URL from Slack
   let uploadUrl, fileId;
   try {
-    const urlResponse = await slack.files.getUploadURLExternal({
+    const urlResponse = await getSlack().files.getUploadURLExternal({
       filename,
       length: fileSize,
     });
@@ -106,7 +112,7 @@ async function uploadFileToSlack(filePath, channelId, filename) {
 
   // Step 3: Complete the upload and share to channel
   try {
-    await slack.files.completeUploadExternal({
+    await getSlack().files.completeUploadExternal({
       files: [{ id: fileId, title: filename }],
       channel_id: channelId,
     });
@@ -299,7 +305,7 @@ export async function acknowledgeMessage(ts, channelId, acknowledgingUser) {
 
   try {
     // Append an acknowledged context block by updating the message
-    const existing = await slack.conversations.history({
+    const existing = await getSlack().conversations.history({
       channel: channelId,
       latest: ts,
       inclusive: true,
@@ -325,7 +331,7 @@ export async function acknowledgeMessage(ts, channelId, acknowledgingUser) {
       },
     ];
 
-    await slack.chat.update({
+    await getSlack().chat.update({
       channel: channelId,
       ts,
       blocks: updatedBlocks,

@@ -280,7 +280,7 @@ function classifyConsoleMessage(msg, routeIsCritical) {
 function classifyNetworkRequest(req, routeIsCritical) {
   const status = req.status ?? 0;
   if (status >= 500) return 'critical';
-  if (status === 401 || status === 403) return 'critical';
+  if (status === 401 || status === 403) return routeIsCritical ? 'critical' : 'warning';
   if (status >= 400) return routeIsCritical ? 'warning' : 'info';
   return null;
 }
@@ -806,16 +806,22 @@ export async function crawlRouteExpensive(route, baseUrl, mcp) {
     const linksRaw = await browser.evaluate(INTERNAL_LINKS_SCRIPT);
     const rawLinks = unwrapEval(linksRaw);
     const links    = [...new Set(Array.isArray(rawLinks) ? rawLinks.filter(Boolean) : [])];
-    const headResults = await Promise.all(
-      links.map(async href => {
-        try {
-          const res = await fetch(href, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
-          return { href, status: res.status };
-        } catch (err) {
-          return { href, status: 0, error: err.message };
-        }
-      })
-    );
+    const BROKEN_LINK_BATCH_TIMEOUT_MS = 15000;
+    const headResults = await Promise.race([
+      Promise.all(
+        links.map(async href => {
+          try {
+            const res = await fetch(href, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
+            return { href, status: res.status };
+          } catch (err) {
+            return { href, status: 0, error: err.message };
+          }
+        })
+      ),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('broken-link batch timeout')), BROKEN_LINK_BATCH_TIMEOUT_MS)
+      ),
+    ]);
     for (const { href, status } of headResults) {
       if (status === 404) {
         errors.push({

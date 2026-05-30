@@ -59,9 +59,10 @@ jobs:
 
       - name: Run test harness
         run: npm run test:harness
-        # Exit code: 0 when only the 3 known permanent MCP-limited failures remain
-        # ([49b] drag, [67b]/[68b] DevTools Issues panel).
-        # Any new regression beyond those 3 exits with code 1 and blocks the merge.
+        # KNOWN_PERMANENT failures (exit 0): [49b] drag-and-drop, [67b] DevTools Issues
+        # CSP header, [68b] DevTools Issues CORS — all MCP-level limits that cannot be
+        # fixed in Argus code. Any failure outside these 3 exits 1 and blocks the merge.
+        # To add a new permanent: update KNOWN_PERMANENT array in test-harness/validate.js.
 
       - name: Run unit tests (no Chrome required)
         run: npm run test:unit
