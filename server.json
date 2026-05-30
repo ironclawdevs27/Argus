@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.ironclawdevs27/argus",
-  "description": "AI-powered QA harness — catch JS errors, a11y violations, visual regressions, and security issues.",
+  "description": "Automated web QA via Chrome DevTools MCP — JS, a11y, security, visual, env diff, CI reporting.",
   "repository": {
     "url": "https://github.com/ironclawdevs27/Argus",
     "source": "github"
   },
-  "version": "9.4.3",
+  "version": "9.4.4",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "argusqa-os",
-      "version": "9.4.3",
+      "version": "9.4.4",
       "transport": {
         "type": "stdio"
       },
