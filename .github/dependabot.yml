@@ -1,0 +1,60 @@
+version: 2
+
+updates:
+  # Root package — Argus QA harness + MCP server
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    groups:
+      mcp-sdk:
+        patterns:
+          - "@modelcontextprotocol/*"
+      otel:
+        patterns:
+          - "@opentelemetry/*"
+      dev-tools:
+        patterns:
+          - "vitest"
+          - "vite"
+
+  # Landing page
+  - package-ecosystem: "npm"
+    directory: "/landing"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "landing"
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+      framer:
+        patterns:
+          - "framer-motion"
+
+  # GitHub Actions — keep action versions current
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "github-actions"
