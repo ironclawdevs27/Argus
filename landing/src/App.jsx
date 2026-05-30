@@ -27,8 +27,8 @@ const navHrefs = {
 
 const stats = [
   { num: '54', label: 'DETECTION\nTYPES' },
-  { num: '84', label: 'TEST\nBLOCKS' },
-  { num: '367', label: 'ASSERTIONS\nRUN' },
+  { num: '93', label: 'TEST\nBLOCKS' },
+  { num: '394', label: 'ASSERTIONS\nRUN' },
 ]
 
 const headingWords = ['Every', 'Bug', 'Caught']
@@ -692,7 +692,7 @@ const docChapters = [
   {
     num: '05',
     title: 'Test Coverage',
-    tagline: '84 blocks, 367 hard assertions, fixture-driven with zero ambiguity',
+    tagline: '93 blocks, 394 hard assertions, fixture-driven with zero ambiguity',
     sections: [
       {
         body: 'Every detection category has a corresponding fixture HTML page that reliably triggers exactly that bug. Fixtures are served via HTTP — never file:// — so CORS, ES modules, and fetch APIs work correctly. Each block has at minimum 3 hard assertions and passes consistently across environments without flakiness.',
@@ -703,7 +703,7 @@ const docChapters = [
           'Blocks 1–50: browser-based detections (phases A through D8.5)',
           'Blocks 51–64: integration unit tests (pure functions, no Chrome required)',
           'Blocks 65–78: production crawl pipeline, watch mode, extended phases',
-          'Blocks 79–84: config validation, MCP server registration, createFinding(), withRetry(), watch dashboard, cli/init.js',
+          'Blocks 79–93: config validation, MCP server registration, createFinding(), withRetry(), watch dashboard, cli/init.js, and crawlRouteCheap production path coverage',
           '61 Vitest unit tests covering core logic — zero Chrome dependency',
           '3 assertions permanently fail due to MCP-level constraints (documented as expected)',
         ],
@@ -719,8 +719,8 @@ const docChapters = [
       {
         title: 'Running',
         code: `npm run test:unit     # 61 Vitest tests — no Chrome required
-npm run test:harness  # 367 hard assertions — Chrome required (headless)
-# Expected: 364/367 (3 permanent MCP-limited failures: drag, Issues panel)
+npm run test:harness  # 394 hard assertions — Chrome required (headless)
+# Expected: 391/394 (3 permanent MCP-limited failures: drag, Issues panel)
 # Soft assertions (Lighthouse, perf traces) require non-headless Chrome`,
       },
     ],
