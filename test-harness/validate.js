@@ -3087,7 +3087,7 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   // ── [71] CPU throttle applied during responsive analysis ─────────────────
   console.log('\n[71] CPU throttle for mobile breakpoints — responsive-issues.html');
   {
-    // analyzeResponsive now calls emulate_cpu({ throttlingRate: 4 }) at ≤768px.
+    // analyzeResponsive now calls emulate({ cpuThrottlingRate: 4 }) at ≤768px.
     // The fixture findings must still be correct — throttle must not suppress detections.
     const { findings: findings71 } = await analyzeResponsive(browser, `${B}/responsive-issues.html`);
     assert(Array.isArray(findings71),

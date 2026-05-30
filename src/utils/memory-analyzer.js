@@ -2,7 +2,7 @@
  * ARGUS Memory Analyzer (v3 Phase B1)
  *
  * Two detection surfaces:
- *   1. Detached DOM nodes — via take_memory_snapshot (saves snapshot to disk, parsed here)
+ *   1. Detached DOM nodes — via take_heapsnapshot (saves snapshot to disk, parsed here)
  *      Nodes removed from the live DOM but still referenced in JS are retained
  *      in the V8 heap as "Detached HTMLXxx" objects, causing memory pressure.
  *   2. Heap size growth — via performance.memory across navigate-away + navigate-back
@@ -11,7 +11,7 @@
  * Called as a standalone function after crawlRoute, like analyzeResponsive.
  * The function always leaves the browser navigated to the target URL.
  *
- * Note: take_memory_snapshot requires a filePath argument — it writes the V8
+ * Note: take_heapsnapshot requires a filePath argument — it writes the V8
  * heap snapshot JSON to disk. We read and parse it, then delete the temp file.
  */
 
@@ -115,7 +115,7 @@ async function getHeapSize(browser) {
 
 /**
  * Take a V8 heap snapshot, save it to a temp file, parse it, and delete the file.
- * take_memory_snapshot writes the snapshot JSON to disk (filePath is required).
+ * take_heapsnapshot writes the snapshot JSON to disk (filePath is required).
  *
  * @param {object} browser - CdpBrowserAdapter
  * @returns {Promise<{ detachedNodeCount: number, totalNodeCount: number|null } | null>}
@@ -153,7 +153,7 @@ async function captureAndParseSnapshot(browser) {
  * Analyse a URL for memory leaks.
  *
  * Detection 1 — Detached DOM nodes (hard, deterministic):
- *   Navigate to url → wait → take_memory_snapshot to disk → parse for "Detached Xxx" nodes.
+ *   Navigate to url → wait → take_heapsnapshot to disk → parse for "Detached Xxx" nodes.
  *   Detached nodes are DOM elements removed from the live tree but still referenced
  *   in JS (e.g. stashed in a closure, array, or event handler), preventing GC.
  *

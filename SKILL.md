@@ -297,13 +297,13 @@ await mcp.emulate({ geolocation: { latitude: 37.7749, longitude: -122.4194 } });
 await mcp.emulate({ cpuThrottling: 4 });
 await mcp.emulate({ device: null, networkCondition: null }); // reset
 
-// Separate tools (change one dimension without resetting others)
+// Change one dimension at a time — emulate only applies the properties you pass
 await mcp.resize_page({ width: 375, height: 812 });
-await mcp.emulate_network({ throttlingOption: 'Slow 3G' }); // Offline | Slow 3G | Fast 3G | Slow 4G | Fast 4G
-await mcp.emulate_cpu({ throttlingRate: 4 });               // 1=no throttle, 4=4×, 6=6×, 20=max
+await mcp.emulate({ networkConditions: 'Slow 3G' }); // Offline | Slow 3G | Fast 3G | Slow 4G | Fast 4G
+await mcp.emulate({ cpuThrottlingRate: 4 });          // 1=no throttle, 4=4×, 6=6×, 20=max
 ```
 
-Use `emulate` for multiple conditions at once; use separate tools to change one dimension without resetting others.
+Pass multiple properties to `emulate` to set several conditions in one call; pass one property to change a single dimension without affecting others.
 
 ### Snapshot Verbosity
 
@@ -1229,7 +1229,7 @@ for (const bp of breakpoints) {
 | Detection categories | 54 in production code; **47 positively verified** by harness fixtures |
 | Fixture pages | 54 |
 | Flow step actions | 11 (navigate, waitFor, sleep, fill, click, drag, upload_file, select_option, press_key, handle_dialog, assert) |
-| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring, 1 s default poll, live web dashboard port 3002), adapter layer (CdpBrowserAdapter, + listPages/selectPage), plugin registry, god object split, threshold centralization + Zod validation, session split, Pino logging, retry logic, Vitest unit tests (61 tests, blocks [81]+[82]), Argus MCP server (6 tools: argus_audit + cache, argus_audit_full, argus_compare, argus_last_report, argus_watch_snapshot + tabId, argus_get_context + tabId + open_tabs; block [80]), fix loop (snapshot_id + diff), OTel tracing, npm publication (`argusqa-os@9.4.1`), CI harness gate (harness-ci.yml), glama.json expanded, block [84] (cli/init.js smoke) |
+| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring, 1 s default poll, live web dashboard port 3002), adapter layer (CdpBrowserAdapter, + listPages/selectPage), plugin registry, god object split, threshold centralization + Zod validation, session split, Pino logging, retry logic, Vitest unit tests (61 tests, blocks [81]+[82]), Argus MCP server (6 tools: argus_audit + cache, argus_audit_full, argus_compare, argus_last_report, argus_watch_snapshot + tabId, argus_get_context + tabId + open_tabs; block [80]), fix loop (snapshot_id + diff), OTel tracing, npm publication (`argusqa-os@9.4.2`), CI harness gate (harness-ci.yml), glama.json expanded, block [84] (cli/init.js smoke), Sprint 0.5 Tier 1: `take_heapsnapshot` + `emulate({ cpuThrottlingRate })` fixes |
 
 Expected harness output: `364/367 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b] — exits 0 when only these fail)
 
@@ -1425,7 +1425,7 @@ All 13 analyzer/orchestration/harness files migrated from `mcp.*` → `browser.*
 | `browser.evaluate(fn)` | `evaluate_script({ function: fn })` |
 | `browser.snapshot()` | `take_snapshot()` |
 | `browser.screenshot(opts)` | `take_screenshot(opts)` |
-| `browser.heapSnapshot(opts)` | `take_memory_snapshot(opts)` |
+| `browser.heapSnapshot(opts)` | `take_heapsnapshot(opts)` |
 | `browser.click(uid)` | `click({ uid })` |
 | `browser.fill(uid, value)` | `fill({ uid, value })` |
 | `browser.type(text)` | `type_text({ text })` |
@@ -1436,7 +1436,7 @@ All 13 analyzer/orchestration/harness files migrated from `mcp.*` → `browser.*
 | `browser.handleDialog(accept, text)` | `handle_dialog({ accept, promptText })` |
 | `browser.waitFor(opts)` | `wait_for(opts)` |
 | `browser.emulate(viewport)` | `emulate({ viewport })` |
-| `browser.emulateCpu(rate)` | `emulate_cpu({ throttlingRate: rate })` |
+| `browser.emulateCpu(rate)` | `emulate({ cpuThrottlingRate: rate })` |
 | `browser.resize(w, h)` | `resize_page({ width: w, height: h })` |
 | `browser.getNetworkRequest(id)` | `get_network_request({ requestId: id })` |
 | `browser.lighthouse(url, opts)` | `lighthouse_audit({ url, ...opts })` |
@@ -1456,7 +1456,7 @@ All 13 analyzer/orchestration/harness files migrated from `mcp.*` → `browser.*
 | --- | --- | --- |
 | v6.093 | `csp_violation`, `deprecated_api_use` (verified); `cors_violation`, `mixed_content`, `cookie_attribute_missing`, `low_contrast_native`, `permission_policy_violation` (classified when present, no fixture) | 66, 67, 68 |
 | v6.094 | `slow_third_party_blocking` | [69] |
-| v6.095 | CPU throttle (`emulate_cpu`) during mobile responsive analysis | [71] |
+| v6.095 | CPU throttle (`emulate({ cpuThrottlingRate })`) during mobile responsive analysis | [71] |
 | v6.096 | `heading_level_skip` | [70] |
 | v6.097 | `focus_visible_missing` (verified); `focus_lost` (implemented, no fixture — v6.105) | [72] |
 | v6.098 | `aria_expanded_no_controls` | [73] |
@@ -1941,16 +1941,16 @@ ssh -N -L 127.0.0.1:9222:127.0.0.1:9222 <user>@<windows-host-ip>
 ### 3-Snapshot Workflow
 
 ```javascript
-await mcp.take_memory_snapshot({ filePath: '/tmp/heap-baseline.heapsnapshot' });
+await mcp.take_heapsnapshot({ filePath: '/tmp/heap-baseline.heapsnapshot' });
 
 for (let i = 0; i < 10; i++) {
   await mcp.click({ uid: triggerUid });
   await mcp.press_key({ key: 'Escape' });
 }
-await mcp.take_memory_snapshot({ filePath: '/tmp/heap-target.heapsnapshot' });
+await mcp.take_heapsnapshot({ filePath: '/tmp/heap-target.heapsnapshot' });
 
 // After revert/cleanup
-await mcp.take_memory_snapshot({ filePath: '/tmp/heap-final.heapsnapshot' });
+await mcp.take_heapsnapshot({ filePath: '/tmp/heap-final.heapsnapshot' });
 ```
 
 ### Memlab Analysis
@@ -2059,7 +2059,7 @@ Use the simplest tool that answers the question. Escalate only when lower-level 
 
 - `lighthouse_audit` — starts a full page load; expensive
 - `performance_start_trace` / `performance_stop_trace` — large data capture
-- `take_memory_snapshot` — generates 100MB+ heap files
+- `take_heapsnapshot` — generates 100MB+ heap files
 
 **Claude Code Chrome extension mode** (`/chrome` or `claude --chrome`): Exposes additional tools not in chrome-devtools MCP:
 

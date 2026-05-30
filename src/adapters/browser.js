@@ -27,7 +27,7 @@ export class CdpBrowserAdapter {
   evaluate(fn)             { return this._mcp.evaluate_script({ function: fn }); }
   snapshot()               { return this._mcp.take_snapshot(); }
   screenshot(opts = {})    { return this._mcp.take_screenshot(opts); }
-  heapSnapshot(opts = {})  { return this._mcp.take_memory_snapshot(opts); }
+  heapSnapshot(opts = {})  { return this._mcp.take_heapsnapshot(opts); }
 
   // ── Interactions ────────────────────────────────────────────────────────────
   // click is intentionally NOT retried — it is not idempotent (submits forms,
@@ -46,7 +46,7 @@ export class CdpBrowserAdapter {
 
   // ── Viewport ────────────────────────────────────────────────────────────────
   emulate(viewport)        { return this._mcp.emulate({ viewport }); }
-  emulateCpu(rate)         { return this._mcp.emulate_cpu({ throttlingRate: rate }); }
+  emulateCpu(rate)         { return this._mcp.emulate({ cpuThrottlingRate: rate }); }
   resize(w, h)             { return this._mcp.resize_page({ width: w, height: h }); }
 
   // ── Network & performance ───────────────────────────────────────────────────
