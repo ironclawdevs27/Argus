@@ -167,7 +167,7 @@ export const auth = null;
  * Each flow is a named sequence of steps executed end-to-end by flow-runner.js.
  * Supported actions:
  *   navigate      — { action: 'navigate', path: '/route' }  or  url: 'https://...' for absolute
- *   fill          — { action: 'fill', selector: 'input#email', value: 'x@y.com' }
+ *   fill          — { action: 'fill', selector: 'input#email', value: 'user@example.com' }
  *                   Add typing: true to dispatch real keyboard events (needed for input-validation handlers)
  *   click         — { action: 'click', selector: 'button[type=submit]' }
  *   press_key     — { action: 'press_key', key: 'Tab' | 'Enter' | 'Escape' | 'ArrowDown' | ... }

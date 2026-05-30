@@ -37,7 +37,7 @@ const RAW_STAGING_URL = process.env.TARGET_STAGING_URL ?? '';
 // Validate as a parseable URL with a non-localhost hostname — checking only against
 // one hardcoded placeholder string misses 'TODO', 'your-url-here', http://localhost, etc.
 const STAGING_URL_SET = (() => {
-  if (!RAW_STAGING_URL || RAW_STAGING_URL === 'https://staging.yourapp.com') return false;
+  if (!RAW_STAGING_URL || RAW_STAGING_URL === 'https://staging.example.com') return false;
   try {
     const u = new URL(RAW_STAGING_URL);
     return u.hostname !== 'localhost' && u.hostname !== '127.0.0.1' && u.hostname !== '';

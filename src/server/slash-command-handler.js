@@ -93,7 +93,7 @@ export async function handleSlashCommand(req, res) {
   if (!targetUrl) {
     return res.json({
       response_type: 'ephemeral',
-      text: '⚠️ Usage: `/argus-retest <url>`\nExample: `/argus-retest https://staging.yourapp.com/checkout`',
+      text: '⚠️ Usage: `/argus-retest <url>`\nExample: `/argus-retest https://staging.example.com/checkout`',
     });
   }
 

@@ -30,7 +30,7 @@ async function maybeStartSdk() {
     const { resourceFromAttributes } = await import('@opentelemetry/resources');
     const resource = resourceFromAttributes({
       'service.name':    'argus',
-      'service.version': '9.3.0',
+      'service.version': '9.4.4',
     });
 
     if (consoleMode && !hasOtlpEndpoint) {
