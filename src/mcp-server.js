@@ -138,11 +138,23 @@ async function handleAudit({ url, critical = false, cache = false }) {
     return { content: [{ type: 'text', text: JSON.stringify({ ...result, _cached: true, _cachedAt: new Date(ts).toISOString() }, null, 2) }] };
   }
   return withMcp(async (mcp) => {
-    const parsed  = new URL(url);
-    const route   = { path: parsed.pathname + parsed.search + parsed.hash, name: 'audit', critical };
-    const findings = await crawlRouteCheap(route, parsed.origin, mcp);
-    if (cache) cacheAudit(url, findings);
-    return { content: [{ type: 'text', text: JSON.stringify(findings, null, 2) }] };
+    const parsed = new URL(url);
+    const route  = { path: parsed.pathname + parsed.search + parsed.hash, name: 'audit', critical };
+    const raw    = await crawlRouteCheap(route, parsed.origin, mcp);
+    const findings = Array.isArray(raw.errors) ? raw.errors : [];
+    const result = {
+      findings,
+      summary: {
+        critical: findings.filter(f => f.severity === 'critical').length,
+        warning:  findings.filter(f => f.severity === 'warning').length,
+        info:     findings.filter(f => f.severity === 'info').length,
+      },
+      url:        raw.url,
+      pageTitle:  raw.pageTitle,
+      screenshot: raw.screenshot,
+    };
+    if (cache) cacheAudit(url, result);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   });
 }
 
