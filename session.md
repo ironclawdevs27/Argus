@@ -4,6 +4,40 @@
 
 ---
 
+## Last Session: 2026-05-30 (Session 40)
+
+### What Was Accomplished
+
+**v9.4.1 — Post-Sprint-10 gap-audit patch. All 3 identified gaps fixed and published.**
+
+| Change | Detail |
+|--------|--------|
+| **handleAudit API contract fix** | `crawlRouteCheap` raw output (`{ route, url, errors, ... }`) was being returned as-is; now transformed to documented `{ findings, summary: { critical, warning, info }, url, pageTitle, screenshot }` shape. Cache stores and returns the shaped result. |
+| **CI Chrome retry loop** | `.github/workflows/harness-ci.yml` `sleep 3 + single curl` replaced with a 15-attempt retry loop (1 s each); exits 1 if Chrome never starts — eliminates CI timing-variance failures. |
+| **Version bump** | 9.4.0 → 9.4.1 across `package.json`, `server.json`, `src/mcp-server.js` |
+| **Roadmap stats fixed** | `argus-vX1-roadmap.md` (gitignored): version table `82/4 tools/9.2.0` → `84/6 tools/v9.4.1`; Sprint 2 Figma block `[83]` → `[85]`; harness impact table `82/348/4` → `84/367/6`; OG card stats `54/82/348` → `54/84/367` |
+| **Published** | `argusqa-os@9.4.1` → npm + MCP Registry (`io.github.ironclawdevs27/argus@9.4.1`) |
+
+#### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/mcp-server.js` | `handleAudit`: transform `crawlRouteCheap` output to `{ findings, summary }`; version → 9.4.1 |
+| `.github/workflows/harness-ci.yml` | Chrome startup: 15-attempt retry loop replaces fragile `sleep 3 + curl` |
+| `package.json` | Version → 9.4.1 |
+| `server.json` | Version → 9.4.1 |
+| `CLAUDE.md` | validate.js description 82→84 block; harness run comment 345/348→364/367; version 9.4.0→9.4.1 |
+| `solution.md` | Status header → v9.4.1; validate.js description 82→84; OG stats 54/82/348→54/84/367; harness comments 345/348→364/367; assertions 348→367 |
+| `SKILL.md` | npm publication 9.4.0→9.4.1 |
+| `test-harness/README.md` | Sprint history: 9.4.1 patch note added |
+| `session.md` | Session 40 added |
+
+#### Next Steps
+
+1. vX1 Sprint 1: Dark Mode & Theme Testing (`theme-analyzer.js`)
+
+---
+
 ## Last Session: 2026-05-30 (Session 39)
 
 ### What Was Accomplished

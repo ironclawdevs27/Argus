@@ -1,6 +1,6 @@
 # Argus — Technical Solution Document
 
-> **Status**: All phases complete through v9.4.0 (2026-05-30, Session 39). v9 Sprint 10: `argus_audit` caching (`cache:true`, `auditCache` Map); multi-tab watch mode (`tabId` on `argus_watch_snapshot` + `argus_get_context`, `open_tabs` in context response, `listPages()`/`selectPage()` on `CdpBrowserAdapter`); GitHub Actions harness CI gate (`.github/workflows/harness-ci.yml`, exits 0 on known permanent failures); `glama.json` expanded with name + description + 6 tools; harness block [84] (7 assertions, `cli/init.js` smoke test); permanent-failure exit logic in `validate.js`. Published as `argusqa-os@9.4.0`. v9 Sprint 9 (Session 38, 2026-05-29): fix loop (`snapshot_id` diff); watch dashboard port 3002; block [83]; 357/360. Sprint 8: `argus_watch_snapshot` + `argus_get_context`; watch interval 1 s; `argusqa-os@9.3.0`. Landing page built + Supabase integration (Session 35, 2026-05-25). Sprint 0 mobile + SEO complete; deployed to argus-qa.com (Session 36, 2026-05-26). Published `argusqa-os@9.2.0` (Session 37, 2026-05-27). v7 final production hardening (Session 24, 2026-05-05). v9 Sprints 1–7 (Sessions 27–34, 2026-05-17 to 2026-05-24) — CdpBrowserAdapter, plugin registry, god object split, Zod config, session split, Pino logging, withRetry, Vitest unit tests, OTel.
+> **Status**: All phases complete through v9.4.1 (2026-05-30, Session 40). v9.4.1 patch: `handleAudit` now returns `{ findings, summary }` as documented (API contract fix); CI Chrome startup uses 15-attempt retry loop. v9 Sprint 10 (Session 39): `argus_audit` caching (`cache:true`, `auditCache` Map); multi-tab watch mode (`tabId` on `argus_watch_snapshot` + `argus_get_context`, `open_tabs` in context response, `listPages()`/`selectPage()` on `CdpBrowserAdapter`); GitHub Actions harness CI gate (`.github/workflows/harness-ci.yml`, exits 0 on known permanent failures); `glama.json` expanded with name + description + 6 tools; harness block [84] (7 assertions, `cli/init.js` smoke test); permanent-failure exit logic in `validate.js`. Published as `argusqa-os@9.4.1`. v9 Sprint 9 (Session 38, 2026-05-29): fix loop (`snapshot_id` diff); watch dashboard port 3002; block [83]; 357/360. Sprint 8: `argus_watch_snapshot` + `argus_get_context`; watch interval 1 s; `argusqa-os@9.3.0`. Landing page built + Supabase integration (Session 35, 2026-05-25). Sprint 0 mobile + SEO complete; deployed to argus-qa.com (Session 36, 2026-05-26). Published `argusqa-os@9.2.0` (Session 37, 2026-05-27). v7 final production hardening (Session 24, 2026-05-05). v9 Sprints 1–7 (Sessions 27–34, 2026-05-17 to 2026-05-24) — CdpBrowserAdapter, plugin registry, god object split, Zod config, session split, Pino logging, withRetry, Vitest unit tests, OTel.
 > **Harness**: 84 blocks · 367 hard assertions · 54 fixture pages · 54 detection categories
 
 ---
@@ -137,7 +137,7 @@ src/
     targets.js                   — routes, flows, API contracts, auth config, thresholds
     schema.js                    — Zod validation schema; validateConfig() called inside runCrawl()
 test-harness/
-  validate.js                    — 82-block correctness harness (348 hard assertions)
+  validate.js                    — 84-block correctness harness (367 hard assertions)
   harness-config.js              — fixture page routing table (54 pages)
   server.js                      — fixture HTTP server (port 3100)
   pages/                         — 54 fixture HTML pages (one per detection category)
@@ -200,7 +200,7 @@ Applied before Product Hunt launch:
 | SEO | `index.html`: full OG tags, `summary_large_image` Twitter card, canonical URL, JSON-LD `SoftwareApplication` schema |
 | Crawlability | `landing/public/robots.txt` + `landing/public/sitemap.xml` |
 | Video poster | `Argus_bg.png` → `landing/public/argus-poster.png`; `poster="/argus-poster.png"` on `<video>` tag |
-| OG social card | `landing/public/og-image-v2.jpg` — 1200×630 JPEG, cover-mode scaled from `argus-poster.png` (no black borders), branded gradient overlay, black-outlined purple stat numbers (54 / 82 / 348), CTA pill, watermark; `og-image.jpg` gitignored |
+| OG social card | `landing/public/og-image-v2.jpg` — 1200×630 JPEG, cover-mode scaled from `argus-poster.png` (no black borders), branded gradient overlay, black-outlined purple stat numbers (54 / 84 / 367), CTA pill, watermark; `og-image.jpg` gitignored |
 | Mobile stats layout | Hero stats row stacks vertically on mobile (`flex-col sm:flex-row`) — prevents overlap with slide card at 390px |
 | Slides reduction | Slide widget reduced from 8 → 6 entries (removed slides 3 and 8); `clamp()`-based fluid typography on stats and slide text |
 | Deployment | `npx wrangler pages deploy dist --project-name argus-qa` → `argus-qa.com`; video served from Cloudflare R2 |
@@ -866,7 +866,7 @@ cp .env.example .env
 
 ```bash
 npm run test:harness
-# Expected: 345/348 (3 permanent MCP-limited failures: [49b], [67b], [68b])
+# Expected: 364/367 (3 permanent MCP-limited failures: [49b], [67b], [68b])
 ```
 
 ### Running a crawl
@@ -952,7 +952,7 @@ ARGUS_REPORT_URL=https://...          # link to full HTML report
 - Block 81: `createFinding()` unit test — required fields, invalid severity, immutability, url default (Sprint 5)
 - Block 82: `withRetry()` unit test — success-on-retry, rethrow, env override (Sprint 5)
 
-**348 hard assertions** across all 82 blocks. Soft assertions (Lighthouse, performance traces) require non-headless Chrome and are skipped in headless CI.
+**367 hard assertions** across all 84 blocks. Soft assertions (Lighthouse, performance traces) require non-headless Chrome and are skipped in headless CI.
 
 **54 fixture pages** in `test-harness/pages/`, plus `nextjs-fixture/` (10 files) and `sitemap.xml` for C3 tests, plus `source-fixture/app.js` for C1 codebase-analyzer tests. All served via HTTP on port 3100 — never via `file://`.
 
