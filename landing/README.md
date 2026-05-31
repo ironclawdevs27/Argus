@@ -122,6 +122,19 @@ All UI lives in `src/App.jsx` as a single-file app. Hero section is built inline
 | `@media` edge cases | ✅ Fixed | `100dvh` via `@supports` in `index.css`; stat row / detection grid / nav handle narrow viewports natively |
 | SEO — OG / Twitter / JSON-LD | ✅ Added | `index.html` has full OG tags, Twitter card, canonical, JSON-LD schema |
 | `robots.txt` + `sitemap.xml` | ✅ Added | Both in `landing/public/` |
-| OG social card | ✅ Done | `og-image-v2.jpg` — 1200×630 JPEG, cover-mode scaled from `argus-poster.png`, branded overlay, black-outlined purple stat numbers (54 / 84 / 367), CTA pill; `og-image.jpg` gitignored |
+| OG social card | ✅ Done | `og-image-v2.jpg` — 1200×630 JPEG, cover-mode scaled from `argus-poster.png`, branded overlay, black-outlined purple stat numbers (original 54 / 84 / 367 — baked into image asset); `og-image.jpg` gitignored |
 | Mobile stats layout | ✅ Fixed | Stats row stacks vertically on mobile (`flex-col sm:flex-row`); slide widget reduced from 8 → 6 slides; `clamp()`-based fluid typography |
 | Deployment | ✅ Live | `npx wrangler pages deploy dist --project-name argus-qa`; custom domain `argus-qa.com` active |
+
+## Stats Update (2026-05-31)
+
+Hero stats and docs section updated to reflect gap-close completion (blocks [94]–[126]):
+
+| Field | Old | New |
+|---|---|---|
+| `stats[1].num` (TEST BLOCKS) | `93` | `126` |
+| `stats[2].num` (ASSERTIONS RUN) | `394` | `528` |
+| Docs § "Test Coverage" tagline | `93 blocks, 394 hard assertions` | `126 blocks, 528 hard assertions` |
+| Docs § "Breakdown" | Ended at Blocks 79–93 | Added Blocks 94–126 bullet |
+| Docs § "Running" code | `394 hard assertions`, `391/394` | `528 hard assertions`, `525/528` |
+| "How we built it" caption | `84 test blocks` | `126 test blocks` |
