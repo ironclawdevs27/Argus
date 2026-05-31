@@ -26,6 +26,8 @@
  */
 
 import { childLogger } from './logger.js';
+import { registerExpensive } from '../registry.js';
+import { unwrapEval } from './mcp-client.js';
 
 const logger = childLogger('css-analyzer');
 
@@ -405,3 +407,8 @@ export function parseCssAnalysisResult(rawResult, url) {
 
   return bugs;
 }
+
+registerExpensive({ name: 'css', analyze: async (browser, url) => {
+  const cssRaw = await browser.evaluate(CSS_ANALYSIS_SCRIPT);
+  return parseCssAnalysisResult(unwrapEval(cssRaw), url);
+} });

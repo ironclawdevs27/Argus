@@ -1,5 +1,5 @@
 /**
- * Argus Report Processor (v9.1.3)
+ * Argus Report Processor
  *
  * Post-crawl pipeline: dedup → severity overrides → summary rebuild →
  * baseline load/apply/save → trend append → JSON write.

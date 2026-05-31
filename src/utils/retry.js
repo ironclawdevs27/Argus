@@ -29,7 +29,7 @@ export async function withRetry(fn, { attempts, delayMs = 400, label = '' } = {}
     } catch (err) {
       if (i === maxAttempts - 1) throw err;
       const wait = delayMs * Math.pow(2, i);
-      logger.debug(`[ARGUS] ${label ? label + ': ' : ''}retry ${i + 1}/${maxAttempts - 1} after ${wait}ms — ${err.message}`);
+      logger.debug(`[ARGUS] ${label ? label + ': ' : ''}retry ${i + 1}/${maxAttempts - 1} after ${wait}ms — ${err.constructor?.name ?? 'Error'}: ${err.message}`);
       await new Promise(r => setTimeout(r, wait));
     }
   }

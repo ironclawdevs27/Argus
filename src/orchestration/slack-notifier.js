@@ -54,7 +54,8 @@ async function slackPostWithBackoff(args) {
       const isRateLimit = err.code === 'slack_webapi_rate_limited'
         || err.message?.toLowerCase().includes('ratelimited');
       if (!isRateLimit || attempt === SLACK_RATE_LIMIT_RETRIES - 1) throw err;
-      const retryAfterMs = (err.retryAfter ?? 1) * 1000;
+      const jitter = Math.floor(Math.random() * 1000);
+      const retryAfterMs = (err.retryAfter ?? 1) * 1000 + jitter;
       logger.warn(`[ARGUS] Slack rate limited — retrying in ${retryAfterMs}ms (attempt ${attempt + 1})`);
       await new Promise(r => setTimeout(r, retryAfterMs));
     }

@@ -362,6 +362,8 @@ export async function runFlow(flow, baseUrl, browser) {
 
         case 'click': {
           // MCP click requires uid — resolve CSS selector to uid via snapshot.
+          // click is NOT retried (not idempotent — submits forms, triggers deletions).
+          // Add a preceding waitFor step in your flow config to ensure the target is ready.
           const clickUid = await resolveUidForSelector(browser, step.selector);
           if (!clickUid) throw new Error(`click: no uid found for selector "${step.selector}"`);
           await browser.click(clickUid);

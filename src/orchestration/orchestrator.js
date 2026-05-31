@@ -1,5 +1,5 @@
 /**
- * Argus Orchestrator (v9.3.0)
+ * Argus Orchestrator
  *
  * Per-route crawl loop: cheap×2 flakiness pass + expensive×1 pass.
  * Extracted from crawl-and-report.js god object.
@@ -15,7 +15,6 @@ import 'dotenv/config';
 import { routes, config, auth, flows, apiContracts, severityOverrides, codebase, autoDiscover, thresholds } from '../config/targets.js';
 import { discoverRoutes }                                                from '../utils/route-discoverer.js';
 import { analyzeCodebase, detectDeadRoutes, INTERNAL_LINKS_SCRIPT }     from '../utils/codebase-analyzer.js';
-import { CSS_ANALYSIS_SCRIPT, parseCssAnalysisResult }                  from '../utils/css-analyzer.js';
 import { SEO_ANALYSIS_SCRIPT, parseSeoAnalysisResult }                  from '../utils/seo-analyzer.js';
 import { SECURITY_ANALYSIS_SCRIPT, parseSecurityAnalysisResult, analyzeSecurityConsole, analyzeSecurityNetwork } from '../utils/security-analyzer.js';
 import { CONTENT_ANALYSIS_SCRIPT, parseContentAnalysisResult }          from '../utils/content-analyzer.js';
@@ -33,8 +32,9 @@ import { parseIssues }                                                   from '.
 import { parseNetworkTiming }                                            from '../utils/network-timing-analyzer.js';
 
 // Side-effect imports: each module calls registerExpensive() at load time.
-// lighthouse-checker.js also self-registers via its direct named import above (line 31).
+// lighthouse-checker.js also self-registers via its direct named import above.
 // Order below controls iteration order in crawlAndAnalyzeRoute — must match original call order.
+import '../utils/css-analyzer.js';
 import '../utils/responsive-analyzer.js';
 import '../utils/memory-analyzer.js';
 import '../utils/hover-analyzer.js';
@@ -54,6 +54,7 @@ const logger = childLogger('orchestrator');
 const __dirname   = path.dirname(fileURLToPath(import.meta.url));
 const BASE_URL    = process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
 const OUTPUT_DIR  = path.resolve(__dirname, '../../', config.outputDir);
+const LIGHTHOUSE_TIMEOUT_MS = parseInt(process.env.ARGUS_LIGHTHOUSE_TIMEOUT ?? '120000', 10);
 
 // Thresholds for perf budgets and network analysis are centralized in targets.js.
 
@@ -362,7 +363,6 @@ function analyzeNetworkPerformance(perfEntries, pageUrl) {
 
 async function checkPerformanceBudgets(browser, url) {
   const violations = [];
-  const LIGHTHOUSE_TIMEOUT_MS = parseInt(process.env.ARGUS_LIGHTHOUSE_TIMEOUT ?? '120000', 10);
 
   try {
     await browser.startTrace();
@@ -397,7 +397,6 @@ async function checkPerformanceBudgets(browser, url) {
     logger.warn(`[ARGUS] Performance trace skipped for ${url}: ${err.message}`);
   }
 
-  void LIGHTHOUSE_TIMEOUT_MS; // referenced only here to prevent unused-var lint
   return violations;
 }
 
@@ -724,15 +723,7 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
     }
   } catch { /* URL parse failure */ }
 
-  // 10. CSS analysis
-  try {
-    const cssRaw = await browser.evaluate(CSS_ANALYSIS_SCRIPT);
-    result.errors.push(...parseCssAnalysisResult(unwrapEval(cssRaw), url));
-  } catch (err) {
-    logger.warn(`[ARGUS] CSS analysis skipped for ${url}: ${err.message}`);
-  }
-
-  // 11. Deduplicate within this cheap run
+  // 10. Deduplicate within this cheap run
   result.errors = deduplicateErrors(result.errors);
 
   // 12. Screenshot
@@ -805,8 +796,14 @@ export async function crawlRouteExpensive(route, baseUrl, mcp) {
   // Performance budget check
   errors.push(...(await checkPerformanceBudgets(browser, url)));
 
-  // Full Lighthouse audit
-  errors.push(...(await checkLighthouse(browser, url)));
+  // Full Lighthouse audit (capped at LIGHTHOUSE_TIMEOUT_MS to prevent indefinite hang)
+  errors.push(...(await Promise.race([
+    checkLighthouse(browser, url),
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`Lighthouse timed out after ${LIGHTHOUSE_TIMEOUT_MS}ms`)), LIGHTHOUSE_TIMEOUT_MS)),
+  ]).catch(err => {
+    logger.warn(`[ARGUS] Lighthouse skipped for ${url}: ${err.message}`);
+    return [];
+  })));
 
   // Broken internal link detection
   try {
@@ -880,19 +877,19 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
       await refreshSession(browser, auth, targetBaseUrl);
       await restoreSession(browser, targetBaseUrl, sessionFile);
     } catch (err) {
-      logger.warn(`[ARGUS] Auth: session restore skipped for ${route.name}: ${err.message}`);
+      logger.warn(`[ARGUS] Auth: session restore skipped for ${route.name} (${route.path}): ${err.message}`);
     }
   }
 
   // Cheap pass × 2 → merge for flakiness
-  logger.info(`[ARGUS] ${route.name}: cheap run 1/2...`);
+  logger.info(`[ARGUS] ${route.name} (${route.path}): cheap run 1/2...`);
   const cheapRun1 = await startSpan('argus.crawl_route', { url, critical: String(!!route.critical), pass: 'cheap_1' }, () => crawlRouteCheap(route, targetBaseUrl, mcp));
-  logger.info(`[ARGUS] ${route.name}: cheap run 2/2 (flakiness check)...`);
+  logger.info(`[ARGUS] ${route.name} (${route.path}): cheap run 2/2 (flakiness check)...`);
   const cheapRun2 = await startSpan('argus.crawl_route', { url, critical: String(!!route.critical), pass: 'cheap_2' }, () => crawlRouteCheap(route, targetBaseUrl, mcp));
   const result    = mergeRunResults(cheapRun1, cheapRun2);
 
   // Expensive pass × 1
-  logger.info(`[ARGUS] ${route.name}: expensive analyzers (once)...`);
+  logger.info(`[ARGUS] ${route.name} (${route.path}): expensive analyzers (once)...`);
   const expensiveErrors = await startSpan('argus.crawl_route', { url, critical: String(!!route.critical), pass: 'expensive' }, () => crawlRouteExpensive(route, targetBaseUrl, mcp));
   result.errors.push(...expensiveErrors);
   result.errors = deduplicateErrors(result.errors);
@@ -923,7 +920,7 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
         if (Object.keys(screenshotPaths).length > 0) result.responsiveScreenshots = screenshotPaths;
       }
     } catch (err) {
-      logger.warn(`[ARGUS] ${name} skipped for ${route.name}: ${err.message}`);
+      logger.warn(`[ARGUS] ${name} skipped for ${route.name} (${route.path}): ${err.message}`);
     }
   }
 
@@ -955,7 +952,7 @@ async function crawlShardWithClient(shard, targetBaseUrl, mcp, sessionFile) {
     const result = await crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile);
     const flakyCount = result.errors.filter(e => e.flaky).length;
     if (flakyCount > 0) {
-      logger.info(`[ARGUS/parallel] ${route.name}: ${flakyCount} finding(s) downgraded to info (flaky)`);
+      logger.info(`[ARGUS/parallel] ${route.name} (${route.path}): ${flakyCount} finding(s) downgraded to info (flaky)`);
     }
     results.push(result);
   }
@@ -1060,7 +1057,7 @@ export async function runCrawl(mcp, routeOverrides = null, baseUrlOverride = nul
 
       const flakyCount = result.errors.filter(e => e.flaky).length;
       if (flakyCount > 0) {
-        logger.info(`[ARGUS] ${route.name}: ${flakyCount} finding(s) downgraded to info (flaky — appeared in only one cheap run)`);
+        logger.info(`[ARGUS] ${route.name} (${route.path}): ${flakyCount} finding(s) downgraded to info (flaky — appeared in only one cheap run)`);
       }
 
       report.routes.push(result);

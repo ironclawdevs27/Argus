@@ -25,7 +25,7 @@ export class CdpBrowserAdapter {
 
   // ── Evaluation & snapshots ──────────────────────────────────────────────────
   evaluate(fn)             { return this._mcp.evaluate_script({ function: fn }); }
-  snapshot()               { return this._mcp.take_snapshot(); }
+  snapshot(opts = {})      { return this._mcp.take_snapshot(opts); }
   screenshot(opts = {})    { return this._mcp.take_screenshot(opts); }
   heapSnapshot(opts = {})  { return this._mcp.take_heapsnapshot(opts); }
 

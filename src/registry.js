@@ -1,5 +1,5 @@
 /**
- * Argus Analyzer Plugin Registry (v9.1.2)
+ * Argus Analyzer Plugin Registry
  *
  * Analyzers self-register at module load time by calling registerCheap()
  * or registerExpensive(). The orchestrator iterates getCheap() / getExpensive()

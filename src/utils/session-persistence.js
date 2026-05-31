@@ -104,11 +104,19 @@ export async function saveSession(browser, sessionFile) {
   };
 
   const dir = path.dirname(sessionFile);
-  if (dir) fs.mkdirSync(dir, { recursive: true });
+  try {
+    if (dir) fs.mkdirSync(dir, { recursive: true });
+  } catch (err) {
+    throw new Error(`[ARGUS] saveSession: failed to create directory "${dir}": ${err.message}`);
+  }
 
   const tmpFile = `${sessionFile}.tmp`;
-  fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), 'utf8');
-  fs.renameSync(tmpFile, sessionFile);
+  try {
+    fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), 'utf8');
+    fs.renameSync(tmpFile, sessionFile);
+  } catch (err) {
+    throw new Error(`[ARGUS] saveSession: failed to write session file "${sessionFile}": ${err.message}`);
+  }
 
   const lsCount   = Object.keys(state.localStorage).length;
   const ssCount   = Object.keys(state.sessionStorage).length;
@@ -162,7 +170,11 @@ export async function restoreSession(browser, baseUrl, sessionFile) {
     } catch { /* URL parse failure — proceed and let Chrome handle it */ }
   }
 
-  await browser.navigate(baseUrl);
+  const NAV_TIMEOUT_MS = 10000;
+  await Promise.race([
+    browser.navigate(baseUrl),
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`restoreSession: navigate to "${baseUrl}" timed out after ${NAV_TIMEOUT_MS}ms`)), NAV_TIMEOUT_MS)),
+  ]);
   await new Promise(r => setTimeout(r, 400));
 
   const restoreScript = buildRestoreScript(state);

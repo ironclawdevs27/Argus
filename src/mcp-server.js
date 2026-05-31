@@ -129,7 +129,7 @@ async function withMcp(fn) {
     logger.error('[ARGUS] MCP tool handler error:', err.message);
     throw err;
   } finally {
-    try { mcp.close(); } catch { /* ignore — process already gone */ }
+    try { mcp.close(); } catch (e) { logger.debug({ err: e }, 'mcp close (ignored)'); }
   }
 }
 

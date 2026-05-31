@@ -17,15 +17,8 @@ import { childLogger } from './logger.js';
 
 const logger = childLogger('mcp-client');
 
-// Validate MCP_BROWSER_URL before embedding it in a shell:true spawn argument.
-// Two-step defense:
-//   1. new URL() rejects malformed/non-http(s) values.
-//   2. Shell-metacharacter check rejects valid URLs whose query strings contain
-//      &, |, ;, backtick, $() etc. — new URL().toString() preserves & in query
-//      strings (valid URL syntax), but & is a shell background-operator that
-//      would split the spawn command on both bash and cmd.exe.
-//      A legitimate Chrome remote-debug URL is always http(s)://host:port with
-//      no path or query string, so this check never fires in practice.
+// Validate MCP_BROWSER_URL — new URL() rejects malformed/non-http(s) values.
+// A legitimate Chrome remote-debug URL is always http(s)://host:port.
 const _rawBrowserUrl = process.env.MCP_BROWSER_URL ?? 'http://127.0.0.1:9222';
 let BROWSER_URL;
 try {
@@ -36,14 +29,6 @@ try {
   BROWSER_URL = _parsed.toString();
 } catch (e) {
   throw new Error(`[ARGUS] Invalid MCP_BROWSER_URL "${_rawBrowserUrl}": ${e.message}`);
-}
-// Shell-metacharacter guard — must run AFTER URL re-serialization.
-const _SHELL_META = /[&|;<>`${}()\n\r!"]/;
-if (_SHELL_META.test(BROWSER_URL)) {
-  throw new Error(
-    `[ARGUS] MCP_BROWSER_URL contains shell-unsafe characters — ` +
-    `use a plain http(s)://host:port URL (got: "${BROWSER_URL}")`
-  );
 }
 
 /**

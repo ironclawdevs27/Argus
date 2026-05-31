@@ -14,7 +14,22 @@ const VALID_SEVERITIES = new Set(['critical', 'warning', 'info']);
 /**
  * Create an immutable finding object.
  *
- * @param {{ type: string, severity: string, message: string, url?: string }} opts
+ * Required fields: type, severity ('critical'|'warning'|'info'), message.
+ * Common optional fields passed via ...rest (use these names for consistency):
+ *   url         — affected URL (defaults to '')
+ *   selector    — CSS selector of the offending element
+ *   requestUrl  — URL of the offending network request
+ *   status      — HTTP status code (number)
+ *   method      — HTTP method string
+ *   element     — human-readable element description (e.g. 'button#submit')
+ *   property    — CSS property name
+ *   metric      — performance metric name (e.g. 'LCP')
+ *   value       — measured value
+ *   budget      — expected threshold value
+ *   count       — numeric count of occurrences
+ *   source      — source file or stylesheet path
+ *
+ * @param {{ type: string, severity: string, message: string, url?: string, [key: string]: any }} opts
  * @returns {Readonly<object>}
  */
 export function createFinding({ type, severity, message, url = '', ...rest }) {

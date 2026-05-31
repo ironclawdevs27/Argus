@@ -1,5 +1,5 @@
 /**
- * Argus Report Dispatcher (v9.3.0)
+ * Argus Report Dispatcher
  *
  * Dispatches a completed report to Slack, GitHub, and/or HTML.
  * Extracted from crawl-and-report.js god object.
