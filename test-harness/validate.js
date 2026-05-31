@@ -26,6 +26,7 @@
  */
 
 import { spawn } from 'child_process';
+import crypto from 'crypto';
 import net from 'net';
 import fs from 'fs';
 import path from 'path';
@@ -75,6 +76,25 @@ import * as argusTargets from '../src/config/targets.js';
 import { createFinding } from '../src/domain/finding.js';
 import { withRetry } from '../src/utils/retry.js';
 import { diffNetworkRequests, diffConsoleMessages } from '../src/utils/diff.js';
+
+// ── Section 1 gap-closer imports (blocks [94]–[107]) ──────────────────────────
+import { parseConsoleMsgResponse, parseNetworkReqResponse } from '../src/utils/mcp-parsers.js';
+import { registerCheap, registerExpensive, getCheap, getExpensive, clearAll as clearRegistry } from '../src/registry.js';
+import { deduplicateFindings, rebuildSummary, processReport } from '../src/orchestration/report-processor.js';
+import { dispatchAll } from '../src/orchestration/dispatcher.js';
+import { postBugReport, postRetestResult, acknowledgeMessage } from '../src/orchestration/slack-notifier.js';
+import { verifySlackSignature } from '../src/server/slash-command-handler.js';
+import { handleInteraction } from '../src/server/interaction-handler.js';
+import { slugify } from '../src/utils/slug.js';
+import { startSpan, recordFinding, recordFlaky, recordNewFindings } from '../src/utils/telemetry.js';
+import { childLogger } from '../src/utils/logger.js';
+import * as argusJs from '../src/argus.js';
+import * as argBatchRunner from '../src/batch-runner.js';
+
+// ── Section 2 gap-closer imports (blocks [108]–[116]) ─────────────────────────
+import { hasSession } from '../src/utils/session-persistence.js';
+import { isGitHubConfigured, postPrComment } from '../src/utils/github-reporter.js';
+import { startDashboard } from '../src/orchestration/watch-mode.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -840,6 +860,62 @@ function visualDiff(devShot, stagingShot) {
       Buffer.alloc(w * h * 4), w, h, { threshold: 0.1 });
     return { diffPct: parseFloat(((n / (w * h)) * 100).toFixed(2)) };
   } catch (e) { return { diffPct: null, error: e.message }; }
+}
+
+// ── MCP stdio transport helpers (blocks [117]–[120]) ─────────────────────────
+
+let _mcpSeq = 5000; // high base to avoid collision with any per-block local IDs
+
+async function mcpStdioRead(stdout, id, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    let buf = '';
+    const timer = setTimeout(() => {
+      stdout.off('data', handler);
+      reject(new Error(`MCP stdio timeout waiting for id=${id}`));
+    }, timeoutMs);
+    const handler = (chunk) => {
+      buf += chunk.toString();
+      const lines = buf.split('\n');
+      buf = lines.pop(); // keep partial last line
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const obj = JSON.parse(trimmed);
+          if (obj.id === id) {
+            clearTimeout(timer);
+            stdout.off('data', handler);
+            resolve(obj);
+          }
+        } catch {}
+      }
+    };
+    stdout.on('data', handler);
+  });
+}
+
+async function spawnArgusServer(cwd) {
+  const serverPath = path.resolve(__dirname, '../src/mcp-server.js');
+  const proc = spawn(process.execPath, [serverPath], {
+    cwd: cwd || path.resolve(__dirname, '..'),
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, ARGUS_LOG_LEVEL: 'error', ARGUS_LOG_PRETTY: '0' },
+  });
+  proc.stderr.on('data', () => {});
+  proc.on('error', () => {});
+
+  const initId = ++_mcpSeq;
+  proc.stdin.write(JSON.stringify({
+    jsonrpc: '2.0', id: initId, method: 'initialize',
+    params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'argus-harness', version: '1.0' } },
+  }) + '\n');
+
+  const initResp = await mcpStdioRead(proc.stdout, initId, 8000);
+
+  // Required MCP notification after server confirms initialization
+  proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }) + '\n');
+
+  return { proc, initResp };
 }
 
 // ── Test suite ────────────────────────────────────────────────────────────────
@@ -3381,11 +3457,11 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
       '[80g] src/mcp-server.js registers the argus_watch_snapshot tool',
     );
 
-    // [80h] argus_watch_snapshot inputSchema includes a url property
+    // [80h] argus_watch_snapshot inputSchema includes a tabId property
     assert(
       serverContent !== null && serverContent.includes('argus_watch_snapshot') &&
-        serverContent.includes('"url"'),
-      '[80h] argus_watch_snapshot inputSchema defines a url property',
+        serverContent.includes('tabId'),
+      '[80h] argus_watch_snapshot inputSchema defines a tabId property',
     );
 
     // [80i] file contains 'argus_get_context' tool name
@@ -3775,6 +3851,1113 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
       newErrs93.length === 1 && newErrs93[0].text === 'new staging regression error',
       `[93d] diffConsoleMessages detects new error in staging not in dev (got ${newErrs93.length}: "${newErrs93[0]?.text ?? 'none'}")`,
     );
+  }
+
+  // ── Block [94] mcp-parsers.js unit tests ─────────────────────────────────────
+  {
+    console.log('\n[94] mcp-parsers.js — parseConsoleMsgResponse + parseNetworkReqResponse unit tests');
+
+    // parseConsoleMsgResponse — null/empty guard
+    assert(Array.isArray(parseConsoleMsgResponse(null)),       '[94a] parseConsoleMsgResponse(null) returns array');
+    assert(parseConsoleMsgResponse('').length === 0,           '[94b] parseConsoleMsgResponse("") returns []');
+
+    // parseConsoleMsgResponse — standard format
+    const cm94 = parseConsoleMsgResponse('msgid=3 [error] something failed');
+    assert(cm94.length === 1 && cm94[0]._msgid === 3,         '[94c] parseConsoleMsgResponse parses msgid correctly');
+    assert(cm94[0].level === 'error' && cm94[0].text === 'something failed',
+      '[94d] parseConsoleMsgResponse parses level and text');
+
+    // parseConsoleMsgResponse — warn → warning normalisation
+    const cw94 = parseConsoleMsgResponse('msgid=7 [warn] deprecated api call');
+    assert(cw94[0]?.level === 'warning',                       '[94e] parseConsoleMsgResponse normalises [warn] → "warning"');
+
+    // parseNetworkReqResponse — null/empty guard
+    assert(parseNetworkReqResponse(null).length === 0,         '[94f] parseNetworkReqResponse(null) returns []');
+
+    // parseNetworkReqResponse — standard format
+    const nr94 = parseNetworkReqResponse('reqid=1 GET /api/data [200]');
+    assert(nr94.length === 1 && nr94[0]._reqid === 1 && nr94[0].status === 200,
+      '[94g] parseNetworkReqResponse parses reqid + status correctly');
+
+    // parseNetworkReqResponse — extended status text (GAP-022 regression guard)
+    const nr94ext = parseNetworkReqResponse('reqid=5 POST /api/auth [401 Unauthorized]');
+    assert(nr94ext.length === 1 && nr94ext[0].status === 401,
+      '[94h] parseNetworkReqResponse handles "[401 Unauthorized]" status text format');
+  }
+
+  // ── Block [95] registry.js plugin registration ────────────────────────────────
+  {
+    console.log('\n[95] registry.js — plugin registration order + getCheap/getExpensive');
+
+    // Analyzers self-register at module import time via orchestrator.js → crawl-and-report.js.
+    // All 6 production analyzers call registerExpensive() — none call registerCheap()
+    // (cheap analyzers are hard-wired in crawlRouteCheap, not discovered via registry).
+    const cheap95  = getCheap();
+    const exp95    = getExpensive();
+    assert(Array.isArray(cheap95),
+      `[95a] getCheap returns an array (no production analyzer self-registers as cheap; got ${cheap95.length})`);
+    assert(cheap95.every(a => typeof a.analyze === 'function'),
+      '[95b] all cheap analyzers have an analyze() function (vacuously true — none registered)');
+    assert(exp95.length >= 6,
+      `[95c] getExpensive returns ≥6 registered expensive analyzers (got ${exp95.length})`);
+
+    // Manual registration adds immediately
+    const cheapBefore95 = getCheap().length;
+    registerCheap({ name: 'harness-probe-cheap', analyze: () => [] });
+    assert(getCheap().length === cheapBefore95 + 1,
+      '[95d] registerCheap adds analyzer immediately (getCheap() length +1)');
+
+    // Cheap and expensive sets are disjoint by name
+    const cheapNames95 = new Set(getCheap().map(a => a.name));
+    const expNames95   = new Set(getExpensive().map(a => a.name));
+    const overlap95    = [...cheapNames95].filter(n => expNames95.has(n));
+    assert(overlap95.length === 0,
+      `[95e] cheap and expensive analyzer sets are disjoint (overlap: ${overlap95.join(', ') || 'none'})`);
+  }
+
+  // ── Block [96] report-processor.js — deduplicateFindings + rebuildSummary ────
+  {
+    console.log('\n[96] report-processor.js — deduplicateFindings + rebuildSummary pure functions');
+
+    // deduplicateFindings — empty input
+    assert(deduplicateFindings([]).length === 0,
+      '[96a] deduplicateFindings([]) returns []');
+
+    // deduplicateFindings — removes exact duplicates (same type + message + url)
+    const dup96 = [
+      { type: 'console', message: 'err', url: 'http://localhost/' },
+      { type: 'console', message: 'err', url: 'http://localhost/' },
+    ];
+    assert(deduplicateFindings(dup96).length === 1,
+      '[96b] deduplicateFindings removes identical type+message+url entries');
+
+    // deduplicateFindings — different URL = not a duplicate
+    const diff96 = [
+      { type: 'console', message: 'err', url: 'http://localhost/a' },
+      { type: 'console', message: 'err', url: 'http://localhost/b' },
+    ];
+    assert(deduplicateFindings(diff96).length === 2,
+      '[96c] deduplicateFindings keeps entries with different URLs');
+
+    // rebuildSummary — counts correctly across severities
+    const report96 = {
+      routes: [{ errors: [
+        { type: 'a', severity: 'critical' },
+        { type: 'b', severity: 'warning' },
+        { type: 'c', severity: 'info' },
+      ]}],
+      flows: [],
+      codebase: [],
+      summary: {},
+    };
+    rebuildSummary(report96);
+    assert(report96.summary.total === 3,    `[96d] rebuildSummary total=3 (got ${report96.summary.total})`);
+    assert(report96.summary.critical === 1, `[96e] rebuildSummary critical=1 (got ${report96.summary.critical})`);
+    assert(report96.summary.warning === 1,  `[96f] rebuildSummary warning=1 (got ${report96.summary.warning})`);
+    assert(report96.summary.info === 1,     `[96g] rebuildSummary info=1 (got ${report96.summary.info})`);
+  }
+
+  // ── Block [97] config/targets.js — thresholds + config constants ──────────────
+  {
+    console.log('\n[97] config/targets.js — thresholds + config constants');
+
+    const { thresholds: th97, config: cfg97 } = argusTargets;
+
+    assert(typeof th97.perf.LCP === 'number' && th97.perf.LCP > 0,
+      `[97a] thresholds.perf.LCP is a positive number (got ${th97.perf.LCP})`);
+    assert(th97.network.slowCritical > th97.network.slowWarning,
+      `[97b] slowCritical > slowWarning ordering invariant (${th97.network.slowCritical} > ${th97.network.slowWarning})`);
+    assert(typeof cfg97.pageSettleMs === 'number' && cfg97.pageSettleMs > 0,
+      `[97c] config.pageSettleMs is a positive number (got ${cfg97.pageSettleMs})`);
+    assert(typeof th97.lighthouse.accessibility.critical === 'number',
+      '[97d] thresholds.lighthouse.accessibility.critical is a number');
+    assert(th97.memory.detachedCritical > th97.memory.detachedWarning,
+      `[97e] memory detachedCritical > detachedWarning (${th97.memory.detachedCritical} > ${th97.memory.detachedWarning})`);
+  }
+
+  // ── Block [98] slug.js — slugify edge cases ───────────────────────────────────
+  {
+    console.log('\n[98] slug.js — slugify edge cases');
+
+    assert(slugify('Hello World!') === 'hello-world',
+      '[98a] slugify("Hello World!") → "hello-world"');
+    assert(slugify('') === 'unnamed',
+      '[98b] slugify("") → "unnamed"');
+    assert(slugify(null) === 'unnamed',
+      '[98c] slugify(null) → "unnamed"');
+    assert(!/^-|-$/.test(slugify('--leading-trailing--')),
+      '[98d] slugify strips leading/trailing dashes');
+    assert(/^[a-z0-9-]+$/.test(slugify('Argus QA Tool — v9.5!')),
+      '[98e] slugify output contains only [a-z0-9-] characters');
+  }
+
+  // ── Block [99] telemetry.js — no-op transparent wrapper ──────────────────────
+  {
+    console.log('\n[99] telemetry.js — no-op transparent wrapper (no OTEL endpoint set)');
+
+    // recordFinding, recordFlaky, recordNewFindings must not throw in no-op mode
+    let threw99 = false;
+    try {
+      recordFinding('console', 'critical', 'home');
+      recordFlaky(0, 'home');
+      recordFlaky(3, 'checkout');
+      recordNewFindings(5);
+      recordNewFindings(0);
+    } catch { threw99 = true; }
+    assert(!threw99, '[99a] recordFinding/recordFlaky/recordNewFindings do not throw without OTEL endpoint');
+
+    // startSpan must be transparent — callback return value passes through
+    const spanResult99 = await startSpan('harness.test', { block: '99' }, () => 'sentinel-value-99');
+    assert(spanResult99 === 'sentinel-value-99',
+      '[99b] startSpan passes callback return value through (transparent wrapper)');
+
+    // startSpan must not suppress thrown errors
+    let spanThrew99 = false;
+    try {
+      await startSpan('harness.err', {}, () => { throw new Error('intentional-99'); });
+    } catch (e) {
+      spanThrew99 = e.message === 'intentional-99';
+    }
+    assert(spanThrew99, '[99c] startSpan re-throws errors from callback');
+  }
+
+  // ── Block [100] logger.js — childLogger factory ───────────────────────────────
+  {
+    console.log('\n[100] logger.js — childLogger returns structured Pino child logger');
+
+    const log100 = childLogger('harness-test-100');
+    assert(log100 !== null && typeof log100 === 'object',
+      '[100a] childLogger returns a non-null object');
+    assert(typeof log100.info === 'function',
+      '[100b] childLogger result has info() method');
+    assert(typeof log100.warn === 'function' && typeof log100.error === 'function',
+      '[100c] childLogger result has warn() and error() methods');
+  }
+
+  // ── Block [101] argus.js + batch-runner.js re-export barrels ─────────────────
+  {
+    console.log('\n[101] argus.js + batch-runner.js — re-export barrel validation');
+
+    assert(typeof argusJs.runCrawl === 'function',
+      '[101a] argus.js re-exports runCrawl as a function');
+    assert(typeof argBatchRunner.runCrawl === 'function',
+      '[101b] batch-runner.js re-exports runCrawl as a function');
+    assert(argusJs.runCrawl === argBatchRunner.runCrawl,
+      '[101c] both barrel files point to the same runCrawl function reference');
+  }
+
+  // ── Block [102] mcp-client.js — unwrapEval shapes ────────────────────────────
+  {
+    console.log('\n[102] mcp-client.js — unwrapEval handles all response shapes');
+
+    assert(unwrapEval(null) === null,
+      '[102a] unwrapEval(null) → null');
+    assert(unwrapEval({ result: 'hello' }) === 'hello',
+      '[102b] unwrapEval({ result: "hello" }) → "hello"');
+    assert(unwrapEval('plain-string') === 'plain-string',
+      '[102c] unwrapEval(string) → same string (no unwrapping)');
+    // Object without result field → return the object itself
+    const obj102 = { data: 42 };
+    assert(unwrapEval(obj102) === obj102,
+      '[102d] unwrapEval(object without result) → returns object itself');
+  }
+
+  // ── Block [103] verifySlackSignature — pure HMAC function ────────────────────
+  {
+    console.log('\n[103] server/slash-command-handler.js — verifySlackSignature pure function');
+
+    const prevSecret103 = process.env.SLACK_SIGNING_SECRET;
+
+    // [103a] No signing secret → false
+    delete process.env.SLACK_SIGNING_SECRET;
+    assert(
+      verifySlackSignature({ headers: {}, rawBody: '' }) === false,
+      '[103a] verifySlackSignature returns false when SLACK_SIGNING_SECRET is unset',
+    );
+
+    // [103b] Missing headers → false (secret present but no header fields)
+    process.env.SLACK_SIGNING_SECRET = 'test-secret-103';
+    assert(
+      verifySlackSignature({ headers: {}, rawBody: '' }) === false,
+      '[103b] verifySlackSignature returns false when headers are missing',
+    );
+
+    // [103c] Stale timestamp (> 5 min old) → false
+    const staleTs103 = String(Math.floor(Date.now() / 1000) - 400);
+    assert(
+      verifySlackSignature({
+        headers: { 'x-slack-signature': 'v0=abc', 'x-slack-request-timestamp': staleTs103 },
+        rawBody: '',
+      }) === false,
+      '[103c] verifySlackSignature returns false for stale timestamp (>5 min)',
+    );
+
+    // [103d] Fresh timestamp + wrong signature → false
+    const freshTs103 = String(Math.floor(Date.now() / 1000));
+    assert(
+      verifySlackSignature({
+        headers: { 'x-slack-signature': 'v0=badhash', 'x-slack-request-timestamp': freshTs103 },
+        rawBody: 'body=test',
+      }) === false,
+      '[103d] verifySlackSignature returns false for mismatched signature',
+    );
+
+    // [103e] Correctly constructed HMAC → true
+    const secret103 = 'harness-signing-secret-103';
+    process.env.SLACK_SIGNING_SECRET = secret103;
+    const ts103    = String(Math.floor(Date.now() / 1000));
+    const body103  = 'command=%2Fargus-retest&text=http%3A%2F%2Fexample.com';
+    const sig103   = 'v0=' + crypto.createHmac('sha256', secret103)
+      .update(`v0:${ts103}:${body103}`).digest('hex');
+    assert(
+      verifySlackSignature({
+        headers: { 'x-slack-signature': sig103, 'x-slack-request-timestamp': ts103 },
+        rawBody: body103,
+      }) === true,
+      '[103e] verifySlackSignature returns true for valid HMAC signature',
+    );
+
+    // Restore
+    if (prevSecret103 !== undefined) process.env.SLACK_SIGNING_SECRET = prevSecret103;
+    else delete process.env.SLACK_SIGNING_SECRET;
+  }
+
+  // ── Block [104] server/interaction-handler.js — handleInteraction mock ────────
+  {
+    console.log('\n[104] server/interaction-handler.js — handleInteraction with mocked req/res');
+
+    const mkRes = () => {
+      const r = { _status: 200, _body: null };
+      r.status = code => { r._status = code; return r; };
+      r.json = body => { r._body = body; return r; };
+      r.send = body => { r._body = body; return r; };
+      return r;
+    };
+
+    // [104a] Missing/invalid Slack signature → 401
+    const res104a = mkRes();
+    await handleInteraction(
+      { headers: {}, rawBody: '', body: {} },
+      res104a,
+    );
+    assert(res104a._status === 401,
+      '[104a] handleInteraction returns 401 when signature is invalid/missing');
+
+    // Build a valid signature so we can test downstream paths
+    const secret104 = 'harness-secret-104';
+    const prevSecret104 = process.env.SLACK_SIGNING_SECRET;
+    process.env.SLACK_SIGNING_SECRET = secret104;
+
+    const ts104    = String(Math.floor(Date.now() / 1000));
+    const body104  = 'payload=%7Binvalid+json%7D';
+    const sig104   = 'v0=' + crypto.createHmac('sha256', secret104)
+      .update(`v0:${ts104}:${body104}`).digest('hex');
+
+    // [104b] Valid signature + malformed JSON payload → 400
+    const res104b = mkRes();
+    await handleInteraction({
+      headers: { 'x-slack-signature': sig104, 'x-slack-request-timestamp': ts104 },
+      rawBody: body104,
+      body: { payload: '{invalid json}' },
+    }, res104b);
+    assert(res104b._status === 400,
+      '[104b] handleInteraction returns 400 for malformed JSON payload');
+
+    // [104c] Valid signature + unrecognised interaction type → 200 (ack'd and ignored)
+    const validPayload104 = JSON.stringify({
+      type: 'unknown_interaction_type',
+      actions: [],
+    });
+    const body104c   = `payload=${encodeURIComponent(validPayload104)}`;
+    const sig104c    = 'v0=' + crypto.createHmac('sha256', secret104)
+      .update(`v0:${ts104}:${body104c}`).digest('hex');
+    const res104c = mkRes();
+    await handleInteraction({
+      headers: { 'x-slack-signature': sig104c, 'x-slack-request-timestamp': ts104 },
+      rawBody: body104c,
+      body: { payload: validPayload104 },
+    }, res104c);
+    assert(res104c._status === 200,
+      '[104c] handleInteraction returns 200 (ack) for unrecognised interaction type');
+
+    // [104d] handleInteraction is an async function
+    assert(handleInteraction.constructor.name === 'AsyncFunction',
+      '[104d] handleInteraction is an async function');
+
+    if (prevSecret104 !== undefined) process.env.SLACK_SIGNING_SECRET = prevSecret104;
+    else delete process.env.SLACK_SIGNING_SECRET;
+  }
+
+  // ── Block [105] slack-notifier.js — exported function shapes ─────────────────
+  {
+    console.log('\n[105] slack-notifier.js — exported function shapes (without Slack token)');
+
+    assert(typeof postBugReport === 'function',
+      '[105a] postBugReport is a function');
+    assert(typeof postRetestResult === 'function',
+      '[105b] postRetestResult is a function');
+    assert(typeof acknowledgeMessage === 'function',
+      '[105c] acknowledgeMessage is a function');
+  }
+
+  // ── Block [106] report-processor.js — processReport integration ──────────────
+  {
+    console.log('\n[106] report-processor.js — processReport integration (file I/O + baseline)');
+
+    const tmpDir106 = path.join(os.tmpdir(), `argus-harness-106-${Date.now()}`);
+    fs.mkdirSync(path.join(tmpDir106, 'baselines'), { recursive: true });
+
+    const report106 = {
+      generatedAt: new Date().toISOString(),
+      baseUrl:     'http://localhost:3100',
+      routes: [{
+        route: 'Home',
+        url:   'http://localhost:3100/',
+        errors: [
+          { type: 'console', message: 'err-a', severity: 'critical', url: 'http://localhost:3100/' },
+          { type: 'network', message: 'net-b', severity: 'warning',  url: 'http://localhost:3100/' },
+        ],
+      }],
+      flows:    [],
+      codebase: [],
+      summary:  { total: 0, critical: 0, warning: 0, info: 0 },
+    };
+
+    const { reportPath: rp106, diff: diff106 } = await processReport(report106, {
+      outputDir:         tmpDir106,
+      severityOverrides: {},
+    });
+
+    assert(fs.existsSync(rp106),
+      '[106a] processReport writes JSON report to disk');
+    assert(rp106.endsWith('.json'),
+      '[106b] reportPath has .json extension');
+    assert(report106.summary.total === 2,
+      `[106c] rebuildSummary counts all findings (expected 2, got ${report106.summary.total})`);
+    assert(diff106.isFirstRun === true,
+      '[106d] first run — isFirstRun: true (no prior baseline)');
+  }
+
+  // ── Block [107] dispatcher.js — dispatchAll HTML fallback ────────────────────
+  {
+    console.log('\n[107] dispatcher.js — dispatchAll routes to HTML report when no Slack token');
+
+    const tmpDir107 = path.join(os.tmpdir(), `argus-harness-107-${Date.now()}`);
+    fs.mkdirSync(tmpDir107, { recursive: true });
+
+    const rp107 = path.join(tmpDir107, 'test-report.json');
+    const report107 = {
+      generatedAt: new Date().toISOString(),
+      baseUrl:     'http://localhost:3100',
+      summary:     { total: 0, critical: 0, warning: 0, info: 0 },
+      routes: [{ route: '/test', url: 'http://localhost:3100/test', errors: [] }],
+      flows:       [],
+    };
+    fs.writeFileSync(rp107, JSON.stringify(report107, null, 2), 'utf8');
+
+    // Ensure Slack is NOT configured so the HTML path is taken
+    const prevSlack107 = process.env.SLACK_BOT_TOKEN;
+    delete process.env.SLACK_BOT_TOKEN;
+
+    await dispatchAll(
+      report107,
+      { isFirstRun: true, newCount: 0, resolvedCount: 0 },
+      rp107,
+    );
+
+    // generateHtmlReport always writes <dir>/report.html
+    const htmlPath107 = path.join(tmpDir107, 'report.html');
+    assert(fs.existsSync(htmlPath107),
+      '[107a] dispatchAll generates report.html when SLACK_BOT_TOKEN is absent');
+
+    const html107 = fs.readFileSync(htmlPath107, 'utf8');
+    assert(html107.includes('<title>'),
+      '[107b] generated HTML contains <title> tag');
+    assert(html107.includes('Argus'),
+      '[107c] generated HTML mentions "Argus"');
+    assert(typeof dispatchAll === 'function',
+      '[107d] dispatchAll is exported as a function');
+
+    if (prevSlack107 !== undefined) process.env.SLACK_BOT_TOKEN = prevSlack107;
+  }
+
+  // ── Block [108] session-persistence.js error paths ───────────────────────────
+  {
+    console.log('\n[108] session-persistence.js — restoreSession error paths + hasSession staleness');
+
+    const tmpDir108 = path.join(os.tmpdir(), `argus-harness-108-${Date.now()}`);
+    fs.mkdirSync(tmpDir108, { recursive: true });
+
+    // [108a] Corrupt JSON → false (no browser interaction before parse)
+    const corrupt108 = path.join(tmpDir108, 'corrupt.json');
+    fs.writeFileSync(corrupt108, '{ not valid json !!!', 'utf8');
+    const r108a = await restoreSession(null, 'http://localhost:3100', corrupt108);
+    assert(r108a === false, '[108a] restoreSession returns false for corrupt JSON');
+
+    // [108b] Missing file → false
+    const missing108 = path.join(tmpDir108, 'missing.json');
+    const r108b = await restoreSession(null, 'http://localhost:3100', missing108);
+    assert(r108b === false, '[108b] restoreSession returns false when session file does not exist');
+
+    // [108c] hasSession with missing file → false
+    assert(hasSession(missing108) === false,
+      '[108c] hasSession returns false when file does not exist');
+
+    // [108d] hasSession with stale savedAt (>1 hour ago) → false
+    const stale108 = path.join(tmpDir108, 'stale.json');
+    fs.writeFileSync(stale108, JSON.stringify({
+      savedAt: new Date(Date.now() - 4 * 3600 * 1000).toISOString(),
+      baseUrl: 'http://localhost:3100',
+      localStorage: {}, sessionStorage: {}, cookies: [],
+    }), 'utf8');
+    assert(hasSession(stale108) === false,
+      '[108d] hasSession returns false when savedAt is >1 hour old');
+  }
+
+  // ── Block [109] baseline-manager.js branch sanitization + null case ──────────
+  {
+    console.log('\n[109] baseline-manager.js — getCurrentBranch env var + loadBaseline null');
+
+    const tmpDir109 = path.join(os.tmpdir(), `argus-harness-109-${Date.now()}`);
+    fs.mkdirSync(path.join(tmpDir109, 'baselines'), { recursive: true });
+
+    // [109a] loadBaseline on non-existent file → null
+    const missing109 = path.join(tmpDir109, 'baselines', 'no-branch.json');
+    const bl109null  = loadBaseline(missing109);
+    assert(bl109null === null,
+      '[109a] loadBaseline returns null for non-existent baseline file');
+
+    // [109b] getCurrentBranch via GITHUB_REF_NAME env var
+    const prev109 = process.env.GITHUB_REF_NAME;
+    process.env.GITHUB_REF_NAME = 'feature/my-branch';
+    const branch109 = getCurrentBranch();
+    assert(typeof branch109 === 'string' && branch109.length > 0,
+      `[109b] getCurrentBranch returns a non-empty string via GITHUB_REF_NAME (got "${branch109}")`);
+    // Sanitized branch must not contain '/'
+    assert(!branch109.includes('/'),
+      `[109c] getCurrentBranch sanitizes slashes from branch names (got "${branch109}")`);
+    if (prev109 !== undefined) process.env.GITHUB_REF_NAME = prev109;
+    else delete process.env.GITHUB_REF_NAME;
+
+    // [109d] Multi-branch non-interference: save for A, save for B, load A unchanged
+    const reportA109 = {
+      baseUrl: 'http://localhost:3100',
+      routes: [{ url: 'http://localhost:3100/', errors: [{ type: 'console', message: 'branch-a', severity: 'warning' }] }],
+      flows: [], codebase: [], summary: {},
+    };
+    const reportB109 = {
+      baseUrl: 'http://localhost:3100',
+      routes: [{ url: 'http://localhost:3100/', errors: [{ type: 'network', message: 'branch-b', severity: 'critical' }] }],
+      flows: [], codebase: [], summary: {},
+    };
+    const fileA109 = path.join(tmpDir109, 'baselines', 'branch-a.json');
+    const fileB109 = path.join(tmpDir109, 'baselines', 'branch-b.json');
+    saveBaseline(fileA109, reportA109);
+    saveBaseline(fileB109, reportB109);
+    const loadedA109 = loadBaseline(fileA109);
+    assert(loadedA109 !== null,
+      '[109d] loadBaseline(branchA) returns non-null after branchB baseline was also saved');
+  }
+
+  // ── Block [110] schema.js — Zod error message content ────────────────────────
+  {
+    console.log('\n[110] schema.js — Zod error message content verification');
+
+    // [110a] Missing path → error message string contains field clue
+    let err110a = null;
+    try { validateConfig({ routes: [{ name: 'X' }] }); } catch (e) { err110a = e; }
+    assert(err110a !== null && typeof err110a.message === 'string',
+      '[110a] validateConfig with missing route.path throws an Error with message');
+
+    // [110b] path not starting with '/' → error contains slash clue
+    let err110b = null;
+    try { validateConfig({ routes: [{ name: 'X', path: 'no-slash' }] }); } catch (e) { err110b = e; }
+    assert(err110b !== null && typeof err110b.message === 'string',
+      '[110b] validateConfig with path not starting with "/" throws with a message');
+
+    // [110c] Wrong LCP type → error message is a non-empty string
+    let err110c = null;
+    try {
+      validateConfig({
+        routes: [{ name: 'X', path: '/' }],
+        thresholds: { perf: { LCP: 'not-a-number' } },
+      });
+    } catch (e) { err110c = e; }
+    assert(err110c !== null && err110c.message.length > 0,
+      '[110c] validateConfig with string LCP throws non-empty error message');
+  }
+
+  // ── Block [111] github-reporter.js — isGitHubConfigured + formatPrComment cap ─
+  {
+    console.log('\n[111] github-reporter.js — isGitHubConfigured + formatPrComment MAX_TABLE_ROWS cap');
+
+    const prevGhToken111 = process.env.GITHUB_TOKEN;
+    const prevGhRepo111  = process.env.GITHUB_REPOSITORY;
+
+    // [111a] isGitHubConfigured returns false when env vars absent
+    delete process.env.GITHUB_TOKEN;
+    delete process.env.GITHUB_REPOSITORY;
+    assert(isGitHubConfigured() === false,
+      '[111a] isGitHubConfigured returns false when GITHUB_TOKEN and GITHUB_REPOSITORY are unset');
+
+    // [111b] isGitHubConfigured returns true when both set
+    process.env.GITHUB_TOKEN      = 'tok-test-111';
+    process.env.GITHUB_REPOSITORY = 'test-org/test-repo';
+    assert(isGitHubConfigured() === true,
+      '[111b] isGitHubConfigured returns true when both GITHUB_TOKEN and GITHUB_REPOSITORY are set');
+
+    if (prevGhToken111 !== undefined) process.env.GITHUB_TOKEN      = prevGhToken111;
+    else delete process.env.GITHUB_TOKEN;
+    if (prevGhRepo111  !== undefined) process.env.GITHUB_REPOSITORY = prevGhRepo111;
+    else delete process.env.GITHUB_REPOSITORY;
+
+    // [111c] formatPrComment with 20 new findings caps table at 15 rows (MAX_TABLE_ROWS)
+    const bigErrors111 = Array.from({ length: 20 }, (_, i) => ({
+      type: 'console', severity: 'warning', message: `Finding ${i}`,
+      url: 'http://localhost:3100/', isNew: true,
+    }));
+    const bigReport111 = {
+      baseUrl: 'http://localhost:3100/',
+      generatedAt: new Date().toISOString(),
+      summary: { total: 20, critical: 0, warning: 20, info: 0 },
+      routes: [{ route: 'Home', url: 'http://localhost:3100/', errors: bigErrors111 }],
+      flows: [], codebase: [],
+    };
+    const comment111 = formatPrComment(bigReport111, { isFirstRun: false, newCount: 20, resolvedCount: 0 });
+    assert(comment111.includes('more — see full report'),
+      '[111c] formatPrComment with 20 findings includes overflow row ("more — see full report")');
+
+    // [111d] postPrComment throws when GITHUB_PR_NUMBER not set (guard test)
+    delete process.env.GITHUB_PR_NUMBER;
+    delete process.env.GITHUB_REPOSITORY;
+    let threw111d = false;
+    try { await postPrComment({}, {}); } catch { threw111d = true; }
+    assert(threw111d, '[111d] postPrComment throws when GITHUB_REPOSITORY/PR_NUMBER are not set');
+  }
+
+  // ── Block [112] html-reporter.js — large finding set (1000+ findings) ────────
+  {
+    console.log('\n[112] html-reporter.js — generateHtmlReport handles 1000+ findings');
+
+    const tmpDir112 = path.join(os.tmpdir(), `argus-harness-112-${Date.now()}`);
+    fs.mkdirSync(tmpDir112, { recursive: true });
+
+    // Build a report with 1000 findings (10 routes × 100 errors each)
+    const bigReport112 = {
+      generatedAt: new Date().toISOString(),
+      baseUrl: 'http://localhost:3100',
+      summary: { total: 1000, critical: 200, warning: 500, info: 300 },
+      routes: Array.from({ length: 10 }, (_, i) => ({
+        route: `/route-${i}`,
+        url: `http://localhost:3100/route-${i}`,
+        errors: Array.from({ length: 100 }, (_, j) => ({
+          type: 'console', severity: j < 20 ? 'critical' : j < 70 ? 'warning' : 'info',
+          message: `Error ${j} on route ${i}`, url: `http://localhost:3100/route-${i}`,
+        })),
+      })),
+      flows: [], codebase: [],
+    };
+    const rp112 = path.join(tmpDir112, 'big-report.json');
+    fs.writeFileSync(rp112, JSON.stringify(bigReport112, null, 2), 'utf8');
+
+    let threw112 = false;
+    let html112  = '';
+    try { html112 = fs.readFileSync(generateHtmlReport(rp112), 'utf8'); } catch { threw112 = true; }
+    assert(!threw112, '[112a] generateHtmlReport with 1000 findings does not throw');
+    assert(html112.includes('<title>'), '[112b] large report generates valid HTML with <title>');
+    assert(html112.includes('Argus'),   '[112c] large report HTML mentions "Argus"');
+  }
+
+  // ── Block [113] diff.js — URL normalization + edge cases ─────────────────────
+  {
+    console.log('\n[113] diff.js — diffNetworkRequests URL normalization + edge cases');
+
+    // [113a] /user/123 and /user/456 normalized to same key → no diff (same endpoint)
+    const reqs113devA   = [{ url: 'http://localhost:3100/user/123', status: 200, method: 'GET' }];
+    const reqs113stagA  = [{ url: 'http://localhost:3100/user/456', status: 200, method: 'GET' }];
+    const diff113a = diffNetworkRequests(reqs113devA, reqs113stagA);
+    assert(diff113a.added.length === 0 && diff113a.removed.length === 0 && diff113a.changed.length === 0,
+      `[113a] diffNetworkRequests treats /user/123 and /user/456 as the same normalized endpoint (added=${diff113a.added.length}, removed=${diff113a.removed.length}, changed=${diff113a.changed.length})`);
+
+    // [113b] Empty arrays → zero diffs
+    const diff113b = diffNetworkRequests([], []);
+    assert(diff113b.added.length === 0 && diff113b.removed.length === 0 && diff113b.changed.length === 0,
+      '[113b] diffNetworkRequests([], []) → { added:[], removed:[], changed:[] }');
+
+    // [113c] diffConsoleMessages: warnings are ignored (only errors returned)
+    const msgs113dev = [];
+    const msgs113stg = [
+      { level: 'error',   text: 'new-error' },
+      { level: 'warning', text: 'new-warning' }, // warnings should be excluded
+    ];
+    const newErrs113 = diffConsoleMessages(msgs113dev, msgs113stg);
+    assert(newErrs113.every(m => (m.level ?? m.severity) !== 'warning'),
+      `[113c] diffConsoleMessages only returns errors, not warnings (got ${newErrs113.length}: ${newErrs113.map(m => m.level).join(',')})`);
+
+    // [113d] diffConsoleMessages: exact-match dedup prevents re-reporting pre-existing error
+    const preExisting113 = [{ level: 'error', text: 'known-error' }];
+    const newErrs113d    = diffConsoleMessages(preExisting113, [...preExisting113, { level: 'error', text: 'known-error' }]);
+    assert(newErrs113d.length === 0,
+      `[113d] diffConsoleMessages deduplicates pre-existing exact-match errors (got ${newErrs113d.length})`);
+  }
+
+  // ── Block [114] mcp-server.js — LRU eviction constants ───────────────────────
+  {
+    console.log('\n[114] mcp-server.js — LRU cache constants + eviction code presence');
+
+    const serverSrc114 = fs.readFileSync(
+      path.resolve(__dirname, '../src/mcp-server.js'), 'utf8',
+    );
+
+    assert(serverSrc114.includes('MAX_SNAPSHOTS'),
+      '[114a] mcp-server.js defines MAX_SNAPSHOTS constant for snapshotStore LRU limit');
+    assert(serverSrc114.includes('MAX_AUDIT_CACHE'),
+      '[114b] mcp-server.js defines MAX_AUDIT_CACHE constant for auditCache LRU limit');
+    assert(serverSrc114.includes('.keys().next()'),
+      '[114c] mcp-server.js contains oldest-first LRU eviction logic (.keys().next())');
+  }
+
+  // ── Block [115] flow-runner.js — press_key step action + resolveUidForSelector ─
+  {
+    console.log('\n[115] flow-runner.js — press_key step action + resolveUidForSelector uid resolution');
+
+    // [115a] press_key step is registered — flow completes without flow_step_failed
+    const pkFlow115 = {
+      name: 'press-key-test',
+      steps: [
+        { action: 'navigate', url: `${B}/typetext-issues.html` },
+        { action: 'press_key', key: 'Tab' },
+        { action: 'press_key', key: 'Escape' },
+      ],
+    };
+    const result115a = await runFlow(pkFlow115, B, browser);
+    const fail115a   = result115a.findings.filter(f => f.type === 'flow_step_failed');
+    assert(fail115a.length === 0,
+      `[115a] press_key flow completes without flow_step_failed (got ${fail115a.length})`);
+
+    // [115b] resolveUidForSelector resolves a known selector on the fixture page
+    const uid115 = await resolveUidForSelector(browser, '#fill-input');
+    assert(uid115 !== null && uid115 !== undefined,
+      `[115b] resolveUidForSelector resolves #fill-input uid on typetext-issues.html (got ${uid115})`);
+
+    // [115c] press_key 'Enter' on focused element completes without error
+    const enterFlow115 = {
+      name: 'press-enter-test',
+      steps: [
+        { action: 'navigate', url: `${B}/typetext-issues.html` },
+        { action: 'press_key', key: 'Enter' },
+      ],
+    };
+    const result115c = await runFlow(enterFlow115, B, browser);
+    assert(result115c.status !== 'error',
+      `[115c] press_key "Enter" flow status is not "error" (got ${result115c.status})`);
+
+    // [115d] flow-runner.js source registers press_key as a step action
+    const frSrc115 = fs.readFileSync(path.resolve(__dirname, '../src/utils/flow-runner.js'), 'utf8');
+    assert(frSrc115.includes("'press_key'") || frSrc115.includes('"press_key"'),
+      '[115d] flow-runner.js source registers press_key step action');
+  }
+
+  // ── Block [116] watch mode — startDashboard HTTP /data endpoint ───────────────
+  {
+    console.log('\n[116] watch mode — startDashboard HTTP /data endpoint');
+
+    const port116 = await findFreePort(3200);
+    const mockFindings116 = [
+      { type: 'console', severity: 'warning', message: 'test-finding-116', url: 'http://localhost:3100/' },
+    ];
+
+    const server116 = startDashboard(() => mockFindings116, 'http://localhost:3100', port116);
+
+    // Wait for server to be ready
+    await new Promise(r => setTimeout(r, 200));
+
+    let json116 = null;
+    let httpErr116 = null;
+    try {
+      const res116 = await fetch(`http://localhost:${port116}/data`);
+      json116 = await res116.json();
+    } catch (e) { httpErr116 = e; }
+
+    server116.close();
+
+    assert(httpErr116 === null,
+      `[116a] GET /data on dashboard server succeeds (no HTTP error: ${httpErr116?.message ?? 'none'})`);
+    assert(json116 !== null && typeof json116 === 'object',
+      '[116b] /data response is a JSON object');
+    assert(Array.isArray(json116.findings),
+      `[116c] /data response has findings array (got ${typeof json116?.findings})`);
+    assert(json116.findings.length === 1 && json116.findings[0].type === 'console',
+      `[116d] /data findings reflects mock data (got ${json116.findings.length} findings)`);
+  }
+
+  // ── Block [117] MCP stdio transport — initialize handshake + tools/list ───────
+  {
+    console.log('\n[117] MCP stdio transport — initialize handshake + tools/list');
+
+    let srv117 = null;
+    let initErr117 = null;
+    let toolsResp117 = null;
+    try {
+      srv117 = await spawnArgusServer(path.resolve(__dirname, '..'));
+
+      const listId = ++_mcpSeq;
+      srv117.proc.stdin.write(JSON.stringify({
+        jsonrpc: '2.0', id: listId, method: 'tools/list', params: {},
+      }) + '\n');
+      toolsResp117 = await mcpStdioRead(srv117.proc.stdout, listId, 8000);
+    } catch (e) {
+      initErr117 = e;
+    } finally {
+      try { srv117?.proc?.kill(); } catch {}
+    }
+
+    assert(initErr117 === null,
+      `[117a] MCP server spawns and initializes without error (${initErr117?.message ?? 'ok'})`);
+    assert(srv117?.initResp?.result?.serverInfo?.name === 'argus',
+      `[117b] initialize response serverInfo.name === "argus" (got ${srv117?.initResp?.result?.serverInfo?.name})`);
+    const tools117 = toolsResp117?.result?.tools ?? [];
+    assert(Array.isArray(tools117) && tools117.length >= 6,
+      `[117c] tools/list returns ≥ 6 tools (got ${tools117.length})`);
+    const names117 = tools117.map(t => t.name);
+    assert(['argus_audit', 'argus_last_report', 'argus_watch_snapshot', 'argus_get_context'].every(n => names117.includes(n)),
+      `[117d] tools/list includes all 4 key MCP tool names (got [${names117.join(', ')}])`);
+  }
+
+  // ── Block [118] argus_last_report MCP tool — missing reports dir returns structured error ──
+  {
+    console.log('\n[118] MCP tool argus_last_report — no-reports-dir returns structured JSON error');
+
+    const tmpDir118 = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-mcp-118-'));
+    let srv118 = null;
+    let lastRptResp118 = null;
+    let err118 = null;
+    try {
+      srv118 = await spawnArgusServer(tmpDir118); // cwd has no reports/ subdir
+
+      const callId = ++_mcpSeq;
+      srv118.proc.stdin.write(JSON.stringify({
+        jsonrpc: '2.0', id: callId, method: 'tools/call',
+        params: { name: 'argus_last_report', arguments: {} },
+      }) + '\n');
+      lastRptResp118 = await mcpStdioRead(srv118.proc.stdout, callId, 10000);
+    } catch (e) {
+      err118 = e;
+    } finally {
+      try { srv118?.proc?.kill(); } catch {}
+      try { fs.rmdirSync(tmpDir118); } catch {}
+    }
+
+    assert(err118 === null,
+      `[118a] argus_last_report call completes without crashing (${err118?.message ?? 'ok'})`);
+    const text118 = lastRptResp118?.result?.content?.[0]?.text ?? '';
+    assert(text118.includes('No reports found'),
+      `[118b] argus_last_report returns "No reports found" when reports/ dir is absent (got: ${text118.slice(0, 80)})`);
+    let parsed118 = null;
+    try { parsed118 = JSON.parse(text118); } catch {}
+    assert(parsed118 !== null && typeof parsed118 === 'object',
+      `[118c] argus_last_report error response is valid JSON object (got: ${text118.slice(0, 40)})`);
+  }
+
+  // ── Block [119] argus_get_context MCP tool — snapshot_id + fix-loop diff ─────
+  {
+    console.log('\n[119] MCP tool argus_get_context — snapshot_id + fix-loop diff protocol');
+
+    let srv119 = null;
+    let snap1Resp119 = null;
+    let snap2Resp119 = null;
+    let err119 = null;
+    try {
+      srv119 = await spawnArgusServer(path.resolve(__dirname, '..'));
+
+      // First call — no snapshot_id → creates new snapshot
+      const call1Id = ++_mcpSeq;
+      srv119.proc.stdin.write(JSON.stringify({
+        jsonrpc: '2.0', id: call1Id, method: 'tools/call',
+        params: { name: 'argus_get_context', arguments: {} },
+      }) + '\n');
+      snap1Resp119 = await mcpStdioRead(srv119.proc.stdout, call1Id, 20000);
+
+      const snap1Text = snap1Resp119?.result?.content?.[0]?.text ?? '{}';
+      let snap1 = {};
+      try { snap1 = JSON.parse(snap1Text); } catch {}
+
+      if (typeof snap1.snapshot_id === 'string') {
+        // Second call — with snapshot_id → returns diff (resolved/new_issues/persisting)
+        const call2Id = ++_mcpSeq;
+        srv119.proc.stdin.write(JSON.stringify({
+          jsonrpc: '2.0', id: call2Id, method: 'tools/call',
+          params: { name: 'argus_get_context', arguments: { snapshot_id: snap1.snapshot_id } },
+        }) + '\n');
+        snap2Resp119 = await mcpStdioRead(srv119.proc.stdout, call2Id, 20000);
+      }
+    } catch (e) {
+      err119 = e;
+    } finally {
+      try { srv119?.proc?.kill(); } catch {}
+    }
+
+    const snap1Obj119 = (() => { try { return JSON.parse(snap1Resp119?.result?.content?.[0]?.text ?? '{}'); } catch { return {}; } })();
+    const snap2Obj119 = (() => { try { return JSON.parse(snap2Resp119?.result?.content?.[0]?.text ?? '{}'); } catch { return {}; } })();
+
+    assert(err119 === null,
+      `[119a] argus_get_context calls complete without throwing (${err119?.message ?? 'ok'})`);
+    assert(typeof snap1Obj119.snapshot_id === 'string' && snap1Obj119.snapshot_id.length > 0,
+      `[119b] argus_get_context response includes snapshot_id string (got ${typeof snap1Obj119.snapshot_id})`);
+    assert(Array.isArray(snap1Obj119.open_tabs),
+      `[119c] argus_get_context response includes open_tabs array (got ${typeof snap1Obj119.open_tabs})`);
+    assert(snap2Resp119 !== null && 'resolved' in snap2Obj119 && 'new_issues' in snap2Obj119,
+      `[119d] argus_get_context with snapshot_id returns diff shape with resolved + new_issues fields`);
+  }
+
+  // ── Block [120] argus_watch_snapshot MCP tool — response structure ─────────
+  {
+    console.log('\n[120] MCP tool argus_watch_snapshot — findings array + newConsole/newNetwork fields');
+
+    let srv120 = null;
+    let snapResp120 = null;
+    let err120 = null;
+    try {
+      srv120 = await spawnArgusServer(path.resolve(__dirname, '..'));
+
+      const callId = ++_mcpSeq;
+      srv120.proc.stdin.write(JSON.stringify({
+        jsonrpc: '2.0', id: callId, method: 'tools/call',
+        params: { name: 'argus_watch_snapshot', arguments: {} },
+      }) + '\n');
+      snapResp120 = await mcpStdioRead(srv120.proc.stdout, callId, 20000);
+    } catch (e) {
+      err120 = e;
+    } finally {
+      try { srv120?.proc?.kill(); } catch {}
+    }
+
+    const snapObj120 = (() => { try { return JSON.parse(snapResp120?.result?.content?.[0]?.text ?? '{}'); } catch { return null; } })();
+
+    assert(err120 === null,
+      `[120a] argus_watch_snapshot call completes without throwing (${err120?.message ?? 'ok'})`);
+    assert(snapObj120 !== null && typeof snapObj120 === 'object',
+      `[120b] argus_watch_snapshot response is parseable JSON object (got ${typeof snapObj120})`);
+    assert(Array.isArray(snapObj120?.findings),
+      `[120c] argus_watch_snapshot response has findings array (got ${typeof snapObj120?.findings})`);
+    assert('newConsole' in (snapObj120 ?? {}) && 'newNetwork' in (snapObj120 ?? {}),
+      `[120d] argus_watch_snapshot response has newConsole + newNetwork fields`);
+  }
+
+  // ── Block [121] server/index.js — Express startup + /health endpoint ──────────
+  {
+    console.log('\n[121] server/index.js — Express startup + /health endpoint');
+
+    const port121 = await findFreePort(3300);
+    const srvProc121 = spawn(process.execPath, [path.resolve(__dirname, '../src/server/index.js')], {
+      cwd: path.resolve(__dirname, '..'),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, PORT: String(port121), ARGUS_LOG_LEVEL: 'error', ARGUS_LOG_PRETTY: '0' },
+    });
+    srvProc121.stderr.on('data', () => {});
+    srvProc121.on('error', () => {});
+
+    let healthResp121 = null;
+    const deadline121 = Date.now() + 8000;
+    while (Date.now() < deadline121) {
+      try {
+        const r = await fetch(`http://localhost:${port121}/health`);
+        if (r.ok) { healthResp121 = await r.json(); break; }
+      } catch {}
+      await new Promise(r => setTimeout(r, 100));
+    }
+    srvProc121.kill('SIGTERM');
+    await new Promise(r => setTimeout(r, 300));
+
+    assert(healthResp121 !== null,
+      `[121a] Express server starts and /health responds within 8s`);
+    assert(healthResp121?.status === 'ok',
+      `[121b] /health returns { status: 'ok' } (got ${healthResp121?.status})`);
+    assert(healthResp121?.service === 'argus',
+      `[121c] /health returns { service: 'argus' } (got ${healthResp121?.service})`);
+    assert(typeof healthResp121?.ts === 'string',
+      `[121d] /health returns ISO timestamp in 'ts' field (got ${typeof healthResp121?.ts})`);
+  }
+
+  // ── Block [122] html-reporter.js CLI — report:html file-write path ────────────
+  {
+    console.log('\n[122] html-reporter.js CLI — report:html file-write path');
+
+    const tmpDir122 = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-html-cli-122-'));
+    const report122 = {
+      generatedAt: new Date().toISOString(),
+      baseUrl: 'http://localhost:3100',
+      summary: { total: 1, critical: 0, warning: 1, info: 0 },
+      routes: [{
+        path: '/test', url: 'http://localhost:3100/test',
+        errors: [{ severity: 'warning', type: 'seo', message: 'test-seo-section4-gap' }],
+      }],
+      flows: [],
+    };
+    const jsonPath122 = path.join(tmpDir122, 'test-report.json');
+    fs.writeFileSync(jsonPath122, JSON.stringify(report122));
+
+    let cliErr122 = null;
+    let cliExit122 = null;
+    try {
+      await new Promise((resolve, reject) => {
+        const proc = spawn(process.execPath, [
+          path.resolve(__dirname, '../src/utils/html-reporter.js'),
+          jsonPath122,
+        ], {
+          cwd: path.resolve(__dirname, '..'),
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: { ...process.env, ARGUS_LOG_LEVEL: 'error', ARGUS_LOG_PRETTY: '0' },
+        });
+        proc.stderr.on('data', () => {});
+        proc.on('error', reject);
+        proc.on('close', (code) => { cliExit122 = code; resolve(); });
+      });
+    } catch (e) { cliErr122 = e; }
+
+    const htmlPath122 = path.join(tmpDir122, 'report.html');
+    const htmlExists122 = fs.existsSync(htmlPath122);
+    const html122 = htmlExists122 ? fs.readFileSync(htmlPath122, 'utf8') : '';
+    try { fs.rmSync(tmpDir122, { recursive: true, force: true }); } catch {}
+
+    assert(cliErr122 === null && cliExit122 === 0,
+      `[122a] html-reporter.js CLI exits 0 (exit=${cliExit122}, err=${cliErr122?.message ?? 'none'})`);
+    assert(htmlExists122,
+      `[122b] CLI writes report.html alongside the source JSON`);
+    assert(html122.includes('test-seo-section4-gap'),
+      `[122c] generated HTML contains the finding message from the source report`);
+    assert(!/Generated by.*Argus.*·.*T\d\d:\d\d:\d\d/.test(html122),
+      `[122d] HTML footer uses human-readable date format (not raw ISO timestamp)`);
+  }
+
+  // ── Block [123] navigate_page throws → crawlRouteCheap error propagation ─────
+  {
+    console.log('\n[123] Unhappy path: navigate_page throws → crawlRouteCheap propagates error (Chrome-down / page-crash)');
+
+    const savedRetry123 = process.env.ARGUS_RETRY_ATTEMPTS;
+    process.env.ARGUS_RETRY_ATTEMPTS = '1'; // skip retries so mock throws immediately
+
+    let threw123 = false;
+    let errMsg123 = '';
+    let callCount123 = 0;
+    const mockMcp123 = {
+      navigate_page: async () => { callCount123++; throw new Error('net::ERR_CONNECTION_REFUSED 127.0.0.1:9222'); },
+      // listConsoleRaw() calls list_console_messages() synchronously — must be defined so
+      // .catch(() => null) at the call-site can intercept it (sync throw bypasses .catch).
+      // Other async adaptor methods (listConsole, listNetwork) wrap calls in async — safe undefined.
+      list_console_messages: async () => [],
+    };
+
+    try {
+      await crawlRouteCheap({ path: '/test', name: 'chrome-down', critical: false }, 'http://localhost:19999', mockMcp123);
+    } catch (e) {
+      threw123 = true;
+      errMsg123 = e.message ?? '';
+    } finally {
+      if (savedRetry123 === undefined) delete process.env.ARGUS_RETRY_ATTEMPTS;
+      else process.env.ARGUS_RETRY_ATTEMPTS = savedRetry123;
+    }
+
+    assert(threw123,
+      '[123a] crawlRouteCheap throws when navigate_page always fails (Chrome-down simulation)');
+    assert(errMsg123.includes('ERR_CONNECTION_REFUSED'),
+      `[123b] thrown error includes original navigate_page error (got: "${errMsg123.slice(0, 80)}")`);
+    assert(callCount123 === 1,
+      `[123c] ARGUS_RETRY_ATTEMPTS=1 → navigate_page called exactly once before throw (got ${callCount123})`);
+  }
+
+  // ── Block [124] take_screenshot throws → crawlRouteCheap continues gracefully ─
+  {
+    console.log('\n[124] Unhappy path: take_screenshot throws → crawlRouteCheap continues, screenshot null');
+
+    // Proxy over the real mcp connection — intercept only take_screenshot
+    const screenshotFailMcp124 = new Proxy(mcp, {
+      get(target, prop) {
+        if (prop === 'take_screenshot') return async () => { throw new Error('screenshot-test-error-124'); };
+        const val = target[prop];
+        return typeof val === 'function' ? val.bind(target) : val;
+      },
+    });
+
+    let result124 = null;
+    let err124 = null;
+    try {
+      result124 = await crawlRouteCheap(
+        { path: '/clean.html', name: 'screenshot-fail', critical: false },
+        B,
+        screenshotFailMcp124,
+      );
+    } catch (e) {
+      err124 = e;
+    }
+
+    assert(err124 === null,
+      `[124a] crawlRouteCheap does NOT throw when take_screenshot fails (err: ${err124?.message ?? 'none'})`);
+    assert(result124 !== null && result124.screenshot === null,
+      `[124b] result.screenshot is null when take_screenshot throws (got: ${result124?.screenshot})`);
+    assert(Array.isArray(result124?.errors),
+      `[124c] result.errors is still a valid array despite screenshot failure`);
+    assert(typeof result124?.crawledAt === 'string',
+      `[124d] result.crawledAt is present — crawl ran to completion`);
+  }
+
+  // ── Block [125] parseConsoleMsgResponse overflow — 12k messages stress test ───
+  {
+    console.log('\n[125] Unhappy path: parseConsoleMsgResponse with 12,000 messages — overflow stress test');
+
+    const lines125 = [];
+    for (let i = 1; i <= 12000; i++) {
+      const lvl = i % 3 === 0 ? 'error' : i % 3 === 1 ? 'warning' : 'info';
+      lines125.push(`msgid=${i} [${lvl}] Console message number ${i} — stress test payload argus-section5`);
+    }
+    const bigText125 = lines125.join('\n');
+
+    const t0125 = Date.now();
+    let parsed125 = null;
+    let parseErr125 = null;
+    try {
+      parsed125 = parseConsoleMsgResponse(bigText125);
+    } catch (e) {
+      parseErr125 = e;
+    }
+    const elapsed125 = Date.now() - t0125;
+
+    assert(parseErr125 === null,
+      `[125a] parseConsoleMsgResponse with 12k messages does not throw (got: ${parseErr125?.message ?? 'ok'})`);
+    assert(Array.isArray(parsed125) && parsed125.length === 12000,
+      `[125b] parseConsoleMsgResponse returns all 12,000 messages (got ${parsed125?.length})`);
+    assert(elapsed125 < 5000,
+      `[125c] parseConsoleMsgResponse 12k messages completes in < 5s (took ${elapsed125}ms)`);
+  }
+
+  // ── Block [126] cli/init.js — end-to-end file write to temp directory ────────
+  {
+    console.log('\n[126] cli/init.js — end-to-end file write: generateTargetsJs + generateEnvFile write to disk');
+
+    const tmpDir126 = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-init-e2e-'));
+    try {
+      const routes126 = [{ path: '/home', name: 'Home', critical: true, waitFor: null }];
+      const targetsContent126 = generateTargetsJs(routes126, { framework: 'unknown' });
+      const envContent126 = generateEnvFile({ devUrl: 'http://localhost:3000' });
+
+      const targetsPath126 = path.join(tmpDir126, 'targets.js');
+      const envPath126    = path.join(tmpDir126, '.env');
+      fs.writeFileSync(targetsPath126, targetsContent126, 'utf8');
+      fs.writeFileSync(envPath126, envContent126, 'utf8');
+
+      assert(fs.existsSync(targetsPath126),
+        '[126a] targets.js written to disk and exists');
+      assert(fs.existsSync(envPath126),
+        '[126b] .env written to disk and exists');
+      assert(targetsContent126.includes('/home'),
+        '[126c] written targets.js contains the route path /home');
+      assert(envContent126.includes('TARGET_DEV_URL=http://localhost:3000'),
+        '[126d] written .env contains TARGET_DEV_URL=http://localhost:3000');
+      assert(targetsContent126.includes('export const routes'),
+        '[126e] written targets.js is valid ES module syntax (export const routes)');
+    } finally {
+      fs.rmSync(tmpDir126, { recursive: true, force: true });
+    }
   }
 }
 

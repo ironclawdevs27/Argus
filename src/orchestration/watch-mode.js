@@ -172,7 +172,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
  * @param {number}         port         — TCP port to listen on (default 3002)
  * @returns {http.Server}
  */
-function startDashboard(getFindings, target, port) {
+export function startDashboard(getFindings, target, port) {
   const server = http.createServer((req, res) => {
     if (req.url === '/data' || req.url?.startsWith('/data?')) {
       const payload = JSON.stringify({

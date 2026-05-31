@@ -14,7 +14,7 @@ Argus is an AI-driven automated QA harness that audits web pages against 54 dete
 - `src/argus.js` — single-page audit (CLI)
 - `src/batch-runner.js` — multi-page batch audit
 - `src/mcp-server.js` — MCP server (AI-callable via Claude or any MCP client; registers argus_audit / argus_audit_full / argus_compare / argus_last_report / argus_watch_snapshot / argus_get_context)
-- `test-harness/validate.js` — 93-block correctness harness (394 hard assertions)
+- `test-harness/validate.js` — 126-block correctness harness (528 hard assertions)
 - `test-harness/harness-config.js` — fixture page routing table
 
 ---
@@ -1071,7 +1071,7 @@ Always walk at least 3 levels back — the proximate cause is almost never the r
 
 ### Known MCP Behavioral Limitations
 
-These are chrome-devtools-mcp restrictions that **cannot be worked around in Argus code**. They cause 3 permanent failures in the correctness harness (391/394 pass).
+These are chrome-devtools-mcp restrictions that **cannot be worked around in Argus code**. They cause 3 permanent failures in the correctness harness (525/528 pass).
 
 > **Note on `fill` vs `type_text` and DOM events**: Both tools fire DOM `input` events, but differently:
 >
@@ -1224,14 +1224,14 @@ for (const bp of breakpoints) {
 
 | Metric | Value |
 | --- | --- |
-| Test blocks | 93 |
-| Hard assertions | 394 |
+| Test blocks | 126 |
+| Hard assertions | 528 |
 | Detection categories | 54 in production code; **47 positively verified** by harness fixtures |
-| Fixture pages | 54 |
+| Fixture pages | 53 |
 | Flow step actions | 11 (navigate, waitFor, sleep, fill, click, drag, upload_file, select_option, press_key, handle_dialog, assert) |
-| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring, 1 s default poll, live web dashboard port 3002), adapter layer (CdpBrowserAdapter, + listPages/selectPage), plugin registry, god object split, threshold centralization + Zod validation, session split, Pino logging, retry logic, Vitest unit tests (61 tests, blocks [81]+[82]), Argus MCP server (6 tools: argus_audit + cache, argus_audit_full, argus_compare, argus_last_report, argus_watch_snapshot + tabId, argus_get_context + tabId + open_tabs; block [80]), fix loop (snapshot_id + diff), OTel tracing, npm publication (`argusqa-os@9.5.0`), CI harness gate (harness-ci.yml), glama.json expanded, block [84] (cli/init.js smoke), Sprint 0.5 Tier 1: `take_heapsnapshot` + `emulate({ cpuThrottlingRate })` fixes, Sprint 0.5 Tier 2 (v9.4.6): path traversal fix, withMcp error logging, Slack lazy-init, 401/403 severity gating, broken-link timeout, late JSON-RPC logging, CI docs, Sprint 0.5 Tier 3 (v9.5.0): 9 production-path regression blocks [85]–[93] + diff.js utilities |
+| Phases complete | C1, C2, C3, C4, D1–D8.5, v6 (10 phases), watch mode (passive monitoring, 1 s default poll, live web dashboard port 3002), adapter layer (CdpBrowserAdapter, + listPages/selectPage), plugin registry, god object split, threshold centralization + Zod validation, session split, Pino logging, retry logic, Vitest unit tests (61 tests, blocks [81]+[82]), Argus MCP server (6 tools: argus_audit + cache, argus_audit_full, argus_compare, argus_last_report, argus_watch_snapshot + tabId, argus_get_context + tabId + open_tabs; block [80]), fix loop (snapshot_id + diff), OTel tracing, npm publication (`argusqa-os@9.5.0`), CI harness gate (harness-ci.yml), glama.json expanded, block [84] (cli/init.js smoke), Sprint 0.5 Tier 1: `take_heapsnapshot` + `emulate({ cpuThrottlingRate })` fixes, Sprint 0.5 Tier 2 (v9.4.6): path traversal fix, withMcp error logging, Slack lazy-init, 401/403 severity gating, broken-link timeout, late JSON-RPC logging, CI docs, Sprint 0.5 Tier 3 (v9.5.0): 9 production-path regression blocks [85]–[93] + diff.js utilities, Section 1 gap-close (v9.5.1): 14 new blocks [94]–[107] covering mcp-parsers, registry, report-processor, config/targets, slug, telemetry, logger, argus/batch-runner barrels, mcp-client unwrapEval, slash-command-handler verifySlackSignature, interaction-handler, slack-notifier, processReport integration, dispatchAll HTML fallback; production bug fix: orchestrator.js console baseline per-navigation reset guard; Section 2 gap-close: 9 new blocks [108]–[116] covering session-persistence error paths, baseline-manager branch sanitization, schema Zod error messages, github-reporter isGitHubConfigured + formatPrComment cap, html-reporter large finding set (1000+), diff.js URL normalization, mcp-server LRU constants, flow-runner press_key + resolveUidForSelector, watch-mode startDashboard HTTP endpoint; Section 3 gap-close: 4 new blocks [117]–[120] exercising MCP stdio transport end-to-end — initialize handshake + tools/list, argus_last_report missing-dir error, argus_get_context snapshot_id fix-loop diff protocol, argus_watch_snapshot findings + newConsole/newNetwork shape; Section 4 gap-close: 2 new blocks [121]–[122] — Express server/index.js startup + /health endpoint, html-reporter CLI report:html file-write path; fix: html-reporter footer now uses human-readable date (was raw ISO timestamp); Section 5 gap-close: 3 new blocks [123]–[125] — navigate_page throw propagation (Chrome-down / page-crash path), take_screenshot fail graceful continue, parseConsoleMsgResponse 12k-message overflow stress test; Section 6 gap-close: 1 new block [126] — cli/init.js end-to-end file write (generateTargetsJs + generateEnvFile → disk write + existence + content assertions) |
 
-Expected harness output: `391/394 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b] — exits 0 when only these fail)
+Expected harness output: `525/528 hard assertions passed` (3 permanent MCP-limited failures: [49b], [67b], [68b] — exits 0 when only these fail)
 
 ### v9 Sprint 7 additions (2026-05-24)
 
@@ -1455,11 +1455,11 @@ Threshold centralization + Zod config validation.
 | `src/orchestration/orchestrator.js` | Removed `PERF_BUDGETS` / `NETWORK_PERF_THRESHOLDS` constants; uses `thresholds.perf.*` / `thresholds.network.*` |
 | `test-harness/validate.js` | Block [79]: 4 assertions — valid config passes, route missing path throws, path without `/` throws, non-number threshold throws |
 
-Plugin registry + god object split. `crawl-and-report.js` (1,615 lines) reduced to a 20-line backward-compat re-export shell.
+Plugin registry + god object split. `crawl-and-report.js` (1,615 lines) reduced to a 16-line backward-compat re-export shell.
 
 | New file | Purpose |
 | --- | --- |
-| `src/registry.js` | `registerExpensive(a)` / `getCheap()` / `getExpensive()` — analyzers self-register at module load |
+| `src/registry.js` | `registerCheap(a)` / `registerExpensive(a)` / `getCheap()` / `getExpensive()` — analyzers self-register at module load |
 | `src/orchestration/orchestrator.js` | Crawl loop + `crawlRouteCheap` / `crawlRouteExpensive` / `runCrawl` |
 | `src/orchestration/report-processor.js` | `deduplicateFindings` + `rebuildSummary` + `processReport` (overrides → baseline → JSON write) |
 | `src/orchestration/dispatcher.js` | `dispatchAll` — Slack / GitHub / HTML routing |

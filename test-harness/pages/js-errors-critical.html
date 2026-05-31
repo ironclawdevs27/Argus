@@ -8,8 +8,12 @@
     // Same console.error calls as js-errors.html, but this route is configured
     // with critical: true in harness-config.js.
     // Expected severity: "critical" (not "warning").
-    console.error('Critical route error: auth token validation failed — user session will be terminated');
-    console.error('Critical route error: order processing module failed to initialise — no orders can be placed');
+    // Delayed 500ms so list_console_messages subscription is established before they fire.
+    // MCP subscribes to the new page context after navigate; synchronous calls are missed.
+    setTimeout(function () {
+      console.error('Critical route error: auth token validation failed — user session will be terminated');
+      console.error('Critical route error: order processing module failed to initialise — no orders can be placed');
+    }, 500);
   </script>
 </head>
 <body>

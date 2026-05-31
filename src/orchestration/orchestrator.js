@@ -424,7 +424,8 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
 
   // 0. Snapshot session-wide baselines BEFORE this route starts (D5).
   const consoleBaseline = (await browser.listConsole().catch(() => [])).length;
-  const networkBaseline = (await browser.listNetwork().catch(() => [])).length;
+  const baselineNetList = await browser.listNetwork().catch(() => []);
+  const networkMaxReqId = baselineNetList.reduce((max, r) => Math.max(max, r._reqid ?? 0), 0);
   // listConsoleRaw returns raw MCP response — normalizeArray required before .length
   const issuesBaselineRaw = await browser.listConsoleRaw({ types: ['issue'] }).catch(() => null);
   const issuesBaseline    = normalizeArray(issuesBaselineRaw).length;
@@ -468,8 +469,14 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
     });
   }
 
-  // 5. Console messages — sliced from per-route baseline
-  const consoleMsgs = (await browser.listConsole().catch(() => [])).slice(consoleBaseline);
+  // 5. Console messages — sliced from per-route baseline.
+  // Guard: chrome-devtools-mcp list_console_messages resets per navigation. If the
+  // new page has fewer total messages than the pre-navigation baseline, the baseline
+  // refers to the previous page's context and slicing by it would give an empty array.
+  // Fall back to 0 (take all messages from the new page) in that case.
+  const allConsoleMsgs = await browser.listConsole().catch(() => []);
+  const consoleSliceAt = allConsoleMsgs.length > consoleBaseline ? consoleBaseline : 0;
+  const consoleMsgs = allConsoleMsgs.slice(consoleSliceAt);
   for (const msg of consoleMsgs) {
     const text = (msg.text ?? msg.message ?? '');
     if (text.toLowerCase().includes('has been blocked by cors policy')) continue;
@@ -500,9 +507,9 @@ export async function crawlRouteCheap(route, baseUrl, mcp) {
     }
   }
 
-  // 6. Network requests — sliced from per-route baseline (cap AFTER slice, not before)
-  const networkReqs = (await browser.listNetwork())
-    .slice(networkBaseline).slice(0, 500);
+  // 6. Network requests — filtered from per-route baseline by _reqid (cap AFTER filter, not before)
+  const networkReqs = (await browser.listNetwork().catch(() => []))
+    .filter(r => (r._reqid ?? 0) > networkMaxReqId).slice(0, 500);
   for (const req of networkReqs) {
     const severity = classifyNetworkRequest(req, route.critical);
     if (severity !== null) {

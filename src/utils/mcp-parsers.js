@@ -46,7 +46,7 @@ export function parseNetworkReqResponse(raw) {
   if (typeof raw === 'object') return normalizeArray(raw);
   if (typeof raw !== 'string') return [];
   const reqs = [];
-  const re = /reqid=(\d+)\s+(\w+)\s+(\S+)\s+\[(\d+)\]/gm;
+  const re = /reqid=(\d+)\s+(\w+)\s+(\S+)\s+\[(\d+)[^\]]*\]/gm;
   let m;
   while ((m = re.exec(raw)) !== null) {
     const [, reqid, method, url, statusStr] = m;
