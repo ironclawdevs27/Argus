@@ -70,6 +70,7 @@ import { crawlRouteCheap } from '../src/orchestration/crawl-and-report.js';
 import { analyzeIssues } from '../src/utils/issues-analyzer.js';
 import { parseNetworkTiming } from '../src/utils/network-timing-analyzer.js';
 import { analyzeKeyboard } from '../src/utils/keyboard-analyzer.js';
+import { analyzeTheme }   from '../src/utils/theme-analyzer.js';
 import { WatchSession } from '../src/orchestration/watch-mode.js';
 import { validateConfig } from '../src/config/schema.js';
 import * as argusTargets from '../src/config/targets.js';
@@ -3762,12 +3763,20 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   }
 
   // ── Block [90] Production SCSS sourceMappingURL in css_summary (GAP-027) ────
+  // CSS analysis is now a registerExpensive plugin (GAP-034); call it directly.
   {
-    console.log('\n[90] Production SCSS sourceMappingURL — css_summary.scssSourceFiles via crawlRouteCheap (GAP-027)');
+    console.log('\n[90] Production SCSS sourceMappingURL — css_summary.scssSourceFiles via css-analyzer (GAP-027)');
 
-    const cssRoute90   = { name: 'CSS-Issues-Map', path: '/css-issues.html', critical: false, waitFor: null };
-    const result90     = await crawlRouteCheap(cssRoute90, B, mcp);
-    const cssSummary90 = result90.errors.find(e => e.type === 'css_summary');
+    const browser90 = new CdpBrowserAdapter(mcp);
+    const url90     = `${B}/css-issues.html`;
+    await browser90.navigate(url90);
+    await new Promise(r => setTimeout(r, 800));
+    const cssRaw90   = await browser90.evaluate(CSS_ANALYSIS_SCRIPT);
+    const cssInput90 = cssRaw90 == null ? null
+      : typeof cssRaw90 === 'object' && !Array.isArray(cssRaw90) ? cssRaw90
+      : parseEval(cssRaw90, null);
+    const cssErrors90  = cssInput90 ? parseCssAnalysisResult(cssInput90, url90) : [];
+    const cssSummary90 = cssErrors90.find(e => e.type === 'css_summary');
     assert(cssSummary90 !== undefined, `[90a] Production: css_summary finding present`);
     assert(
       Array.isArray(cssSummary90?.scssSourceFiles),
@@ -3780,12 +3789,20 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
   }
 
   // ── Block [91] Production css_override (non-!important) (GAP-026) ───────────
+  // CSS analysis is now a registerExpensive plugin (GAP-034); call it directly.
   {
-    console.log('\n[91] Production css_override (non-!important) — via crawlRouteCheap (GAP-026)');
+    console.log('\n[91] Production css_override (non-!important) — via css-analyzer (GAP-026)');
 
-    const cssRoute91 = { name: 'CSS-Issues-Cascade', path: '/css-issues.html', critical: false, waitFor: null };
-    const result91   = await crawlRouteCheap(cssRoute91, B, mcp);
-    const nonImp91   = result91.errors.filter(e => e.type === 'css_override' && !e.hasImportant);
+    const browser91 = new CdpBrowserAdapter(mcp);
+    const url91     = `${B}/css-issues.html`;
+    await browser91.navigate(url91);
+    await new Promise(r => setTimeout(r, 800));
+    const cssRaw91   = await browser91.evaluate(CSS_ANALYSIS_SCRIPT);
+    const cssInput91 = cssRaw91 == null ? null
+      : typeof cssRaw91 === 'object' && !Array.isArray(cssRaw91) ? cssRaw91
+      : parseEval(cssRaw91, null);
+    const cssErrors91 = cssInput91 ? parseCssAnalysisResult(cssInput91, url91) : [];
+    const nonImp91    = cssErrors91.filter(e => e.type === 'css_override' && !e.hasImportant);
     assert(
       nonImp91.length > 0,
       `[91a] Production: non-!important css_override detected (got ${nonImp91.length})`,
@@ -4958,6 +4975,38 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
     } finally {
       fs.rmSync(tmpDir126, { recursive: true, force: true });
     }
+  }
+
+  // ── Block [127] A7 — Theme & Dark Mode ──────────────────────────────────────
+  {
+    console.log('\n[127] theme-analyzer — A7 dark mode detection on theme-issues.html');
+    const browser127 = new CdpBrowserAdapter(mcp);
+    const url127     = `http://localhost:${devPort}/theme-issues.html`;
+
+    const results127 = await analyzeTheme(browser127, url127);
+
+    assert(Array.isArray(results127),
+      '[127a] analyzeTheme returns an array');
+
+    const nodalFinding127 = results127.find(f => f.type === 'theme_no_dark_mode');
+    assert(nodalFinding127 !== undefined,
+      '[127b] theme_no_dark_mode finding present — fixture has no dark mode media query');
+
+    assert(nodalFinding127?.severity === 'info',
+      '[127c] theme_no_dark_mode severity is info');
+
+    assert(typeof nodalFinding127?.message === 'string' && nodalFinding127.message.length > 0,
+      '[127d] theme_no_dark_mode message is a non-empty string');
+
+    const summary127 = results127.find(f => f.type === 'theme_summary');
+    assert(summary127 !== undefined,
+      '[127e] theme_summary finding present');
+
+    assert(summary127?.hasDarkMode === false,
+      '[127f] theme_summary.hasDarkMode is false for fixture with no dark mode query');
+
+    assert(typeof summary127?.rootVarCount === 'number' && summary127.rootVarCount > 0,
+      '[127g] theme_summary.rootVarCount > 0 — fixture declares :root CSS custom properties');
   }
 }
 

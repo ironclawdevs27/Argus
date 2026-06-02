@@ -138,3 +138,15 @@ Hero stats and docs section updated to reflect gap-close completion (blocks [94]
 | Docs § "Breakdown" | Ended at Blocks 79–93 | Added Blocks 94–126 bullet |
 | Docs § "Running" code | `394 hard assertions`, `391/394` | `528 hard assertions`, `525/528` |
 | "How we built it" caption | `84 test blocks` | `126 test blocks` |
+
+## Stats Update (2026-06-01 — Sprint 1 v9.5.2)
+
+Hero stats and docs section updated to reflect Sprint 1 (block [127] — A7 Theme & Dark Mode):
+
+| Field | Old | New |
+|---|---|---|
+| `stats[1].num` (TEST BLOCKS) | `126` | `127` |
+| `stats[2].num` (ASSERTIONS RUN) | `528` | `535` |
+| Docs § "Test Coverage" tagline | `126 blocks, 528 hard assertions` | `127 blocks, 535 hard assertions` |
+| Docs § "Running" code | `528 hard assertions`, `525/528` | `535 hard assertions`, `532/535` |
+| "How we built it" caption | `126 test blocks` | `127 test blocks` |

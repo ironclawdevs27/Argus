@@ -1,7 +1,7 @@
 {
   "$schema": "https://glama.ai/mcp/schemas/server.json",
   "name": "argus",
-  "description": "AI-powered QA harness that audits web apps via Chrome DevTools Protocol. Catches JS errors, network failures, a11y violations, SEO issues, security headers, CSS regressions, and more — directly from Claude conversations. 6 MCP tools: argus_audit (fast 8-analyzer pass), argus_audit_full (Lighthouse + memory + responsive), argus_compare (dev vs staging diff), argus_last_report (retrieve last JSON report), argus_watch_snapshot (live tab snapshot without navigating), argus_get_context (LLM-optimized context + fix loop with snapshot_id diff). 126 test blocks, 528 hard assertions, 54 detection categories.",
+  "description": "AI-powered QA harness that audits web apps via Chrome DevTools Protocol. Catches JS errors, network failures, a11y violations, SEO issues, security headers, CSS regressions, and more — directly from Claude conversations. 6 MCP tools: argus_audit (fast 8-analyzer pass), argus_audit_full (Lighthouse + memory + responsive), argus_compare (dev vs staging diff), argus_last_report (retrieve last JSON report), argus_watch_snapshot (live tab snapshot without navigating), argus_get_context (LLM-optimized context + fix loop with snapshot_id diff). 127 test blocks, 535 hard assertions, 55 detection categories.",
   "maintainers": ["ironclawdevs27"],
   "tools": [
     {
