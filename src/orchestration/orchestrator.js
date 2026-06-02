@@ -25,6 +25,7 @@ import { analyzeApiFrequency }                                           from '.
 import { slugify }                                                       from '../utils/slug.js';
 import { unwrapEval, createMcpClient }                                   from '../utils/mcp-client.js';
 import { CdpBrowserAdapter }                                             from '../adapters/browser.js';
+import { getFigmaFrame }                                                 from '../adapters/figma.js';
 import { chunkArray }                                                    from '../utils/parallel-crawler.js';
 import { validateApiContracts }                                          from '../utils/contract-validator.js';
 import { checkLighthouse }                                               from '../utils/lighthouse-checker.js';
@@ -41,6 +42,7 @@ import '../utils/hover-analyzer.js';
 import '../utils/snapshot-analyzer.js';
 import '../utils/keyboard-analyzer.js';
 import '../utils/theme-analyzer.js';
+import '../utils/design-fidelity-analyzer.js';
 
 import { getExpensive }          from '../registry.js';
 import { deduplicateFindings as deduplicateErrors } from './report-processor.js';
@@ -895,7 +897,17 @@ async function crawlAndAnalyzeRoute(route, targetBaseUrl, mcp, sessionFile) {
   result.errors.push(...expensiveErrors);
   result.errors = deduplicateErrors(result.errors);
 
-  // Post-crawl expensive analyzers via registry (responsive, memory, hover, snapshot, keyboard)
+  // D9: Pre-fetch Figma design tokens when route specifies a figmaFrameUrl.
+  // Attaches figmaData to the route object so design-fidelity-analyzer can consume it.
+  if (route.figmaFrameUrl && !route.figmaData) {
+    try {
+      route.figmaData = await getFigmaFrame(route.figmaFrameUrl);
+    } catch (err) {
+      logger.warn(`[ARGUS] D9: Figma fetch failed for ${route.name} (${route.path}): ${err.message}`);
+    }
+  }
+
+  // Post-crawl expensive analyzers via registry (css, responsive, memory, hover, snapshot, keyboard, theme, design-fidelity)
   for (const { name, analyze } of getExpensive()) {
     if (name === 'lighthouse') continue; // runs inside crawlRouteExpensive
     try {

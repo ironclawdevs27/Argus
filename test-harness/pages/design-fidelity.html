@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Design fidelity fixture — deliberate token deviations.">
+  <title>Design Fidelity Fixture</title>
+  <style>
+    /*
+     * CSS custom properties intentionally deviate from the synthetic Figma spec
+     * used in the harness block [128]. The harness injects this figmaData:
+     *
+     *   tokens: {
+     *     '--color-primary': '#6200ee',   ← page has #5100cd  → mismatch
+     *     '--color-text':    '#333333',   ← page has #333333  → match (no finding)
+     *     '--font-size-base': '16px',     ← page has 14px     → mismatch
+     *     '--spacing-md':     '16px',     ← page has 12px     → mismatch
+     *   }
+     *   components: [
+     *     { name: 'Primary Button', selector: 'button.design-primary' },   ← exists → no finding
+     *     { name: 'Hero Section',   selector: '.figma-hero-section' },     ← absent → missing finding
+     *   ]
+     *
+     * Expected findings: 3 design_token_mismatch + 1 design_component_missing + 1 design_fidelity_summary
+     */
+    :root {
+      --color-primary:  #5100cd;   /* Figma: #6200ee  — deliberate mismatch */
+      --color-text:     #333333;   /* Figma: #333333  — intentional match   */
+      --font-size-base: 14px;      /* Figma: 16px     — deliberate mismatch */
+      --spacing-md:     12px;      /* Figma: 16px     — deliberate mismatch */
+      --color-surface:  #f5f5f5;   /* Not in Figma spec — not checked       */
+    }
+
+    body {
+      background: var(--color-surface);
+      color:      var(--color-text);
+      font-size:  var(--font-size-base);
+      font-family: sans-serif;
+      padding:    var(--spacing-md);
+      margin:     0;
+    }
+
+    h1 { color: var(--color-primary); font-size: 1.6rem; margin-bottom: 1rem; }
+
+    .card {
+      background: #fff;
+      border:     1px solid #ddd;
+      border-radius: 6px;
+      padding: var(--spacing-md);
+      margin-bottom: 1rem;
+    }
+
+    /* button.design-primary EXISTS → component check passes for Primary Button */
+    button.design-primary {
+      background-color: var(--color-primary);
+      color: #fff;
+      border: none;
+      padding: 0.5rem 1.25rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: var(--font-size-base);
+    }
+
+    /* .figma-hero-section is NOT in the DOM → design_component_missing fires */
+  </style>
+</head>
+<body>
+  <h1>Design Fidelity Fixture</h1>
+
+  <div class="card">
+    <p>This page has intentional deviations from the synthetic Figma spec:</p>
+    <ul>
+      <li><code>--color-primary</code>: <code>#5100cd</code> (Figma: <code>#6200ee</code>)</li>
+      <li><code>--font-size-base</code>: <code>14px</code> (Figma: <code>16px</code>)</li>
+      <li><code>--spacing-md</code>: <code>12px</code> (Figma: <code>16px</code>)</li>
+      <li><code>.figma-hero-section</code> component missing from DOM</li>
+    </ul>
+    <button class="design-primary">Primary Button</button>
+  </div>
+
+  <div class="card">
+    <p>Expected harness findings:</p>
+    <ul>
+      <li><code>design_token_mismatch</code> &times;3 (warning)</li>
+      <li><code>design_component_missing</code> &times;1 (warning)</li>
+      <li><code>design_fidelity_summary</code> &times;1 (info)</li>
+    </ul>
+  </div>
+</body>
+</html>

@@ -420,6 +420,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'theme_no_dark_mode info (no @media (prefers-color-scheme: dark) rule detected)',
   },
+  // D9 — Design Fidelity: deliberate token deviations + missing component
+  {
+    path: '/design-fidelity.html',
+    name: 'Design Fidelity',
+    critical: false,
+    waitFor: null,
+    expected: 'design_token_mismatch warning ×3 (--color-primary, --font-size-base, --spacing-md) · design_component_missing warning ×1 (.figma-hero-section) · design_fidelity_summary info',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

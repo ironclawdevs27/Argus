@@ -70,7 +70,9 @@ import { crawlRouteCheap } from '../src/orchestration/crawl-and-report.js';
 import { analyzeIssues } from '../src/utils/issues-analyzer.js';
 import { parseNetworkTiming } from '../src/utils/network-timing-analyzer.js';
 import { analyzeKeyboard } from '../src/utils/keyboard-analyzer.js';
-import { analyzeTheme }   from '../src/utils/theme-analyzer.js';
+import { analyzeTheme }            from '../src/utils/theme-analyzer.js';
+import { analyzeDesignFidelity }  from '../src/utils/design-fidelity-analyzer.js';
+import { parseFigmaUrl }           from '../src/adapters/figma.js';
 import { WatchSession } from '../src/orchestration/watch-mode.js';
 import { validateConfig } from '../src/config/schema.js';
 import * as argusTargets from '../src/config/targets.js';
@@ -5007,6 +5009,64 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
 
     assert(typeof summary127?.rootVarCount === 'number' && summary127.rootVarCount > 0,
       '[127g] theme_summary.rootVarCount > 0 — fixture declares :root CSS custom properties');
+  }
+
+  // ── Block [128] D9 — Design Fidelity ─────────────────────────────────────────
+  {
+    console.log('\n[128] design-fidelity-analyzer — D9 token mismatch + missing component');
+
+    // Synthetic Figma data: 3 tokens deviate from the fixture, 1 component is absent.
+    const syntheticFigmaData128 = {
+      tokens: {
+        '--color-primary':  '#6200ee',  // fixture has #5100cd → mismatch
+        '--color-text':     '#333333',  // fixture has #333333 → match (no finding)
+        '--font-size-base': '16px',     // fixture has 14px    → mismatch
+        '--spacing-md':     '16px',     // fixture has 12px    → mismatch
+      },
+      components: [
+        { name: 'Primary Button', selector: 'button.design-primary' }, // exists → no finding
+        { name: 'Hero Section',   selector: '.figma-hero-section'   }, // absent → finding
+      ],
+      frame: { name: 'Argus Test Frame', width: 1440, height: 900 },
+    };
+
+    const browser128 = new CdpBrowserAdapter(mcp);
+    const url128     = `http://localhost:${devPort}/design-fidelity.html`;
+
+    const results128 = await analyzeDesignFidelity(browser128, url128, syntheticFigmaData128);
+
+    assert(Array.isArray(results128),
+      '[128a] analyzeDesignFidelity returns an array');
+
+    const mismatches128 = results128.filter(f => f.type === 'design_token_mismatch');
+    assert(mismatches128.length >= 2,
+      `[128b] at least 2 design_token_mismatch findings (got ${mismatches128.length})`);
+
+    assert(mismatches128.every(f => f.severity === 'warning'),
+      '[128c] all design_token_mismatch findings have severity "warning"');
+
+    assert(mismatches128.some(f => f.token === '--color-primary'),
+      '[128d] --color-primary mismatch detected');
+
+    const missing128 = results128.find(f => f.type === 'design_component_missing' && f.selector === '.figma-hero-section');
+    assert(missing128 !== undefined,
+      '[128e] design_component_missing for .figma-hero-section present');
+
+    const summary128 = results128.find(f => f.type === 'design_fidelity_summary');
+    assert(summary128 !== undefined,
+      '[128f] design_fidelity_summary finding present');
+
+    // parseFigmaUrl unit test — no external API needed
+    const parsed128a = parseFigmaUrl('https://www.figma.com/file/ABC123XYZ/MyApp?node-id=42%3A0');
+    assert(parsed128a?.fileKey === 'ABC123XYZ',
+      `[128g] parseFigmaUrl extracts fileKey correctly (got ${parsed128a?.fileKey})`);
+
+    assert(parsed128a?.nodeId === '42:0',
+      `[128h] parseFigmaUrl normalises node-id to colon format (got ${parsed128a?.nodeId})`);
+
+    const parsed128b = parseFigmaUrl('not-a-figma-url');
+    assert(parsed128b === null,
+      '[128i] parseFigmaUrl returns null for non-Figma URL');
   }
 }
 

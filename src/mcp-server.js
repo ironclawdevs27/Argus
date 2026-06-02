@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Argus MCP Server (v9.5.2)
+ * Argus MCP Server (v9.5.3)
  *
  * Exposes Argus as an MCP server so Claude (or any MCP client) can call
  * argus_audit, argus_audit_full, argus_compare, argus_last_report, and
@@ -30,6 +30,8 @@ import { crawlRouteCheap, runCrawl }          from './orchestration/crawl-and-re
 import { runComparison }                      from './orchestration/env-comparison.js';
 import { WatchSession }                       from './orchestration/watch-mode.js';
 import { CdpBrowserAdapter }                  from './adapters/browser.js';
+import { getFigmaFrame }                      from './adapters/figma.js';
+import { analyzeDesignFidelity }             from './utils/design-fidelity-analyzer.js';
 
 const REPORTS_DIR = path.resolve(process.cwd(), 'reports');
 
@@ -115,6 +117,18 @@ const TOOLS = [
         snapshot_id: { type: 'string', description: 'Optional snapshot_id from a previous argus_get_context call. When provided, the response includes resolved/new_issues/persisting arrays showing what changed since that snapshot.' },
         tabId:       { type: 'string', description: 'Optional Chrome page/tab ID. When provided, switches focus to that specific tab before capturing context — useful for SPAs that spawn new windows (e.g. OAuth popups, checkout flows). Get tab IDs from the open_tabs array in a prior argus_get_context response.' },
       },
+    },
+  },
+  {
+    name: 'argus_design_audit',
+    description: 'Audit design-to-implementation fidelity by comparing a live page\'s CSS custom properties against a Figma frame\'s design tokens, and verifying that Figma-specified components exist in the DOM. Requires FIGMA_API_TOKEN env var (Figma Personal Access Token) and Chrome on --remote-debugging-port=9222. Returns { findings: [{type, severity, token?, expected?, actual?, component?, selector?}], summary: {tokenMismatches, missingComponents} }.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url:           { type: 'string', description: 'Full URL of the page to audit (e.g. http://localhost:3000/dashboard). Must be reachable by the running Chrome instance.' },
+        figmaFrameUrl: { type: 'string', description: 'Figma frame URL to fetch design tokens from (e.g. https://www.figma.com/file/ABC123/Name?node-id=42%3A0). Must include the node-id query parameter pointing to the specific frame.' },
+      },
+      required: ['url', 'figmaFrameUrl'],
     },
   },
 ];
@@ -268,6 +282,30 @@ async function handleGetContext({ url, snapshot_id: prevId, tabId } = {}) {
   });
 }
 
+async function handleDesignAudit({ url, figmaFrameUrl }) {
+  if (!url)           throw new Error('argus_design_audit: url is required');
+  if (!figmaFrameUrl) throw new Error('argus_design_audit: figmaFrameUrl is required');
+
+  const figmaData = await getFigmaFrame(figmaFrameUrl);
+  if (!figmaData) {
+    return { content: [{ type: 'text', text: JSON.stringify({
+      error: 'Could not fetch Figma data. Ensure FIGMA_API_TOKEN is set and the figmaFrameUrl is valid.',
+      findings: [],
+      summary: { tokenMismatches: 0, missingComponents: 0 },
+    }) }] };
+  }
+
+  return withMcp(async (mcp) => {
+    const browser  = new CdpBrowserAdapter(mcp);
+    const findings = await analyzeDesignFidelity(browser, url, figmaData);
+    const summary  = {
+      tokenMismatches:   findings.filter(f => f.type === 'design_token_mismatch').length,
+      missingComponents: findings.filter(f => f.type === 'design_component_missing').length,
+    };
+    return { content: [{ type: 'text', text: JSON.stringify({ findings, summary }, null, 2) }] };
+  });
+}
+
 async function handleLastReport() {
   if (!fs.existsSync(REPORTS_DIR)) {
     return { content: [{ type: 'text', text: '{"error":"No reports found in reports/"}' }] };
@@ -286,7 +324,7 @@ async function handleLastReport() {
 // ── Server bootstrap ──────────────────────────────────────────────────────────
 
 const server = new Server(
-  { name: 'argus', version: '9.5.2' },
+  { name: 'argus', version: '9.5.3' },
   { capabilities: { tools: {} } },
 );
 
@@ -301,6 +339,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       case 'argus_last_report':     return await handleLastReport();
       case 'argus_watch_snapshot':  return await handleWatchSnapshot(req.params.arguments ?? {});
       case 'argus_get_context':     return await handleGetContext(req.params.arguments ?? {});
+      case 'argus_design_audit':    return await handleDesignAudit(req.params.arguments ?? {});
       default: throw new Error(`Unknown tool: ${req.params.name}`);
     }
   } catch (err) {
