@@ -79,7 +79,7 @@ The `landing/` directory contains the product landing page (React + Vite + Tailw
 
 | 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
 | :---: | :---: | :---: | :---: |
-| **114 distinct issue types detected** | **24 analysis engines** | **528 test assertions** | **126 test blocks** |
+| **114 distinct issue types detected** | **24 analysis engines** | **535 test assertions** | **127 test blocks** |
 
 </div>
 
@@ -632,7 +632,7 @@ Then follow with: *"Here's the context — what's causing these errors and how d
 | `npm run server` | Start the Slack slash command + interaction server (port 3001) |
 | `npm run init` | Interactive setup wizard — generates `.env` + `targets.js` |
 | `npm run test:unit` | Run 61 unit tests (no Chrome required) |
-| `npm run test:harness` | Run 126-block correctness harness (requires Chrome) |
+| `npm run test:harness` | Run 127-block correctness harness (requires Chrome) |
 
 **`npm run crawl`** — full audit of all configured routes:
 
@@ -944,12 +944,12 @@ argus/
 │   └── README.md                     # Setup guide, Supabase SQL schema, env vars, deployment
 ├── scripts/
 │   └── dispatch-report.js            # Standalone Slack re-dispatch script (re-posts last report.json to Slack)
-├── test-harness/                     # Fixture server + test runner (126 blocks, 528 hard assertions, 53 fixture pages)
+├── test-harness/                     # Fixture server + test runner (127 blocks, 535 hard assertions, 54 fixture pages)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner — 126 numbered blocks ([80]–[84] MCP/createFinding/withRetry/watch/init, [85]–[93] Sprint 0.5 Tier 3, [94]–[126] gap-close Sections 1–6)
-│   ├── pages/                        # 53 fixture HTML pages (one per detection category)
+│   ├── validate.js                   # Test runner — 127 numbered blocks ([80]–[84] MCP/createFinding/withRetry/watch/init, [85]–[93] Sprint 0.5 Tier 3, [94]–[126] gap-close, [127] Sprint 1 A7 theme)
+│   ├── pages/                        # 54 fixture HTML pages (one per detection category)
 │   ├── nextjs-fixture/               # Next.js app structure for C3 discovery tests (10 files)
 │   ├── source-fixture/               # Minimal app.js for C1 codebase-analyzer tests (env var audit)
 │   └── static/
@@ -989,7 +989,7 @@ argus/
 
 ## Known MCP Tool Limitations
 
-The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`525/528` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code. `validate.js` now exits with code 0 when only these 3 failures remain, making the CI harness gate reliable.
+The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`532/535` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code. `validate.js` now exits with code 0 when only these 3 failures remain, making the CI harness gate reliable.
 
 > **`type_text` clarification**: `type_text` does fire DOM `input` events when the element is properly focused first with `mcp.click({ uid })`. Always use uid-based focus — passing `{ selector }` to `mcp.click` silently does nothing.
 

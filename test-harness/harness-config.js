@@ -412,6 +412,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'WatchSession poll detects console errors, network 500/404 on first poll; dedup prevents re-reporting; incremental trigger fires new finding',
   },
+  // A7 — Theme & Dark Mode: CSS custom properties declared but no dark mode media query
+  {
+    path: '/theme-issues.html',
+    name: 'Theme Issues',
+    critical: false,
+    waitFor: null,
+    expected: 'theme_no_dark_mode info (no @media (prefers-color-scheme: dark) rule detected)',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

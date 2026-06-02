@@ -45,9 +45,10 @@ export class CdpBrowserAdapter {
   waitFor(opts)            { return this._mcp.wait_for(opts); }
 
   // ── Viewport ────────────────────────────────────────────────────────────────
-  emulate(viewport)        { return this._mcp.emulate({ viewport }); }
-  emulateCpu(rate)         { return this._mcp.emulate({ cpuThrottlingRate: rate }); }
-  resize(w, h)             { return this._mcp.resize_page({ width: w, height: h }); }
+  emulate(viewport)              { return this._mcp.emulate({ viewport }); }
+  emulateCpu(rate)               { return this._mcp.emulate({ cpuThrottlingRate: rate }); }
+  emulateColorScheme(scheme)     { return this._mcp.emulate({ colorScheme: scheme }); }
+  resize(w, h)                   { return this._mcp.resize_page({ width: w, height: h }); }
 
   // ── Network & performance ───────────────────────────────────────────────────
   getNetworkRequest(reqId) { return this._mcp.get_network_request({ requestId: reqId }); }
