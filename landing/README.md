@@ -168,5 +168,5 @@ Block [128] expanded to 30 assertions. D9 now has 13 mismatch finding types. Her
 | Field | Old | New |
 |---|---|---|
 | `stats[2].num` (ASSERTIONS RUN) | `559` | `565` |
-| Docs § "Test Coverage" tagline | `128 blocks, 559 hard assertions` | `128 blocks, 565 hard assertions` |
+| Docs § "Test Coverage" tagline | `128 blocks, 559 hard assertions` | `129 blocks, 572 hard assertions` |
 | Docs § "Running" code | `559 hard assertions`, `556/559` | `565 hard assertions`, `562/565` |
