@@ -36,6 +36,13 @@
           "isRequired": false,
           "format": "string",
           "isSecret": true
+        },
+        {
+          "name": "FIGMA_API_TOKEN",
+          "description": "Figma personal access token — enables argus_design_audit to fetch design specs from a Figma frame and compare them against the live DOM (13 fidelity finding types). Omit to skip design fidelity audits.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
         }
       ]
     }
