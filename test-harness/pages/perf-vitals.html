@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Performance Vitals Fixture — Web Vitals + bundle size regression testing.">
+  <title>Performance Vitals Fixture</title>
+  <!--
+    Harness block [129] — Sprint 9 Web Vitals assertions:
+
+    HARD assertions (reliable in headless):
+      [129a] analyzeWebVitals returns an array
+      [129b] perf_vitals_summary always present
+      [129c] perf_vitals_summary has lcp/cls/fcp/tti/ttfb fields (even if null)
+      [129d] perf_bundle_large detected for /api/large.js (~600 KB > 500 KB threshold)
+      [129e] perf_bundle_large severity is 'warning'
+      [129f] perf_bundle_large sizeKb > 500
+
+    SOFT assertions (may vary in headless Chrome):
+      [129g] LCP captured (perf_vitals_summary.lcp is a number)
+      [129h] TTI (domInteractive) is a positive number
+  -->
+
+  <!-- Large JS bundle — triggers perf_bundle_large (600 KB > 500 KB threshold) -->
+  <script src="/api/large.js"></script>
+
+  <style>
+    body { font-family: sans-serif; margin: 0; padding: 16px; background: #fafafa; }
+    h1 { font-size: 1.4rem; color: #333; }
+    .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 12px; margin-bottom: 12px; }
+
+    /*
+     * Layout-shift elements: these shift after DOMContentLoaded via JS below.
+     * CLS detection via PerformanceObserver — may be 0 in headless Chrome
+     * if the shift occurs before the page is measurable (soft assertion).
+     */
+    .shift-target { width: 200px; height: 80px; background: #e3f2fd; transition: none; }
+  </style>
+</head>
+<body>
+  <h1>Performance Vitals Fixture</h1>
+
+  <!--
+    LCP candidate — a large visible element. Chrome picks the largest painted
+    content block. In headless the LCP entry may not fire (soft assertion).
+  -->
+  <div class="card" style="min-height:120px; font-size:2rem; color:#1565c0; padding:24px;">
+    Argus Performance Vitals Test — Largest Contentful Paint Candidate
+  </div>
+
+  <div class="card">
+    <p>This fixture loads a ~600 KB JS bundle (<code>/api/large.js</code>) to trigger
+       <code>perf_bundle_large</code> detection.</p>
+    <div class="shift-target" id="shift-box">Layout shift target</div>
+  </div>
+
+  <div class="card">
+    <p>Bundle size: ~600 KB JS (threshold: 500 KB warning)</p>
+    <p>Expected findings: <code>perf_bundle_large</code> warning + <code>perf_vitals_summary</code> info</p>
+  </div>
+
+  <script>
+    // Trigger a small layout shift after load so CLS is > 0
+    // (may not be captured in headless — soft assertion)
+    window.addEventListener('load', function() {
+      var box = document.getElementById('shift-box');
+      if (box) {
+        box.style.marginTop = '20px';  // causes a measurable layout shift
+      }
+    });
+  </script>
+</body>
+</html>

@@ -73,6 +73,7 @@ import { analyzeKeyboard } from '../src/utils/keyboard-analyzer.js';
 import { analyzeTheme }            from '../src/utils/theme-analyzer.js';
 import { analyzeDesignFidelity }  from '../src/utils/design-fidelity-analyzer.js';
 import { parseFigmaUrl }           from '../src/adapters/figma.js';
+import { analyzeWebVitals }        from '../src/utils/web-vitals-analyzer.js';
 import { WatchSession } from '../src/orchestration/watch-mode.js';
 import { validateConfig } from '../src/config/schema.js';
 import * as argusTargets from '../src/config/targets.js';
@@ -5242,6 +5243,58 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
     const positionDrifts128 = results128.filter(f => f.type === 'design_position_drift');
     assert(positionDrifts128.length >= 1,
       `[128ad] at least 1 design_position_drift finding — drift-box has margin-left:80px but Figma bounds x:0, drift > 20px threshold (got ${positionDrifts128.length})`);
+  }
+
+  // ── Block [129] Sprint 9 — Web Vitals + Bundle Size ──────────────────────────
+  {
+    console.log('\n[129] web-vitals-analyzer — Sprint 9 LCP/CLS/FCP/TTI + perf_bundle_large');
+
+    const browser129 = new CdpBrowserAdapter(mcp);
+    const url129     = `${B}/perf-vitals.html`;
+
+    const results129 = await analyzeWebVitals(browser129, url129);
+
+    assert(Array.isArray(results129),
+      '[129a] analyzeWebVitals returns an array');
+
+    const summary129 = results129.find(f => f.type === 'perf_vitals_summary');
+    assert(summary129 !== undefined,
+      '[129b] perf_vitals_summary always present');
+
+    assert(
+      summary129 !== undefined &&
+      Object.prototype.hasOwnProperty.call(summary129, 'lcp') &&
+      Object.prototype.hasOwnProperty.call(summary129, 'cls') &&
+      Object.prototype.hasOwnProperty.call(summary129, 'fcp') &&
+      Object.prototype.hasOwnProperty.call(summary129, 'tti') &&
+      Object.prototype.hasOwnProperty.call(summary129, 'ttfb'),
+      '[129c] perf_vitals_summary has lcp, cls, fcp, tti, ttfb fields'
+    );
+
+    assert(summary129?.severity === 'info',
+      `[129d] perf_vitals_summary severity is 'info' (got ${summary129?.severity})`);
+
+    const bundleFindings129 = results129.filter(f => f.type === 'perf_bundle_large');
+    assert(bundleFindings129.length >= 1,
+      `[129e] perf_bundle_large detected — /api/large.js is ~600 KB > 500 KB threshold (found ${bundleFindings129.length})`);
+
+    assert(bundleFindings129.every(f => f.severity === 'warning' || f.severity === 'critical'),
+      '[129f] perf_bundle_large severity is warning or critical');
+
+    const largeJs129 = bundleFindings129.find(f => f.ext === 'js');
+    assert(largeJs129 !== undefined && largeJs129.sizeKb > 500,
+      `[129g] perf_bundle_large JS sizeKb > 500 (got ${largeJs129?.sizeKb ?? 'none'})`);
+
+    // Soft: LCP and TTI may not be captured in all headless configurations
+    soft(
+      typeof summary129?.lcp === 'number',
+      `[129h] (soft) LCP captured as a number (got ${typeof summary129?.lcp}: ${summary129?.lcp})`
+    );
+
+    soft(
+      typeof summary129?.tti === 'number' && summary129.tti > 0,
+      `[129i] (soft) TTI (domInteractive) captured as positive number (got ${summary129?.tti})`
+    );
   }
 }
 

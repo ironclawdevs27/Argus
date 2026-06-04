@@ -43,6 +43,7 @@ import '../utils/snapshot-analyzer.js';
 import '../utils/keyboard-analyzer.js';
 import '../utils/theme-analyzer.js';
 import '../utils/design-fidelity-analyzer.js';
+import '../utils/web-vitals-analyzer.js';
 
 import { getExpensive }          from '../registry.js';
 import { deduplicateFindings as deduplicateErrors } from './report-processor.js';

@@ -199,6 +199,18 @@ app.get('/api/large-critical', (_req, res) => {
   res.json({ items });
 });
 
+// ── Sprint 9: large JS bundle for perf_bundle_large detection ────────────────
+// Serves ~600 KB of valid JS (above the 500 KB warning threshold).
+// perf-vitals.html loads this as a <script> so PerformanceResourceTiming captures it.
+app.get('/api/large.js', (_req, res) => {
+  res.type('application/javascript');
+  // ~600 KB: 'var _argus_perf_fixture_' + i padded to ~600 chars each × 1000 entries
+  const lines = Array.from({ length: 1000 }, (_, i) =>
+    `var _argus_perf_fixture_${String(i).padStart(4, '0')} = '${('x').repeat(570)}';`
+  );
+  res.send(lines.join('\n'));
+});
+
 // ── Redirect chain test routes (D2.1) ─────────────────────────────────────────
 // 3-hop chain: start→hop1→hop2→redirect-chain-end.html
 // Navigation Timing redirectCount will be 3, which is > 2 (the detection threshold).

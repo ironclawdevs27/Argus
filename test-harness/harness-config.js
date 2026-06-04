@@ -420,6 +420,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'theme_no_dark_mode info (no @media (prefers-color-scheme: dark) rule detected)',
   },
+  // Sprint 9 — Web Vitals + bundle size regression
+  {
+    path: '/perf-vitals.html',
+    name: 'Perf Vitals',
+    critical: false,
+    waitFor: null,
+    expected: 'perf_bundle_large warning (~600 KB JS > 500 KB threshold) · perf_vitals_summary info · LCP/CLS/FCP/TTI captured (soft)',
+  },
   // D9 — Design Fidelity: deliberate token deviations + missing component
   {
     path: '/design-fidelity.html',
