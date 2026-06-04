@@ -5,7 +5,7 @@ import {
   ArrowUpRight, X, ChevronDown, ChevronRight, CheckCircle,
   Code2, Sparkles, Globe,
   Terminal, Wifi, Search, Shield, Zap, Eye, Database, Layers,
-  Github, Bell, GitBranch, BarChart3, Activity,
+  Github, Bell, GitBranch, BarChart3, Activity, Figma,
 } from 'lucide-react'
 
 const ACCENT = '#5E0ED7'
@@ -26,9 +26,9 @@ const navHrefs = {
 }
 
 const stats = [
-  { num: '54', label: 'DETECTION\nTYPES' },
-  { num: '126', label: 'TEST\nBLOCKS' },
-  { num: '528', label: 'ASSERTIONS\nRUN' },
+  { num: '56', label: 'DETECTION\nTYPES' },
+  { num: '128', label: 'TEST\nBLOCKS' },
+  { num: '565', label: 'ASSERTIONS\nRUN' },
 ]
 
 const headingWords = ['Every', 'Bug', 'Caught']
@@ -40,6 +40,7 @@ const slides = [
   'Open Source Forever — MCP Server,\nCLI, Slack & GitHub Alerts,\nAll Included At No Cost',
   'Watch Mode — Passive Bug Detection\nWhile You Browse\nYour Own App',
   'Dev vs Staging Diff —\nCatch Environment-Only\nRegressions Automatically',
+  'Figma Design Fidelity —\nCompare Live DOM Against Design Specs.\n13 Properties Checked Automatically',
 ]
 
 const fadeDown = {
@@ -127,6 +128,12 @@ const features = [
     title: 'MCP Server Mode',
     desc: 'Runs as an MCP server. Ask Claude to audit any URL directly in a conversation — no CLI, no config needed.',
     tag: 'MCP SERVER',
+  },
+  {
+    icon: Figma,
+    title: 'Figma Design Fidelity',
+    desc: 'Compare live DOM against Figma frames automatically. 13 visual properties checked: color, typography, spacing, shadows, position drift, and more.',
+    tag: 'DESIGN QA',
   },
   {
     icon: CheckCircle,
@@ -259,6 +266,27 @@ const detections = [
       'Visual screenshot diff between breakpoints',
     ],
   },
+  {
+    icon: Figma,
+    title: 'Design Fidelity',
+    desc: 'Figma spec vs live DOM — closes the design-implementation gap automatically',
+    count: 13,
+    details: [
+      'Fill and text color accuracy (RGB distance, ≤5% tolerance per channel)',
+      'Typography — font-size, weight, line-height, family, and letter-spacing',
+      'Auto Layout padding and gap (column-gap / row-gap by layout direction)',
+      'Border-radius — per-corner comparison (topLeft, topRight, bottomRight, bottomLeft)',
+      'Box-shadow — offset, blur, spread, and shadow color all compared',
+      'Border stroke — color and weight deviation',
+      'Absolute position drift (scroll-corrected x/y vs Figma frame bounds, 20px threshold)',
+      'Bounding-box overflow — element must not exceed Figma spec dimensions',
+      'Opacity comparison (when Figma specifies < 100%)',
+      'DOM text content vs Figma characters string (exact match)',
+      'CSS custom property vs Figma design token value',
+      'Missing component — Figma-specified selector absent from DOM',
+      'Selector fallback: [data-testid] → [aria-label] → #id → .class per node',
+    ],
+  },
 ]
 
 // ── Setup methods ──────────────────────────────────────────────────────────────
@@ -335,7 +363,7 @@ SLACK_CHANNEL_DIGEST=C0000000002     # #bugs-digest`,
       {
         num: '05',
         title: 'Audit via Claude',
-        desc: 'Ask Claude directly. Six tools available — from fast audits to live context capture for debugging broken apps.',
+        desc: 'Ask Claude directly. Seven tools available — from fast audits to Figma design fidelity checks.',
         code: `# Fast audit — JS errors, network, a11y, SEO, security, CSS, content:
 "Run argus_audit on http://localhost:3000/checkout"
 
@@ -352,7 +380,10 @@ SLACK_CHANNEL_DIGEST=C0000000002     # #bugs-digest`,
 "Run argus_watch_snapshot"
 
 # App broken? Capture full context for Claude to diagnose and fix:
-"Run argus_get_context"`,
+"Run argus_get_context"
+
+# Design fidelity — compare live page against Figma frame (requires FIGMA_API_TOKEN):
+"Run argus_design_audit on http://localhost:3000 with figmaFrameUrl: https://figma.com/file/..."`,
       },
     ],
   },
@@ -458,7 +489,7 @@ const pricingPlans = [
     dark: false,
     description: 'The complete QA harness, self-hosted. Full source on GitHub. No restrictions.',
     benefits: [
-      'All 54 detection categories',
+      'All 56 detection categories',
       'MCP server — callable from Claude',
       'CLI for CI/CD pipelines',
       'Slack & GitHub PR integration',
@@ -538,7 +569,7 @@ const pricingPlans = [
 
 // ── Pricing comparison rows ────────────────────────────────────────────────────
 const COMPARISON_ROWS = [
-  { feature: 'All 54 detection categories',         open: true,  pro: true,  team: true,  enterprise: true  },
+  { feature: 'All 56 detection categories',         open: true,  pro: true,  team: true,  enterprise: true  },
   { feature: 'MCP server & CLI tools',              open: true,  pro: true,  team: true,  enterprise: true  },
   { feature: 'Slack & GitHub PR integration',       open: true,  pro: true,  team: true,  enterprise: true  },
   { feature: 'Baseline & trend tracking',           open: true,  pro: true,  team: true,  enterprise: true  },
@@ -571,7 +602,7 @@ const docChapters = [
       {
         title: 'Key Capabilities',
         bullets: [
-          'Crawls every route and detects 54+ classes of bugs automatically',
+          'Crawls every route and detects 56+ classes of bugs automatically',
           'Executes DSL-defined multi-step user flows with inline assertions',
           'Compares dev vs staging environments and diffs the findings set',
           'Tracks per-run baselines — only new issues trigger alerts',
@@ -597,7 +628,7 @@ const docChapters = [
         bullets: [
           'Entry Points — single-page audit, batch runner, MCP server',
           'Orchestration Layer — crawl loop, report processing, Slack/GitHub/HTML dispatch, env comparison',
-          'Analyzer Plugins — 14 specialized analyzers, each self-registering via registerExpensive() at module load',
+          'Analyzer Plugins — 15 specialized analyzers, each self-registering via registerExpensive() at module load',
         ],
       },
       {
@@ -614,8 +645,8 @@ const docChapters = [
   },
   {
     num: '03',
-    title: '54 Detection Categories',
-    tagline: 'Every surface a browser exposes — console, network, DOM, accessibility, performance',
+    title: '56 Detection Categories',
+    tagline: 'Every surface a browser exposes — console, network, DOM, accessibility, performance, and design fidelity',
     sections: [
       {
         title: 'Core Browser Audits',
@@ -658,6 +689,8 @@ const docChapters = [
           'Drag-and-drop API events, file upload flow validation (type, size, progress, errors)',
           'Chrome DevTools Issues panel, HAR network timing, mobile CPU throttle',
           'Keyboard focus visibility, ARIA state checks, iframe sandbox detection',
+          'A7 — Theme & Dark Mode: CSS var comparison under prefers-color-scheme: dark',
+          'D9 — Figma Design Fidelity: 13 properties compared against Figma REST API (color, typography, spacing, shadow, position drift, and more)',
         ],
       },
     ],
@@ -692,7 +725,7 @@ const docChapters = [
   {
     num: '05',
     title: 'Test Coverage',
-    tagline: '126 blocks, 528 hard assertions, fixture-driven with zero ambiguity',
+    tagline: '128 blocks, 565 hard assertions, fixture-driven with zero ambiguity',
     sections: [
       {
         body: 'Every detection category has a corresponding fixture HTML page that reliably triggers exactly that bug. Fixtures are served via HTTP — never file:// — so CORS, ES modules, and fetch APIs work correctly. Each block has at minimum 3 hard assertions and passes consistently across environments without flakiness.',
@@ -720,8 +753,8 @@ const docChapters = [
       {
         title: 'Running',
         code: `npm run test:unit     # 61 Vitest tests — no Chrome required
-npm run test:harness  # 528 hard assertions — Chrome required (headless)
-# Expected: 525/528 (3 permanent MCP-limited failures: drag, Issues panel)
+npm run test:harness  # 565 hard assertions — Chrome required (headless)
+# Expected: 562/565 (3 permanent MCP-limited failures: drag, Issues panel)
 # Soft assertions (Lighthouse, perf traces) require non-headless Chrome`,
       },
     ],
@@ -767,12 +800,15 @@ npm run test:harness  # 528 hard assertions — Chrome required (headless)
         body: 'The MCP server turns Argus into a first-class tool that Claude (or any MCP client) can invoke directly from a conversation. No terminal, no config file editing — Claude calls argus_audit the same way it calls any tool. The audit runs, the findings come back structured, and Claude can summarise, filter, or suggest fixes inline.',
       },
       {
-        title: 'Four Exposed Tools',
+        title: 'Seven Exposed Tools',
         bullets: [
           'argus_audit(url) — cheap QA pass: console errors, network failures, SEO, security headers, content issues',
           'argus_audit_full(url) — all analyzers including memory, responsive, hover-state, accessibility tree, keyboard walk',
           'argus_compare() — parallel dev vs staging diff using TARGET_DEV_URL / TARGET_STAGING_URL from environment',
           'argus_last_report() — returns the most recent JSON report from disk; no Chrome required',
+          'argus_watch_snapshot() — snapshots the currently open Chrome tab without navigating; accepts tabId for multi-tab workflows',
+          'argus_get_context() — LLM-optimized diagnostic context with fix-loop: pass snapshot_id back to get resolved/new_issues/persisting diff',
+          'argus_design_audit(url, figmaFrameUrl) — compares live DOM against Figma frame via REST API; 13 mismatch finding types with selector fallback; requires FIGMA_API_TOKEN',
         ],
       },
       {
@@ -816,6 +852,48 @@ npm run test:harness  # 528 hard assertions — Chrome required (headless)
       {
         title: 'No-Op Default',
         body: 'If OTEL_EXPORTER_OTLP_ENDPOINT is not set, every startSpan() call is a no-op — the SDK never initialises. Self-hosted users get zero overhead and zero broken installs. Set ARGUS_OTEL_CONSOLE=1 in local development to print spans to stdout without a collector.',
+      },
+    ],
+  },
+  {
+    num: '09',
+    title: 'Figma Design Fidelity',
+    tagline: 'Closing the design-implementation gap — automatically, on every run',
+    sections: [
+      {
+        body: 'The gap between what a designer specifies in Figma and what actually ships in the browser is one of the most persistent bugs in product development. A color is one shade off. A font-weight is 400 instead of 600. A shadow has the wrong blur. These are real bugs — they erode brand consistency, accessibility contrast ratios, and user trust — but no existing QA tool caught them automatically. Argus now does.',
+      },
+      {
+        title: 'How It Works',
+        bullets: [
+          'Fetch the Figma frame via REST API (FIGMA_API_TOKEN) — extracts per-node bounds, fill, stroke, typography, spacing, shadow, opacity, and text content',
+          'Navigate to the live page in Chrome — settle, wait for network idle',
+          'For each Figma node: try selector candidates in order ([data-testid] → [aria-label] → #id → .class)',
+          'Run getComputedStyle() on the matched element — compare every extracted property with configurable thresholds',
+          'Emit a structured finding per mismatch — type, severity, selector, expected, actual, delta',
+        ],
+      },
+      {
+        title: 'The Selector Fallback Problem',
+        body: 'Figma layer names rarely match CSS class names in production code. "Button / Primary" in Figma is .btn-primary or [data-testid="submit"] in the DOM. The naive approach — infer a .class from the layer name — misses most real-world elements. The solution: generate four selector candidates per node and try each. Designers can also type explicit selectors directly in layer names (#hero, .card--featured) and Argus uses them verbatim.',
+      },
+      {
+        title: '13 Properties Compared',
+        bullets: [
+          'Fill and text color — Euclidean RGB distance, 5% tolerance (~22 units of 441 max)',
+          'Typography — font-size (1px), font-weight (exact), line-height (1px), font-family (string), letter-spacing (0.5px)',
+          'Auto Layout — paddingTop/Right/Bottom/Left (2px each), gap/column-gap/row-gap by layoutMode (2px)',
+          'Border-radius — per corner: topLeft, topRight, bottomRight, bottomLeft (1px each)',
+          'Box-shadow — offsetX (1px), offsetY (1px), blur (2px), spread (2px), shadow color (RGB distance)',
+          'Border stroke — color (RGB) and weight (0.5px)',
+          'Opacity — compared when Figma specifies < 100% (10% tolerance)',
+          'Position drift — scroll-corrected absolute x/y vs Figma frame-relative bounds (20px threshold)',
+          'Bounds overflow — element must not exceed Figma width/height (5px tolerance)',
+          'Text content — DOM textContent vs Figma characters string (exact match)',
+          'CSS custom property token — value vs Figma token (case-insensitive)',
+          'Component presence — Figma-specified selector exists in DOM',
+          'Summary — aggregate counts for all 13 types in every audit',
+        ],
       },
     ],
   },
@@ -1007,7 +1085,7 @@ function DetectionSection() {
                 lineHeight: 1.1, letterSpacing: '-0.02em', whiteSpace: 'pre-line', margin: 0,
               }}
             >
-              {'54 types.\nZero blind spots.'}
+              {'56 types.\nZero blind spots.'}
             </h2>
             <p style={{ margin: '1rem 0 0', fontSize: '0.85rem', color: 'rgba(10,10,10,0.45)', lineHeight: 1.6 }}>
               Click any category to see every detection it covers.
