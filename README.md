@@ -52,7 +52,7 @@ Then ask Claude (or any MCP client):
 Run argus_audit on http://localhost:3000
 ```
 
-**Six tools are exposed:**
+**Seven tools are exposed:**
 
 | Tool | What it does |
 | --- | --- |
@@ -62,6 +62,7 @@ Run argus_audit on http://localhost:3000
 | `argus_last_report` | Return the last saved JSON report without re-running a scan |
 | `argus_watch_snapshot` | Snapshot the currently open Chrome tab without navigating — raw console + network capture |
 | `argus_get_context` | Capture everything broken on the open tab, formatted as a diagnostic context for Claude to diagnose and suggest fixes |
+| `argus_design_audit` | Full Figma design-to-implementation fidelity audit — 13 finding types across color, typography, spacing, per-corner radius, position drift, stroke, shadow (color+spread), opacity, gap, and text. Selector fallback: `[data-testid]` → `[aria-label]` → `#id` → `.class` |
 
 > **Requires**: Node.js ≥ 20.19, Chrome (desktop or headless), and the `chrome-devtools-mcp` server registered alongside Argus (shown above).
 
@@ -79,7 +80,7 @@ The `landing/` directory contains the product landing page (React + Vite + Tailw
 
 | 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
 | :---: | :---: | :---: | :---: |
-| **114 distinct issue types detected** | **24 analysis engines** | **544 test assertions** | **128 test blocks** |
+| **114 distinct issue types detected** | **24 analysis engines** | **565 test assertions** | **128 test blocks** |
 
 </div>
 
@@ -348,7 +349,8 @@ Argus watches your running application and automatically surfaces issues that te
 | **Slack Notifications** | Rich Block Kit reports with inline screenshots routed to `#bugs-critical`, `#bugs-warnings`, `#bugs-digest` |
 | **Slash Command** | `/argus-retest <url>` triggers an on-demand test from any Slack channel |
 | **CI Integration** | GitHub Actions workflow runs daily at 6 AM UTC and on every push to `main` |
-| **MCP Server (AI-callable Argus)** | Register Argus as an MCP server via `.mcp.json`; Claude (or any MCP client) can call `argus_audit`, `argus_audit_full`, `argus_compare`, `argus_last_report`, `argus_watch_snapshot`, and `argus_get_context` directly from a conversation — no CLI, no terminal required. Published to npm as **[argusqa-os](https://www.npmjs.com/package/argusqa-os)** — add via `{ "command": "npx", "args": ["-y", "argusqa-os"] }` in `.mcp.json` |
+| **MCP Server (AI-callable Argus)** | Register Argus as an MCP server via `.mcp.json`; Claude (or any MCP client) can call `argus_audit`, `argus_audit_full`, `argus_compare`, `argus_last_report`, `argus_watch_snapshot`, `argus_get_context`, and `argus_design_audit` directly from a conversation — no CLI, no terminal required. Published to npm as **[argusqa-os](https://www.npmjs.com/package/argusqa-os)** — add via `{ "command": "npx", "args": ["-y", "argusqa-os"] }` in `.mcp.json` |
+| **Figma Design Fidelity** | `argus_design_audit(url, figmaFrameUrl)` compares every extracted Figma property — 13 mismatch finding types: CSS token values, component presence, per-node fill/text color (RGB distance), typography (fontSize/fontWeight/lineHeight/fontFamily/letterSpacing), Auto Layout padding and gap, border-radius (per-corner), bounding-box overflow, **absolute position drift** (scroll-corrected x/y vs Figma bounds, 20px), border stroke (color+weight), box-shadow (offset+blur+**spread**+**color**), opacity, and text content. Selector fallback: tries `[data-testid]`, `[aria-label]`, `#id`, `.class` per node. Requires `FIGMA_API_TOKEN` env var. |
 
 Works with **React + SCSS**, CSS Modules, CSS-in-JS (styled-components / emotion), and plain HTML/CSS apps.
 
@@ -576,6 +578,7 @@ Ask Claude directly — no terminal needed.
 | `argus_last_report` | Return the last saved JSON report without re-running a scan |
 | `argus_watch_snapshot` | Snapshot the currently open Chrome tab without navigating — raw console + network capture |
 | `argus_get_context` | Capture everything broken on the open tab, formatted as a diagnostic context for Claude to diagnose and suggest fixes |
+| `argus_design_audit` | Figma design-to-implementation fidelity audit — 13 finding types across color, typography, spacing, per-corner radius, position drift, stroke, shadow (color+spread), opacity, gap, and text content |
 
 **`argus_audit`** — fast audit of any URL:
 
@@ -867,11 +870,11 @@ argus/
 │       └── argus.yml                 # CI pipeline
 ├── .vscode/
 │   └── mcp.json                      # Chrome DevTools MCP config for VS Code
-├── .mcp.json                         # Argus MCP server registration — exposes argus_audit/argus_audit_full/argus_compare/argus_last_report/argus_watch_snapshot/argus_get_context to Claude
+├── .mcp.json                         # Argus MCP server registration — exposes all 7 tools to Claude: argus_audit/argus_audit_full/argus_compare/argus_last_report/argus_watch_snapshot/argus_get_context/argus_design_audit
 ├── src/
 │   ├── argus.js                      # Single-page audit entry point
 │   ├── batch-runner.js               # Multi-page batch audit
-│   ├── mcp-server.js                 # Argus MCP server — argus_audit / argus_audit_full / argus_compare / argus_last_report / argus_watch_snapshot / argus_get_context
+│   ├── mcp-server.js                 # Argus MCP server — argus_audit / argus_audit_full / argus_compare / argus_last_report / argus_watch_snapshot / argus_get_context / argus_design_audit
 │   ├── adapters/
 │   │   └── browser.js                # CdpBrowserAdapter — facade over all chrome-devtools-mcp calls
 │   ├── domain/
@@ -944,7 +947,7 @@ argus/
 │   └── README.md                     # Setup guide, Supabase SQL schema, env vars, deployment
 ├── scripts/
 │   └── dispatch-report.js            # Standalone Slack re-dispatch script (re-posts last report.json to Slack)
-├── test-harness/                     # Fixture server + test runner (128 blocks, 544 hard assertions, 55 fixture pages)
+├── test-harness/                     # Fixture server + test runner (128 blocks, 565 hard assertions, 55 fixture pages)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
@@ -989,7 +992,7 @@ argus/
 
 ## Known MCP Tool Limitations
 
-The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`541/544` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code. `validate.js` now exits with code 0 when only these 3 failures remain, making the CI harness gate reliable.
+The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`562/565` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code. `validate.js` now exits with code 0 when only these 3 failures remain, making the CI harness gate reliable.
 
 > **`type_text` clarification**: `type_text` does fire DOM `input` events when the element is properly focused first with `mcp.click({ uid })`. Always use uid-based focus — passing `{ selector }` to `mcp.click` silently does nothing.
 
@@ -999,6 +1002,8 @@ The Chrome DevTools MCP behavioral constraints below cause **3 permanent test fa
 | `list_console_messages({ types: ['issue'] })` | Issues panel returns empty even when violations exist | CSP and deprecated-API detection is unreliable |
 
 These constraints are documented with workarounds in [SKILL.md §10](SKILL.md).
+
+The harness passes **562/565** assertions (exits 0). The 3 failures are the permanent MCP-limited ones listed above.
 
 ---
 

@@ -3,32 +3,36 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Design fidelity fixture — deliberate token deviations.">
+  <meta name="description" content="Design fidelity fixture — deliberate token, property, and content deviations.">
   <title>Design Fidelity Fixture</title>
   <style>
     /*
-     * CSS custom properties intentionally deviate from the synthetic Figma spec
-     * used in the harness block [128]. The harness injects this figmaData:
+     * Harness block [128] synthetic figmaData covers:
      *
-     *   tokens: {
-     *     '--color-primary': '#6200ee',   ← page has #5100cd  → mismatch
-     *     '--color-text':    '#333333',   ← page has #333333  → match (no finding)
-     *     '--font-size-base': '16px',     ← page has 14px     → mismatch
-     *     '--spacing-md':     '16px',     ← page has 12px     → mismatch
-     *   }
-     *   components: [
-     *     { name: 'Primary Button', selector: 'button.design-primary' },   ← exists → no finding
-     *     { name: 'Hero Section',   selector: '.figma-hero-section' },     ← absent → missing finding
-     *   ]
+     *   LEGACY (tokens / components):
+     *     --color-primary: #6200ee  → page has #5100cd  → design_token_mismatch
+     *     --color-text:    #333333  → page has #333333  → match (no finding)
+     *     --font-size-base: 16px   → page has 14px     → design_token_mismatch
+     *     --spacing-md:    16px    → page has 12px     → design_token_mismatch
+     *     button.design-primary exists   → no finding
+     *     .figma-hero-section absent     → design_component_missing
      *
-     * Expected findings: 3 design_token_mismatch + 1 design_component_missing + 1 design_fidelity_summary
+     *   RICH NODES (nodes[] per-element comparison):
+     *     .action-button  — wrong bg-color, padding, border-radius
+     *     .heading-label  — wrong text color, font-size, font-weight
+     *     .shadow-box     — wrong box-shadow offset/blur
+     *     .stroke-box     — wrong border color and width
+     *     .faded-box      — opacity 1 vs Figma 0.5
+     *     .label-text     — wrong fontFamily, letterSpacing, textContent
+     *     .flex-row       — wrong column-gap
      */
+
     :root {
-      --color-primary:  #5100cd;   /* Figma: #6200ee  — deliberate mismatch */
-      --color-text:     #333333;   /* Figma: #333333  — intentional match   */
-      --font-size-base: 14px;      /* Figma: 16px     — deliberate mismatch */
-      --spacing-md:     12px;      /* Figma: 16px     — deliberate mismatch */
-      --color-surface:  #f5f5f5;   /* Not in Figma spec — not checked       */
+      --color-primary:  #5100cd;
+      --color-text:     #333333;
+      --font-size-base: 14px;
+      --spacing-md:     12px;
+      --color-surface:  #f5f5f5;
     }
 
     body {
@@ -44,13 +48,13 @@
 
     .card {
       background: #fff;
-      border:     1px solid #ddd;
+      border: 1px solid #ddd;
       border-radius: 6px;
       padding: var(--spacing-md);
       margin-bottom: 1rem;
     }
 
-    /* button.design-primary EXISTS → component check passes for Primary Button */
+    /* button.design-primary EXISTS → component check passes */
     button.design-primary {
       background-color: var(--color-primary);
       color: #fff;
@@ -58,33 +62,141 @@
       padding: 0.5rem 1.25rem;
       border-radius: 4px;
       cursor: pointer;
-      font-size: var(--font-size-base);
     }
 
-    /* .figma-hero-section is NOT in the DOM → design_component_missing fires */
+    /* .figma-hero-section NOT in DOM → design_component_missing */
+
+    /* ── Per-node rich comparison fixtures ───────────────────────────────────── */
+
+    /* Figma fill rgb(98,0,238) → DOM rgb(81,0,205) delta≈37 > 22  → design_color_mismatch  */
+    /* Figma padding 16px/24px  → DOM 8px/12px                     → design_spacing_mismatch */
+    /* Figma cornerRadius 8px   → DOM 4px                          → design_radius_mismatch  */
+    .action-button {
+      display: inline-block;
+      background-color: #5100cd;
+      color: #fff;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: sans-serif;
+    }
+
+    /* Figma fill rgb(33,33,33) → DOM rgb(85,85,85) delta≈90 > 22  → design_color_mismatch      */
+    /* Figma fontSize 24px      → DOM 20px                         → design_typography_mismatch  */
+    /* Figma fontWeight 700     → DOM 400                          → design_typography_mismatch  */
+    .heading-label {
+      display: block;
+      color: #555555;
+      font-size: 20px;
+      font-weight: 400;
+      margin-bottom: 0.5rem;
+    }
+
+    /* Figma shadow offsetX:2 offsetY:4 blur:8 → DOM 0px 2px blur:4px → design_shadow_mismatch */
+    .shadow-box {
+      background: #fff;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      padding: 8px;
+      margin-bottom: 8px;
+    }
+
+    /* Figma stroke rgb(98,0,238) weight:2 → DOM 1px solid #999 → design_stroke_mismatch */
+    .stroke-box {
+      border: 1px solid #999999;
+      padding: 8px;
+      margin-bottom: 8px;
+    }
+
+    /* Figma opacity 0.5 → DOM opacity 1 → design_opacity_mismatch */
+    .faded-box {
+      background: #f0f0f0;
+      opacity: 1;
+      padding: 8px;
+      margin-bottom: 8px;
+    }
+
+    /* Figma fontFamily:'Inter' → DOM sans-serif   → design_typography_mismatch(fontFamily)    */
+    /* Figma letterSpacing:4px  → DOM 0.5px        → design_typography_mismatch(letterSpacing) */
+    /* Figma characters:'Hello World' → DOM 'Goodbye World' → design_text_mismatch            */
+    .label-text {
+      display: block;
+      font-family: sans-serif;
+      letter-spacing: 0.5px;   /* Figma: 4px — diff 3.5 > 0.5 threshold */
+      font-size: 16px;
+      margin-bottom: 8px;
+    }
+
+    /* Figma gap:24 HORIZONTAL → DOM column-gap:8px → design_gap_mismatch */
+    .flex-row {
+      display: flex;
+      column-gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    /* ── New enhancement fixtures ─────────────────────────────────────────────── */
+
+    /* Figma shadow: rgb(98,0,238) spread:4 → DOM rgba(0,0,0,0.25) spread:0 → shadow color+spread mismatch */
+    .shadow-color-box {
+      background: #fff;
+      box-shadow: 0 4px 8px 0px rgba(0, 0, 0, 0.25);  /* purple spread:4 expected → color+spread wrong */
+      padding: 8px;
+      margin-bottom: 8px;
+    }
+
+    /* Figma cornerRadius: {tl:4,tr:4,br:4,bl:4} → DOM border-radius: 4px 8px 12px 16px → TR/BR/BL mismatch */
+    .corner-box {
+      border: 1px solid #ddd;
+      border-radius: 4px 8px 12px 16px;  /* TL=4 matches, TR=8/BR=12/BL=16 all mismatch */
+      padding: 8px;
+      margin-bottom: 8px;
+    }
+
+    /* Figma fill: rgb(0,128,0) → DOM background: #ff0000 → color mismatch; found via data-testid selector */
+    [data-testid="test-card"] {
+      background-color: #ff0000;   /* Figma: green rgb(0,128,0) — large delta ✓ */
+      padding: 8px;
+      margin-bottom: 8px;
+    }
+
+    /* Figma bounds: x=0,y=0 → DOM has margin-left:80px → position drift > 20px threshold */
+    .drift-anchor { position: relative; margin-bottom: 8px; }
+    .drift-box {
+      display: inline-block;
+      background: #e0e0e0;
+      padding: 8px;
+      margin-left: 80px;   /* Figma says x=0 — drift ≈ 80+body-padding > 20 threshold */
+      width: 100px;
+      height: 40px;
+    }
   </style>
 </head>
 <body>
   <h1>Design Fidelity Fixture</h1>
 
   <div class="card">
-    <p>This page has intentional deviations from the synthetic Figma spec:</p>
-    <ul>
-      <li><code>--color-primary</code>: <code>#5100cd</code> (Figma: <code>#6200ee</code>)</li>
-      <li><code>--font-size-base</code>: <code>14px</code> (Figma: <code>16px</code>)</li>
-      <li><code>--spacing-md</code>: <code>12px</code> (Figma: <code>16px</code>)</li>
-      <li><code>.figma-hero-section</code> component missing from DOM</li>
-    </ul>
+    <p>Legacy token + component checks:</p>
     <button class="design-primary">Primary Button</button>
   </div>
 
   <div class="card">
-    <p>Expected harness findings:</p>
-    <ul>
-      <li><code>design_token_mismatch</code> &times;3 (warning)</li>
-      <li><code>design_component_missing</code> &times;1 (warning)</li>
-      <li><code>design_fidelity_summary</code> &times;1 (info)</li>
-    </ul>
+    <p>Per-node rich comparison elements:</p>
+    <button class="action-button">Action Button</button>
+    <span class="heading-label">Heading Label Text</span>
+    <div class="shadow-box">Shadow Box</div>
+    <div class="stroke-box">Stroke Box</div>
+    <div class="faded-box">Faded Box</div>
+    <span class="label-text">Goodbye World</span>
+    <div class="flex-row">
+      <span>Item 1</span>
+      <span>Item 2</span>
+      <span>Item 3</span>
+    </div>
+    <!-- Enhancement fixtures -->
+    <div class="shadow-color-box">Shadow Color + Spread Box</div>
+    <div class="corner-box">Per-Corner Radius Box</div>
+    <div data-testid="test-card">Test Card (data-testid selector)</div>
+    <div class="drift-anchor"><div class="drift-box">Drift Box</div></div>
   </div>
 </body>
 </html>

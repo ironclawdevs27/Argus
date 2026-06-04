@@ -1,7 +1,7 @@
 {
   "$schema": "https://glama.ai/mcp/schemas/server.json",
   "name": "argus",
-  "description": "AI-powered QA harness that audits web apps via Chrome DevTools Protocol. Catches JS errors, network failures, a11y violations, SEO issues, security headers, CSS regressions, and more — directly from Claude conversations. 7 MCP tools: argus_audit (fast 8-analyzer pass), argus_audit_full (Lighthouse + memory + responsive), argus_compare (dev vs staging diff), argus_last_report (retrieve last JSON report), argus_watch_snapshot (live tab snapshot without navigating), argus_get_context (LLM-optimized context + fix loop with snapshot_id diff), argus_design_audit (Figma design token vs live DOM comparison). 128 test blocks, 544 hard assertions, 56 detection categories.",
+  "description": "AI-powered QA harness that audits web apps via Chrome DevTools Protocol. Catches JS errors, network failures, a11y violations, SEO issues, security headers, CSS regressions, and more — directly from Claude conversations. 7 MCP tools: argus_audit (fast 8-analyzer pass), argus_audit_full (Lighthouse + memory + responsive), argus_compare (dev vs staging diff), argus_last_report (retrieve last JSON report), argus_watch_snapshot (live tab snapshot without navigating), argus_get_context (LLM-optimized context + fix loop with snapshot_id diff), argus_design_audit (Figma design fidelity — 13 finding types). 128 test blocks, 565 hard assertions, 56 detection categories.",
   "maintainers": ["ironclawdevs27"],
   "tools": [
     {
@@ -27,10 +27,10 @@
     {
       "name": "argus_get_context",
       "description": "LLM-optimized diagnostic context for the open Chrome tab. Returns snapshot_id for fix-loop diffing: pass it back on the next call to get resolved/new_issues/persisting arrays. Accepts optional tabId for multi-tab workflows."
-    }
+    },
     {
       "name": "argus_design_audit",
-      "description": "Audit design-to-implementation fidelity. Fetches design tokens from a Figma frame URL (requires FIGMA_API_TOKEN) and compares them against the live page's CSS custom properties, flagging mismatches and missing components."
+      "description": "Full Figma design-to-implementation fidelity audit. Fetches design spec from a Figma frame URL (requires FIGMA_API_TOKEN) and compares every extracted property against live DOM computed styles. Detects 13 mismatch finding types: CSS token values, component presence, fill/text color (RGB distance), typography (fontSize/fontWeight/lineHeight/fontFamily/letterSpacing), Auto Layout padding and gap, border-radius (per-corner), bounding-box overflow, absolute position drift (scroll-corrected x/y vs Figma bounds), border stroke (color+weight), box-shadow (offset+blur+spread+color), opacity, and text content. Selector fallback: tries [data-testid], [aria-label], #id, .class per node."
     }
   ]
 }

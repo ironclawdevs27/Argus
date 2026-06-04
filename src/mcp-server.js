@@ -121,7 +121,7 @@ const TOOLS = [
   },
   {
     name: 'argus_design_audit',
-    description: 'Audit design-to-implementation fidelity by comparing a live page\'s CSS custom properties against a Figma frame\'s design tokens, and verifying that Figma-specified components exist in the DOM. Requires FIGMA_API_TOKEN env var (Figma Personal Access Token) and Chrome on --remote-debugging-port=9222. Returns { findings: [{type, severity, token?, expected?, actual?, component?, selector?}], summary: {tokenMismatches, missingComponents} }.',
+    description: 'Full design-to-implementation fidelity audit against a Figma frame. 13 mismatch finding types: CSS token values, component presence, fill/text color (RGB delta), typography (fontSize/fontWeight/lineHeight/fontFamily/letterSpacing), Auto Layout padding and gap, border-radius (per-corner), bounding-box overflow, absolute position drift (scroll-corrected x/y, 20px threshold), border stroke (color+weight), box-shadow (offset+blur+spread+color), opacity, and text content. Selector fallback: tries [data-testid], [aria-label], #id, .class per node. Requires FIGMA_API_TOKEN env var and Chrome on --remote-debugging-port=9222. Returns { findings, summary } where summary includes 13 mismatch-type counts.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -291,16 +291,28 @@ async function handleDesignAudit({ url, figmaFrameUrl }) {
     return { content: [{ type: 'text', text: JSON.stringify({
       error: 'Could not fetch Figma data. Ensure FIGMA_API_TOKEN is set and the figmaFrameUrl is valid.',
       findings: [],
-      summary: { tokenMismatches: 0, missingComponents: 0 },
+      summary: { tokenMismatches: 0, missingComponents: 0, colorMismatches: 0, typographyMismatches: 0, spacingMismatches: 0, radiusMismatches: 0, boundsOverflows: 0, positionDrifts: 0, strokeMismatches: 0, shadowMismatches: 0, opacityMismatches: 0, gapMismatches: 0, textMismatches: 0 },
     }) }] };
   }
 
   return withMcp(async (mcp) => {
     const browser  = new CdpBrowserAdapter(mcp);
     const findings = await analyzeDesignFidelity(browser, url, figmaData);
+    const count    = (type) => findings.filter(f => f.type === type).length;
     const summary  = {
-      tokenMismatches:   findings.filter(f => f.type === 'design_token_mismatch').length,
-      missingComponents: findings.filter(f => f.type === 'design_component_missing').length,
+      tokenMismatches:      count('design_token_mismatch'),
+      missingComponents:    count('design_component_missing'),
+      colorMismatches:      count('design_color_mismatch'),
+      typographyMismatches: count('design_typography_mismatch'),
+      spacingMismatches:    count('design_spacing_mismatch'),
+      radiusMismatches:     count('design_radius_mismatch'),
+      boundsOverflows:      count('design_bounds_overflow'),
+      positionDrifts:       count('design_position_drift'),
+      strokeMismatches:     count('design_stroke_mismatch'),
+      shadowMismatches:     count('design_shadow_mismatch'),
+      opacityMismatches:    count('design_opacity_mismatch'),
+      gapMismatches:        count('design_gap_mismatch'),
+      textMismatches:       count('design_text_mismatch'),
     };
     return { content: [{ type: 'text', text: JSON.stringify({ findings, summary }, null, 2) }] };
   });

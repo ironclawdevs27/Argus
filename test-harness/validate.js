@@ -5013,9 +5013,11 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
 
   // ── Block [128] D9 — Design Fidelity ─────────────────────────────────────────
   {
-    console.log('\n[128] design-fidelity-analyzer — D9 token mismatch + missing component');
+    console.log('\n[128] design-fidelity-analyzer — D9 full rich comparison (tokens + nodes + components)');
 
-    // Synthetic Figma data: 3 tokens deviate from the fixture, 1 component is absent.
+    // Synthetic Figma data with both legacy fields (tokens/components) and rich
+    // per-node comparison data (nodes[]).  The fixture page has intentional
+    // deviations in computed styles to exercise every new finding type.
     const syntheticFigmaData128 = {
       tokens: {
         '--color-primary':  '#6200ee',  // fixture has #5100cd → mismatch
@@ -5026,6 +5028,90 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
       components: [
         { name: 'Primary Button', selector: 'button.design-primary' }, // exists → no finding
         { name: 'Hero Section',   selector: '.figma-hero-section'   }, // absent → finding
+      ],
+      nodes: [
+        {
+          // .action-button: bg #5100cd vs Figma #6200ee (delta≈37), padding 8/12 vs 16/24, radius 4 vs 8
+          id: '1:1', name: 'Action Button', type: 'RECTANGLE', selector: '.action-button',
+          fill:         { r: 98, g: 0, b: 238, a: 255 },
+          spacing:      { paddingTop: 16, paddingRight: 24, paddingBottom: 16, paddingLeft: 24, gap: 0 },
+          cornerRadius: 8,
+          typography: null, bounds: null, stroke: null, shadow: null, opacity: 1,
+        },
+        {
+          // .heading-label: color #555 vs rgb(33,33,33) (delta≈90), fontSize 20 vs 24, fontWeight 400 vs 700
+          id: '1:2', name: 'Heading Label', type: 'TEXT', selector: '.heading-label',
+          fill:       { r: 33, g: 33, b: 33, a: 255 },
+          typography: { fontFamily: 'sans-serif', fontSize: 24, fontWeight: 700, lineHeightPx: null, letterSpacing: 0 },
+          spacing: null, cornerRadius: null, bounds: null, stroke: null, shadow: null, opacity: 1,
+        },
+        {
+          // .shadow-box: DOM has 0px 2px blur:4px — Figma: offsetX:2 offsetY:4 blur:8
+          id: '1:3', name: 'Shadow Box', type: 'RECTANGLE', selector: '.shadow-box',
+          shadow:       { offsetX: 2, offsetY: 4, blur: 8, spread: 0, r: 0, g: 0, b: 0, a: 64 },
+          fill: null, typography: null, spacing: null, cornerRadius: null, bounds: null, stroke: null, opacity: 1,
+        },
+        {
+          // .stroke-box: DOM has 1px solid #999 — Figma: 2px rgb(98,0,238)
+          id: '1:4', name: 'Stroke Box', type: 'RECTANGLE', selector: '.stroke-box',
+          stroke:       { r: 98, g: 0, b: 238, a: 255, weight: 2 },
+          fill: null, typography: null, spacing: null, cornerRadius: null, bounds: null, shadow: null, opacity: 1,
+        },
+        {
+          // .faded-box: DOM opacity 1 — Figma opacity 0.5
+          id: '1:5', name: 'Faded Box', type: 'RECTANGLE', selector: '.faded-box',
+          opacity:      0.5,
+          fill: null, typography: null, spacing: null, cornerRadius: null, bounds: null, shadow: null, stroke: null,
+        },
+        {
+          // .label-text: fontFamily sans-serif vs Inter, letterSpacing 0 vs 2px, text 'Goodbye World' vs 'Hello World'
+          id: '1:6', name: 'Label Text', type: 'TEXT', selector: '.label-text',
+          characters:   'Hello World',
+          typography:   { fontFamily: 'Inter', fontSize: 16, fontWeight: 400, lineHeightPx: null, letterSpacing: 4 },
+          fill: null, spacing: null, cornerRadius: null, bounds: null, shadow: null, stroke: null, opacity: 1,
+        },
+        {
+          // .flex-row: column-gap 8px vs Figma gap 24, layoutMode HORIZONTAL
+          id: '1:7', name: 'Flex Row', type: 'FRAME', selector: '.flex-row',
+          spacing:      { paddingTop: 0, paddingRight: 0, paddingBottom: 0, paddingLeft: 0, gap: 24, layoutMode: 'HORIZONTAL' },
+          fill: null, typography: null, cornerRadius: null, bounds: null, shadow: null, stroke: null, opacity: 1,
+        },
+        {
+          // .shadow-color-box: DOM has black shadow spread:0 — Figma has purple spread:4
+          // Tests shadow COLOR + SPREAD comparison (both now fully compared)
+          id: '1:8', name: 'Shadow Color Box', type: 'RECTANGLE',
+          selectors: ['[data-testid="shadow-color-box"]', '.shadow-color-box'],
+          selector: '.shadow-color-box',
+          shadow: { offsetX: 0, offsetY: 4, blur: 8, spread: 4, r: 98, g: 0, b: 238, a: 128 },
+          fill: null, typography: null, spacing: null, cornerRadius: null, bounds: null, stroke: null, opacity: 1,
+        },
+        {
+          // .corner-box: DOM border-radius 4px 8px 12px 16px — Figma all corners should be 4px
+          // Tests per-corner radius comparison (TR=8 vs 4, BR=12 vs 4, BL=16 vs 4)
+          id: '1:9', name: 'Corner Box', type: 'RECTANGLE',
+          selectors: ['[data-testid="corner-box"]', '.corner-box'],
+          selector: '.corner-box',
+          cornerRadius: { topLeft: 4, topRight: 4, bottomRight: 4, bottomLeft: 4 },
+          fill: null, typography: null, spacing: null, bounds: null, stroke: null, shadow: null, opacity: 1,
+        },
+        {
+          // data-testid="test-card": tests selector fallback chain (data-testid matched first)
+          // Figma fill: green rgb(0,128,0) — DOM background: red #ff0000 — color mismatch
+          id: '1:10', name: 'Test Card', type: 'RECTANGLE',
+          selectors: ['[data-testid="test-card"]', '#test-card', '.test-card'],
+          selector: '[data-testid="test-card"]',
+          fill: { r: 0, g: 128, b: 0, a: 255 },
+          typography: null, spacing: null, cornerRadius: null, bounds: null, stroke: null, shadow: null, opacity: 1,
+        },
+        {
+          // .drift-box: margin-left 80px gives absolute left ≈ 80+padding px — Figma says x=0
+          // Tests position drift detection (scroll-corrected absolute position vs Figma bounds)
+          id: '1:11', name: 'Drift Box', type: 'RECTANGLE',
+          selectors: ['[data-testid="drift-box"]', '.drift-box'],
+          selector: '.drift-box',
+          bounds: { x: 0, y: 0, width: 100, height: 40 },
+          fill: null, typography: null, spacing: null, cornerRadius: null, stroke: null, shadow: null, opacity: 1,
+        },
       ],
       frame: { name: 'Argus Test Frame', width: 1440, height: 900 },
     };
@@ -5067,6 +5153,95 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
     const parsed128b = parseFigmaUrl('not-a-figma-url');
     assert(parsed128b === null,
       '[128i] parseFigmaUrl returns null for non-Figma URL');
+
+    // ── Per-node rich comparison assertions ───────────────────────────────────
+
+    const colorMismatches128 = results128.filter(f => f.type === 'design_color_mismatch');
+    assert(colorMismatches128.length >= 2,
+      `[128j] at least 2 design_color_mismatch findings — action-button bg + heading-label color (got ${colorMismatches128.length})`);
+
+    assert(colorMismatches128.every(f => f.severity === 'warning' && f.expected && f.actual && typeof f.delta === 'number'),
+      '[128k] design_color_mismatch findings have severity "warning", expected, actual, and numeric delta');
+
+    const typographyMismatches128 = results128.filter(f => f.type === 'design_typography_mismatch');
+    assert(typographyMismatches128.length >= 2,
+      `[128l] at least 2 design_typography_mismatch findings — fontSize + fontWeight on heading-label (got ${typographyMismatches128.length})`);
+
+    assert(typographyMismatches128.every(f => f.severity === 'warning' && f.property && f.expected != null && f.actual != null),
+      '[128m] design_typography_mismatch findings have severity "warning" and property/expected/actual fields');
+
+    const spacingMismatches128 = results128.filter(f => f.type === 'design_spacing_mismatch');
+    assert(spacingMismatches128.length >= 1,
+      `[128n] at least 1 design_spacing_mismatch finding — action-button padding deviates (got ${spacingMismatches128.length})`);
+
+    const radiusMismatches128 = results128.filter(f => f.type === 'design_radius_mismatch');
+    assert(radiusMismatches128.length >= 1,
+      `[128o] at least 1 design_radius_mismatch finding — action-button border-radius 4px vs Figma 8px (got ${radiusMismatches128.length})`);
+
+    assert(typeof summary128?.colorMismatches === 'number' && summary128.colorMismatches >= 2,
+      `[128p] design_fidelity_summary.colorMismatches >= 2 (got ${summary128?.colorMismatches})`);
+
+    // ── New property comparisons (stroke, shadow, opacity, fontFamily, letterSpacing, gap, text) ─
+
+    const shadowMismatches128 = results128.filter(f => f.type === 'design_shadow_mismatch');
+    assert(shadowMismatches128.length >= 1,
+      `[128q] at least 1 design_shadow_mismatch — shadow-box offsetX/blur differ from Figma (got ${shadowMismatches128.length})`);
+
+    const strokeMismatches128 = results128.filter(f => f.type === 'design_stroke_mismatch');
+    assert(strokeMismatches128.length >= 1,
+      `[128r] at least 1 design_stroke_mismatch — stroke-box border 1px #999 vs Figma 2px #6200ee (got ${strokeMismatches128.length})`);
+
+    const opacityMismatches128 = results128.filter(f => f.type === 'design_opacity_mismatch');
+    assert(opacityMismatches128.length >= 1,
+      `[128s] at least 1 design_opacity_mismatch — faded-box opacity 1 vs Figma 0.5 (got ${opacityMismatches128.length})`);
+
+    const textMismatches128 = results128.filter(f => f.type === 'design_text_mismatch');
+    assert(textMismatches128.length >= 1,
+      `[128t] at least 1 design_text_mismatch — label-text "Goodbye World" vs Figma "Hello World" (got ${textMismatches128.length})`);
+
+    const gapMismatches128 = results128.filter(f => f.type === 'design_gap_mismatch');
+    assert(gapMismatches128.length >= 1,
+      `[128u] at least 1 design_gap_mismatch — flex-row column-gap 8px vs Figma 24px (got ${gapMismatches128.length})`);
+
+    const typoMismatches128All = results128.filter(f => f.type === 'design_typography_mismatch');
+    assert(typoMismatches128All.some(f => f.property === 'fontFamily'),
+      `[128v] design_typography_mismatch includes fontFamily finding — label-text sans-serif vs Inter`);
+
+    assert(typoMismatches128All.some(f => f.property === 'letterSpacing'),
+      `[128w] design_typography_mismatch includes letterSpacing finding — label-text 0px vs 2px`);
+
+    assert(
+      typeof summary128?.strokeMismatches === 'number' &&
+      typeof summary128?.shadowMismatches === 'number' &&
+      typeof summary128?.opacityMismatches === 'number' &&
+      typeof summary128?.textMismatches === 'number' &&
+      typeof summary128?.gapMismatches === 'number',
+      '[128x] design_fidelity_summary includes all new mismatch type counts'
+    );
+
+    // ── Enhancement assertions (shadow color+spread, per-corner radius, selector fallback, position drift) ─
+
+    const shadowMismatches128All = results128.filter(f => f.type === 'design_shadow_mismatch');
+    assert(shadowMismatches128All.some(f => typeof f.expectedSpread === 'number' && typeof f.actualSpread === 'number'),
+      '[128y] design_shadow_mismatch findings include spread fields (expectedSpread/actualSpread)');
+
+    assert(shadowMismatches128All.some(f => f.colorDelta !== null && f.colorDelta !== undefined),
+      '[128z] design_shadow_mismatch findings include colorDelta field — shadow color is now compared');
+
+    const radiusMismatches128All = results128.filter(f => f.type === 'design_radius_mismatch');
+    assert(radiusMismatches128All.some(f => f.corner && f.corner !== 'all'),
+      `[128aa] design_radius_mismatch findings include per-corner field (corners found: ${[...new Set(radiusMismatches128All.map(f => f.corner))].join(', ')})`);
+
+    assert(radiusMismatches128All.filter(f => f.corner && f.corner !== 'all').length >= 3,
+      `[128ab] at least 3 per-corner radius mismatches (topRight/bottomRight/bottomLeft all differ from Figma 4px) — got ${radiusMismatches128All.length}`);
+
+    const colorMismatches128All = results128.filter(f => f.type === 'design_color_mismatch');
+    assert(colorMismatches128All.some(f => f.selector && (f.selector.includes('data-testid') || f.selector.includes('test-card'))),
+      '[128ac] design_color_mismatch found via data-testid selector fallback — test-card matched by [data-testid="test-card"]');
+
+    const positionDrifts128 = results128.filter(f => f.type === 'design_position_drift');
+    assert(positionDrifts128.length >= 1,
+      `[128ad] at least 1 design_position_drift finding — drift-box has margin-left:80px but Figma bounds x:0, drift > 20px threshold (got ${positionDrifts128.length})`);
   }
 }
 

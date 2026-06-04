@@ -150,3 +150,23 @@ Hero stats and docs section updated to reflect Sprint 2 (block [128] — D9 Desi
 | Docs § "Test Coverage" tagline | `127 blocks, 535 hard assertions` | `128 blocks, 544 hard assertions` |
 | Docs § "Running" code | `535 hard assertions`, `532/535` | `544 hard assertions`, `541/544` |
 | "How we built it" caption | `127 test blocks` | `128 test blocks` |
+
+## Stats Update (2026-06-04 — Sprint 2 maximum potential)
+
+Block [128] expanded from 9 → 24 assertions. D9 now has 12 finding types. Hero and docs updated:
+
+| Field | Old | New |
+|---|---|---|
+| `stats[2].num` (ASSERTIONS RUN) | `544` | `559` |
+| Docs § "Test Coverage" tagline | `128 blocks, 544 hard assertions` | `128 blocks, 559 hard assertions` |
+| Docs § "Running" code | `544 hard assertions`, `541/544` | `559 hard assertions`, `556/559` |
+
+## Stats Update (2026-06-04 — D9 gap fixes: shadow color+spread, per-corner radius, position drift, selector fallback)
+
+Block [128] expanded to 30 assertions. D9 now has 13 mismatch finding types. Hero and docs updated:
+
+| Field | Old | New |
+|---|---|---|
+| `stats[2].num` (ASSERTIONS RUN) | `559` | `565` |
+| Docs § "Test Coverage" tagline | `128 blocks, 559 hard assertions` | `128 blocks, 565 hard assertions` |
+| Docs § "Running" code | `559 hard assertions`, `556/559` | `565 hard assertions`, `562/565` |
