@@ -19,7 +19,7 @@ Validates that every Argus detection category fires correctly by running the ful
 
 129 test blocks · 572 hard assertions · 50 verified detection categories · 56 fixture pages
 
-> **Coverage note**: 57 detection categories exist in production code (D9 alone has 13 mismatch finding types). 49 are positively exercised by the harness (blocks [1]–[93] + [127]–[128]). Blocks [94]–[126] cover infrastructure contracts (module APIs, MCP transport, unhappy paths, CLI E2E). Block [127] adds A7 Theme & Dark Mode; block [128] (30 assertions [128a]–[128ad]) adds D9 Design Fidelity — full per-node Figma comparison across 13 mismatch finding types with selector fallback chain. Remaining untriggered detections tracked in [argus-v6-strategy.md §10](../argus-v6-strategy.md).
+> **Coverage note**: 57 detection categories exist in production code. 50 are positively exercised by the harness (blocks [1]–[93] + [127]–[129]). Blocks [94]–[126] cover infrastructure contracts (module APIs, MCP transport, unhappy paths, CLI E2E). Block [127] adds A7 Theme & Dark Mode; block [128] (30 assertions [128a]–[128ad]) adds D9 Design Fidelity (13 mismatch finding types); block [129] adds Sprint 9 Web Vitals (LCP/CLS/FCP/TTI/TTFB + bundle size). Remaining untriggered detections tracked in [argus-v6-strategy.md §10](../argus-v6-strategy.md).
 
 Hard assertions fail the run (exit code 1). Soft assertions are logged only — they depend on Chrome trace / Lighthouse availability and vary by environment.
 

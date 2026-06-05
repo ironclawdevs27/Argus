@@ -76,6 +76,7 @@ src/
     css-analyzer.js           — CSS rule analysis
     theme-analyzer.js         — A7: Theme & Dark Mode detection
     design-fidelity-analyzer.js — D9: Figma design token vs DOM comparison
+    web-vitals-analyzer.js    — Sprint 9: LCP/CLS/FCP/TTI/TTFB via Performance API + bundle size regression
     diff.js                   — finding diff utilities
     slug.js                   — URL slug helpers
   config/
