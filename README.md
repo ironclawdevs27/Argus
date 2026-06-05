@@ -41,9 +41,9 @@ Set your target URL and start Chrome with remote debugging:
 TARGET_DEV_URL=http://localhost:3000
 
 # Start Chrome (required — Argus drives this instance via CDP)
-# macOS:   open -a "Google Chrome" --args --remote-debugging-port=9222 --headless=new
-# Windows: "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --headless=new
-# Linux:   google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox
+# macOS:              open -a "Google Chrome" --args --remote-debugging-port=9222 --headless=new
+# Windows (PowerShell): & "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu --user-data-dir="$env:TEMP\chrome-argus"
+# Linux:              google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox
 ```
 
 Then ask Claude (or any MCP client):
@@ -433,8 +433,8 @@ TARGET_STAGING_URL=https://staging.example.com   # optional — enables argus_co
 # macOS
 open -a "Google Chrome" --args --remote-debugging-port=9222 --headless=new
 
-# Windows
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu
+# Windows (PowerShell)
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu --user-data-dir="$env:TEMP\chrome-argus"
 
 # Linux
 google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox

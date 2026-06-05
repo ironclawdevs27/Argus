@@ -117,8 +117,8 @@ reports/
 Chrome must be running with remote debugging before starting the harness:
 
 ```bash
-# Windows — start Chrome first:
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu --user-data-dir=%TEMP%\chrome-argus
+# Windows (PowerShell) — start Chrome first:
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu --user-data-dir="$env:TEMP\chrome-argus"
 
 # Then run the harness:
 npm run test:unit     # 61 Vitest unit tests — no Chrome required

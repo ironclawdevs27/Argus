@@ -15,7 +15,7 @@
  *
  * Prerequisites:
  *   Chrome running with remote debugging:
- *     Windows: chrome.exe --remote-debugging-port=9222 --headless=new
+ *     Windows (PowerShell): & "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu --user-data-dir="$env:TEMP\chrome-argus"
  *     Mac:     /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
  *                --remote-debugging-port=9222 --headless=new
  *
@@ -5333,7 +5333,7 @@ async function main() {
     console.error('\n\u274C Fatal error:', err.message);
     if (/MCP|chrome|connect|ECONNREFUSED/i.test(err.message)) {
       console.error('\n  Start Chrome with --remote-debugging-port=9222:');
-      console.error('    Windows: chrome.exe --remote-debugging-port=9222 --headless=new');
+      console.error('    Windows (PS): & "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu --user-data-dir="$env:TEMP\\chrome-argus"');
       console.error('    Mac:     open -a "Google Chrome" --args --remote-debugging-port=9222 --headless=new');
     }
     process.exitCode = 1;

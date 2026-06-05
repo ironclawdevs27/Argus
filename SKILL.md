@@ -388,9 +388,8 @@ When testing pages behind login, launch Chrome with the user's actual profile:
 # Linux
 google-chrome --remote-debugging-port=9222 --profile-directory="Default"
 
-# Windows — fixed stable profile (persists cookies/cache across runs)
-start chrome --remote-debugging-port=9222 ^
-  --user-data-dir="%TEMP%\chrome-devtools-profile"
+# Windows (PowerShell) — fixed stable profile (persists cookies/cache across runs)
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="$env:TEMP\chrome-devtools-profile"
 ```
 
 Connect via `--browserUrl=http://127.0.0.1:9222` in the MCP config.

@@ -339,9 +339,8 @@ TARGET_STAGING_URL=https://staging.yourapp.com   # optional — enables argus_co
         code: `# macOS
 open -a "Google Chrome" --args --remote-debugging-port=9222 --headless=new
 
-# Windows
-"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" \\
-  --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu
+# Windows (PowerShell)
+& "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu --user-data-dir="$env:TEMP\\chrome-argus"
 
 # Linux / CI
 google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox`,
