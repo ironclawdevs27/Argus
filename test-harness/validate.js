@@ -70,8 +70,9 @@ import { crawlRouteCheap } from '../src/orchestration/crawl-and-report.js';
 import { analyzeIssues } from '../src/utils/issues-analyzer.js';
 import { parseNetworkTiming } from '../src/utils/network-timing-analyzer.js';
 import { analyzeKeyboard } from '../src/utils/keyboard-analyzer.js';
-import { analyzeTheme }            from '../src/utils/theme-analyzer.js';
-import { analyzeDesignFidelity }  from '../src/utils/design-fidelity-analyzer.js';
+import { analyzeTheme }              from '../src/utils/theme-analyzer.js';
+import { analyzeDesignFidelity }    from '../src/utils/design-fidelity-analyzer.js';
+import { analyzeVisualRegression }  from '../src/utils/visual-diff-analyzer.js';
 import { parseFigmaUrl }           from '../src/adapters/figma.js';
 import { analyzeWebVitals }        from '../src/utils/web-vitals-analyzer.js';
 import { WatchSession } from '../src/orchestration/watch-mode.js';
@@ -5295,6 +5296,67 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
       typeof summary129?.tti === 'number' && summary129.tti > 0,
       `[129i] (soft) TTI (domInteractive) captured as positive number (got ${summary129?.tti})`
     );
+  }
+
+  // ── Block [130] Sprint 3 — Visual Regression (A8) ─────────────────────────
+  {
+    console.log('\n[130] visual-diff-analyzer — Sprint 3 A8 baseline comparison');
+
+    const tmpDir130  = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-harness-130-'));
+    const browser130 = new CdpBrowserAdapter(mcp);
+    const url130     = `${B}/visual-regression.html`;
+
+    // Navigate once so the page is loaded for screenshot capture
+    await browser130.navigate(url130);
+    await browser130.waitFor({ state: 'networkidle' }).catch(() => {});
+
+    // ── First run — no baseline exists ────────────────────────────────────────
+    const results130a = await analyzeVisualRegression(browser130, url130, { baselineDir: tmpDir130 });
+
+    assert(Array.isArray(results130a),
+      '[130a] analyzeVisualRegression returns an array');
+
+    const created130 = results130a.find(f => f.type === 'visual_baseline_created');
+    assert(created130 !== undefined,
+      `[130b] first run → visual_baseline_created present (got types: ${results130a.map(f => f.type).join(', ')})`);
+
+    assert(created130?.severity === 'info',
+      `[130c] visual_baseline_created severity is 'info' (got ${created130?.severity})`);
+
+    const slug130      = created130?.baselinePath ?? '';
+    const baseline130  = path.join(tmpDir130, slug130.split(path.sep).pop() ?? '');
+    assert(created130?.baselinePath && fs.existsSync(created130.baselinePath),
+      `[130d] baseline PNG file written to baselineDir (path: ${created130?.baselinePath})`);
+
+    // ── Introduce visual change via JS injection ───────────────────────────────
+    await browser130.evaluate(`() => {
+      document.getElementById('primary-block').style.backgroundColor = '#e53935';
+    }`);
+    // Allow repaint to settle
+    await new Promise(r => setTimeout(r, 300));
+
+    // ── Second run — baseline exists, diff detected ───────────────────────────
+    const results130b = await analyzeVisualRegression(browser130, url130, { baselineDir: tmpDir130 });
+
+    const regression130 = results130b.find(f => f.type === 'visual_regression');
+    assert(regression130 !== undefined,
+      `[130e] after visual change → visual_regression detected (got types: ${results130b.map(f => f.type).join(', ')})`);
+
+    assert(regression130?.severity === 'warning' || regression130?.severity === 'critical',
+      `[130f] visual_regression severity is warning or critical (got ${regression130?.severity})`);
+
+    assert(typeof regression130?.diffPercent === 'number' && regression130.diffPercent > 0,
+      `[130g] visual_regression diffPercent > 0 (got ${regression130?.diffPercent})`);
+
+    const summary130 = results130b.find(f => f.type === 'visual_diff_summary');
+    assert(summary130 !== undefined,
+      `[130h] visual_diff_summary always present in second run (got types: ${results130b.map(f => f.type).join(', ')})`);
+
+    assert(typeof summary130?.diffPercent === 'number',
+      `[130i] visual_diff_summary has diffPercent field (number) (got ${typeof summary130?.diffPercent})`);
+
+    // Clean up temp baseline directory
+    try { fs.rmSync(tmpDir130, { recursive: true, force: true }); } catch {}
   }
 }
 

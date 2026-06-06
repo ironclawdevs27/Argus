@@ -182,3 +182,16 @@ Sprint 9 — Web Vitals & Bundle Size: `web-vitals-analyzer.js` (block [129], he
 | Docs § "Test Coverage" tagline | `128 blocks, 565 hard assertions` | `129 blocks, 572 hard assertions` |
 | Docs § "Running" code | `565 hard assertions`, `562/565` | `572 hard assertions`, `569/572` |
 | "How we built it" caption | `128 test blocks` | `129 test blocks` |
+
+## Stats Update (2026-06-06 — Sprint 3 v9.5.5)
+
+Sprint 3 — A8 Visual Regression: `visual-diff-analyzer.js` (block [130], pixelmatch baseline comparison). Hero and docs updated:
+
+| Field | Old | New |
+|---|---|---|
+| `stats[0].num` (DETECTION TYPES) | `58` | `58` (unchanged from Sprint 9 recount) |
+| `stats[1].num` (TEST BLOCKS) | `129` | `130` |
+| `stats[2].num` (ASSERTIONS RUN) | `572` | `581` |
+| Docs § "Test Coverage" tagline | `129 blocks, 572 hard assertions` | `130 blocks, 581 hard assertions` |
+| Docs § "Running" code | `572 hard assertions`, `569/572` | `581 hard assertions`, `578/581` |
+| Feature table `All 56 detection categories` | `56` | `58` |

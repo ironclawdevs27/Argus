@@ -436,6 +436,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'design_token_mismatch warning ×3 (--color-primary, --font-size-base, --spacing-md) · design_component_missing warning ×1 (.figma-hero-section) · design_fidelity_summary info',
   },
+  // A8 — Visual Regression: baseline comparison fixture
+  {
+    path: '/visual-regression.html',
+    name: 'Visual Regression',
+    critical: false,
+    waitFor: null,
+    expected: 'visual_baseline_created info (first run) · visual_regression warning (after change) · visual_diff_summary info (always)',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

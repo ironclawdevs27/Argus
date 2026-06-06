@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Visual Regression Fixture — baseline comparison testing.">
+  <title>Visual Regression Fixture</title>
+  <!--
+    Harness block [130] — Sprint 3 A8 visual regression assertions:
+
+    HARD assertions (reliable in headless):
+      [130a] analyzeVisualRegression returns an array
+      [130b] first run → visual_baseline_created present
+      [130c] visual_baseline_created severity is 'info'
+      [130d] baseline PNG file written to baselineDir
+      [130e] after visual change → visual_regression detected
+      [130f] visual_regression severity is 'warning'
+      [130g] visual_regression diffPercent > 0
+      [130h] visual_diff_summary always present in second run
+      [130i] visual_diff_summary has diffPercent field (number)
+  -->
+  <style>
+    body { margin: 0; padding: 0; background: #ffffff; }
+
+    /*
+     * Large primary block — the main LCP + pixelmatch target.
+     * The JS below can change its background to trigger a regression.
+     * Using a solid color block maximises pixel diff signal.
+     */
+    #primary-block {
+      width: 800px;
+      height: 400px;
+      background-color: #4a90e2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #primary-block h1 {
+      color: #ffffff;
+      font-family: sans-serif;
+      font-size: 2rem;
+      margin: 0;
+    }
+
+    .secondary {
+      width: 800px;
+      height: 100px;
+      background-color: #f5f5f5;
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      font-family: sans-serif;
+      font-size: 1rem;
+      color: #333;
+      box-sizing: border-box;
+    }
+  </style>
+</head>
+<body>
+  <div id="primary-block">
+    <h1>Argus Visual Regression Baseline</h1>
+  </div>
+  <div class="secondary">
+    This page is used for visual regression baseline comparison testing.
+  </div>
+
+  <script>
+    // Expose a function to change the primary block's background colour.
+    // The harness calls this via browser.evaluate() to introduce a visual diff
+    // between the baseline and the "regressed" screenshot.
+    window.introduceVisualRegression = function(color) {
+      document.getElementById('primary-block').style.backgroundColor = color;
+    };
+  </script>
+</body>
+</html>

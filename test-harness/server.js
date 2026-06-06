@@ -204,6 +204,8 @@ app.get('/api/large-critical', (_req, res) => {
 // perf-vitals.html loads this as a <script> so PerformanceResourceTiming captures it.
 app.get('/api/large.js', (_req, res) => {
   res.type('application/javascript');
+  // no-store prevents Chrome caching so transferSize > 0 on every request
+  res.set('Cache-Control', 'no-store');
   // ~600 KB: 'var _argus_perf_fixture_' + i padded to ~600 chars each × 1000 entries
   const lines = Array.from({ length: 1000 }, (_, i) =>
     `var _argus_perf_fixture_${String(i).padStart(4, '0')} = '${('x').repeat(570)}';`
@@ -235,6 +237,18 @@ app.get('/perf-issues.html', (_req, res) => {
       if (err) console.error('[ARGUS Harness] sendFile error:', err.message);
     });
   }, 1200);
+});
+
+// ── perf-vitals.html — served with no-store to prevent BFcache ───────────────
+// Chrome's Back-Forward Cache restores pages with all PerformanceResourceTiming
+// size fields set to 0 (transferSize = encodedBodySize = decodedBodySize = 0),
+// which causes perf_bundle_large detection to silently skip the large.js entry.
+// Cache-Control: no-store on the HTML page itself excludes it from BFcache.
+app.get('/perf-vitals.html', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.sendFile(path.join(__dirname, 'pages', 'perf-vitals.html'), err => {
+    if (err) console.error('[ARGUS Harness] sendFile error:', err.message);
+  });
 });
 
 // ── Dynamic home route for env-comparison tests ────────────────────────────────

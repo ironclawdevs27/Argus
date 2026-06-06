@@ -80,7 +80,7 @@ The `landing/` directory contains the product landing page (React + Vite + Tailw
 
 | 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
 | :---: | :---: | :---: | :---: |
-| **114 distinct issue types detected** | **25 analysis engines** | **572 test assertions** | **129 test blocks** |
+| **114 distinct issue types detected** | **26 analysis engines** | **581 test assertions** | **130 test blocks** |
 
 </div>
 
@@ -88,7 +88,7 @@ The `landing/` directory contains the product landing page (React + Vite + Tailw
 
 ## What Argus Catches
 
-Argus runs **25 analysis engines** per run and detects **114 distinct issue types** across JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, runtime anti-patterns, hover-state interactions, accessibility tree snapshots, keyboard focus, and Chrome DevTools issues panel — plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity (`critical` / `warning` / `info`) and routed to the right Slack channel — or rendered as a local `report.html` when Slack is not configured.
+Argus runs **26 analysis engines** per run and detects **114 distinct issue types** across JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, runtime anti-patterns, hover-state interactions, accessibility tree snapshots, keyboard focus, and Chrome DevTools issues panel — plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity (`critical` / `warning` / `info`) and routed to the right Slack channel — or rendered as a local `report.html` when Slack is not configured.
 
 ### JavaScript Runtime
 
@@ -351,6 +351,7 @@ Argus watches your running application and automatically surfaces issues that te
 | **CI Integration** | GitHub Actions workflow runs daily at 6 AM UTC and on every push to `main` |
 | **MCP Server (AI-callable Argus)** | Register Argus as an MCP server via `.mcp.json`; Claude (or any MCP client) can call `argus_audit`, `argus_audit_full`, `argus_compare`, `argus_last_report`, `argus_watch_snapshot`, `argus_get_context`, and `argus_design_audit` directly from a conversation — no CLI, no terminal required. Published to npm as **[argusqa-os](https://www.npmjs.com/package/argusqa-os)** — add via `{ "command": "npx", "args": ["-y", "argusqa-os"] }` in `.mcp.json` |
 | **Figma Design Fidelity** | `argus_design_audit(url, figmaFrameUrl)` compares every extracted Figma property — 13 mismatch finding types: CSS token values, component presence, per-node fill/text color (RGB distance), typography (fontSize/fontWeight/lineHeight/fontFamily/letterSpacing), Auto Layout padding and gap, border-radius (per-corner), bounding-box overflow, **absolute position drift** (scroll-corrected x/y vs Figma bounds, 20px), border stroke (color+weight), box-shadow (offset+blur+**spread**+**color**), opacity, and text content. Selector fallback: tries `[data-testid]`, `[aria-label]`, `#id`, `.class` per node. Requires `FIGMA_API_TOKEN` env var. |
+| **Visual Regression** | Per-route screenshot baseline comparison using pixelmatch. First run saves the baseline PNG; subsequent runs emit  (warning ≥0.1% / critical ≥5% pixels changed) + . Baselines stored in . |
 | **Core Web Vitals & Bundle Size** | Per-run LCP, CLS, FCP, TTI (domInteractive), and TTFB captured directly via browser Performance API — works in **headless Chrome** without Lighthouse. Bundle size regression: `perf_bundle_large` fires when JS ≥ 500 KB (warning) / ≥ 2 MB (critical) or CSS ≥ 150 KB. `perf_vitals_summary` always emitted with all metric values. No external dependencies — pure Performance API. |
 
 Works with **React + SCSS**, CSS Modules, CSS-in-JS (styled-components / emotion), and plain HTML/CSS apps.
@@ -919,6 +920,7 @@ argus/
 │   │   ├── theme-analyzer.js         # A7: Theme & Dark Mode detection — emulateColorScheme, prefers-color-scheme mismatches
 │   │   ├── design-fidelity-analyzer.js   # D9: Figma design token vs DOM comparison — 13 mismatch finding types
 │   │   ├── web-vitals-analyzer.js        # Sprint 9: LCP/CLS/FCP/TTI/TTFB via Performance API + bundle size regression
+│   │   ├── visual-diff-analyzer.js       # A8: Visual regression baseline comparison (pixelmatch)
 │   │   ├── codebase-analyzer.js      # Codebase cross-reference — env vars, feature flags, dead routes (C1)
 │   │   ├── github-reporter.js        # GitHub PR comment + commit status integration (C2)
 │   │   ├── route-discoverer.js       # Auto route discovery — sitemap + Next.js + React Router (C3)
@@ -951,11 +953,11 @@ argus/
 │   └── README.md                     # Setup guide, Supabase SQL schema, env vars, deployment
 ├── scripts/
 │   └── dispatch-report.js            # Standalone Slack re-dispatch script (re-posts last report.json to Slack)
-├── test-harness/                     # Fixture server + test runner (129 blocks, 572 hard assertions, 56 fixture pages)
+├── test-harness/                     # Fixture server + test runner (129 blocks, 581 hard assertions, 57 fixture pages)
 │   ├── README.md
 │   ├── server.js                     # Express fixture server (ports 3100 dev / 3101 staging)
 │   ├── harness-config.js             # Route definitions + expected findings
-│   ├── validate.js                   # Test runner — 129 numbered blocks ([80]–[84] MCP/createFinding/withRetry/watch/init, [85]–[93] Sprint 0.5 Tier 3, [94]–[126] gap-close, [127] A7 theme, [128] D9 design fidelity, [129] Sprint 9 Web Vitals)
+│   ├── validate.js                   # Test runner — 130 numbered blocks ([80]–[84] MCP/createFinding/withRetry/watch/init, [85]–[93] Sprint 0.5 Tier 3, [94]–[126] gap-close, [127] A7 theme, [128] D9 design fidelity, [129] Sprint 9 Web Vitals, [130] A8 Visual Regression)
 │   ├── pages/                        # 56 fixture HTML pages (one per detection category)
 │   ├── nextjs-fixture/               # Next.js app structure for C3 discovery tests (10 files)
 │   ├── source-fixture/               # Minimal app.js for C1 codebase-analyzer tests (env var audit)
@@ -996,7 +998,7 @@ argus/
 
 ## Known MCP Tool Limitations
 
-The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`569/572` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code. `validate.js` now exits with code 0 when only these 3 failures remain, making the CI harness gate reliable.
+The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`578/581` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code. `validate.js` now exits with code 0 when only these 3 failures remain, making the CI harness gate reliable.
 
 > **`type_text` clarification**: `type_text` does fire DOM `input` events when the element is properly focused first with `mcp.click({ uid })`. Always use uid-based focus — passing `{ selector }` to `mcp.click` silently does nothing.
 
@@ -1007,7 +1009,7 @@ The Chrome DevTools MCP behavioral constraints below cause **3 permanent test fa
 
 These constraints are documented with workarounds in [SKILL.md §10](SKILL.md).
 
-The harness passes **569/572** assertions (exits 0). The 3 failures are the permanent MCP-limited ones listed above.
+The harness passes **578/581** assertions (exits 0). The 3 failures are the permanent MCP-limited ones listed above.
 
 ---
 

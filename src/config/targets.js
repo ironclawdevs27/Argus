@@ -64,6 +64,10 @@ export const thresholds = {
     seo:              { critical: 50, warning: 90 },
     'best-practices': { critical: 50, warning: 90 },
   },
+  visual: {
+    warnPercent: parseFloat(process.env.VISUAL_WARN_PERCENT ?? '0.1'),  // % pixels changed → warning
+    critPercent: parseFloat(process.env.VISUAL_CRIT_PERCENT ?? '5.0'),  // % pixels changed → critical
+  },
 };
 
 /**

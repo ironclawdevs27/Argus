@@ -120,8 +120,20 @@ const VITALS_SCRIPT = `async () => {
     var pathname = r.name.split('?')[0];
     var ext = pathname.split('.').pop().toLowerCase();
     if (ext !== 'js' && ext !== 'css') continue;
-    var size = r.transferSize || r.encodedBodySize || 0;
-    if (size === 0) continue; // cached or CORS opaque — skip
+    var size = r.transferSize || r.encodedBodySize || r.decodedBodySize || 0;
+    // BFcache / memory-cache restores set all three size fields to 0.
+    // Fall back to a HEAD request to get Content-Length for same-origin resources.
+    if (size === 0) {
+      try {
+        var isLocal = new URL(r.name).origin === pageOrigin;
+        if (isLocal) {
+          var head = await fetch(r.name, { method: 'HEAD', cache: 'no-store' });
+          var cl = parseInt(head.headers.get('content-length') || '0', 10);
+          if (cl > 0) size = cl;
+        }
+      } catch (e) {}
+    }
+    if (size === 0) continue; // CORS opaque — skip
     var isThirdParty = false;
     try { isThirdParty = new URL(r.name).origin !== pageOrigin; } catch (e) {}
     result.resources.push({
