@@ -619,6 +619,14 @@ All findings share: `{ type, severity, url, message? }`
 { type: 'perf_vitals_summary', lcp, cls, fcp, tti, ttfb, bundleCount, message, severity: 'info', url }
   //   always emitted even when all metrics are null
 
+// ── A12 Deep Accessibility — axe-core + Color Blind Simulation (Sprint 4) ─
+{ type: 'a11y_axe_violation',    axeId, impact, selector, html, description, helpUrl, message, severity: 'critical'|'warning'|'info', url }
+  //   impact: 'critical'→'critical', 'serious'|'moderate'→'warning', 'minor'→'info'
+  //   axeIds suppressed (already in snapshot-analyzer): label, button-name, heading-order, aria-required-children, landmark-unique
+{ type: 'a11y_colorblind_risk',  selector, colorType, contrastRatio, fg, bg, message, severity: 'warning', url }
+  //   colorType: 'protanopia'|'deuteranopia'; contrastRatio < 4.5 (WCAG AA) under CVD simulation
+{ type: 'a11y_deep_summary',     axeViolations, criticalCount, seriousCount, moderateCount, minorCount, colorblindRisks, message, severity: 'info', url }
+
 // ── A8 Visual Regression (Sprint 3) ──────────────────────────────────────
 { type: 'visual_baseline_created', baselinePath, message, severity: 'info', url }
   //   emitted on first run — no baseline existed; PNG saved for future comparison
@@ -1408,14 +1416,14 @@ for (const bp of breakpoints) {
 
 | Metric | Value |
 | --- | --- |
-| **Version** | `9.5.5` |
-| **Test blocks** | 130 |
-| **Hard assertions** | 581 |
+| **Version** | `9.5.6` |
+| **Test blocks** | 131 |
+| **Hard assertions** | 590 |
 | **Soft assertions** | ~12 (Lighthouse / perf traces — headless-unavailable) |
-| **Detection categories** | 58 in production code; **51 positively verified** by harness fixtures |
-| **Fixture pages** | 57 |
+| **Detection categories** | 59 in production code; **52 positively verified** by harness fixtures |
+| **Fixture pages** | 58 |
 | **Analysis engines** | 26 (`registerExpensive` plugins + inline cheap analyzers) |
-| **Harness gate** | **578/581** (3 permanent MCP-limited failures: [49b], [67b], [68b] — exits 0) |
+| **Harness gate** | **587/590** (3 permanent MCP-limited failures: [49b], [67b], [68b] — exits 0) |
 | **Flow step actions** | 11 (`navigate`, `waitFor`, `sleep`, `fill`, `click`, `drag`, `upload_file`, `select_option`, `press_key`, `handle_dialog`, `assert`) |
 
 ### Permanent MCP-Limited Failures (always 3)
@@ -1452,6 +1460,7 @@ See `OSS-PR-STRATEGY.md` for the chrome-devtools-mcp contribution plan to fix al
 | v9.5.3 | Sprint 2 — D9 | `design-fidelity-analyzer.js` 13 finding types; `figma.js` 4-selector inference; block [128] 30 assertions | 569/572 |
 | v9.5.4 | Sprint 9 — Perf | `web-vitals-analyzer.js` LCP/CLS/FCP/TTI/TTFB + bundle size; block [129] | 569/572 |
 | v9.5.5 | Sprint 3 — A8 | `visual-diff-analyzer.js` baseline screenshot comparison; block [130] 9 assertions | 578/581 |
+| v9.5.6 | Sprint 4 — A12 | `a11y-deep-analyzer.js` axe-core 4.12 + CVD color blind simulation; block [131] 9 assertions | 587/590 |
 
 ### v9 Sprint 7 additions (2026-05-24)
 

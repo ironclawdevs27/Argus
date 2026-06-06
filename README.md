@@ -80,7 +80,7 @@ The `landing/` directory contains the product landing page (React + Vite + Tailw
 
 | 🔴 Critical / 🟡 Warning / 🔵 Info | ⚙️ | 🧪 | 📋 |
 | :---: | :---: | :---: | :---: |
-| **114 distinct issue types detected** | **26 analysis engines** | **581 test assertions** | **130 test blocks** |
+| **114 distinct issue types detected** | **27 analysis engines** | **590 test assertions** | **131 test blocks** |
 
 </div>
 
@@ -88,7 +88,7 @@ The `landing/` directory contains the product landing page (React + Vite + Tailw
 
 ## What Argus Catches
 
-Argus runs **26 analysis engines** per run and detects **114 distinct issue types** across JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, runtime anti-patterns, hover-state interactions, accessibility tree snapshots, keyboard focus, and Chrome DevTools issues panel — plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity (`critical` / `warning` / `info`) and routed to the right Slack channel — or rendered as a local `report.html` when Slack is not configured.
+Argus runs **27 analysis engines** per run and detects **114 distinct issue types** across JavaScript runtime, network, CSS, performance, accessibility, SEO, security, content quality, responsive layout, memory, runtime anti-patterns, hover-state interactions, accessibility tree snapshots, keyboard focus, and Chrome DevTools issues panel — plus flakiness detection, historical baselines, user flow assertions, and environment comparison as cross-cutting layers. Every finding is classified by severity (`critical` / `warning` / `info`) and routed to the right Slack channel — or rendered as a local `report.html` when Slack is not configured.
 
 ### JavaScript Runtime
 
@@ -998,7 +998,7 @@ argus/
 
 ## Known MCP Tool Limitations
 
-The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`578/581` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code. `validate.js` now exits with code 0 when only these 3 failures remain, making the CI harness gate reliable.
+The Chrome DevTools MCP behavioral constraints below cause **3 permanent test failures** in the harness (`587/590` pass). These are MCP-layer restrictions — they cannot be fixed in Argus code. `validate.js` now exits with code 0 when only these 3 failures remain, making the CI harness gate reliable.
 
 > **`type_text` clarification**: `type_text` does fire DOM `input` events when the element is properly focused first with `mcp.click({ uid })`. Always use uid-based focus — passing `{ selector }` to `mcp.click` silently does nothing.
 
@@ -1009,7 +1009,7 @@ The Chrome DevTools MCP behavioral constraints below cause **3 permanent test fa
 
 These constraints are documented with workarounds in [SKILL.md §10](SKILL.md).
 
-The harness passes **578/581** assertions (exits 0). The 3 failures are the permanent MCP-limited ones listed above.
+The harness passes **587/590** assertions (exits 0). The 3 failures are the permanent MCP-limited ones listed above.
 
 ---
 

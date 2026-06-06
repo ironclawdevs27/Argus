@@ -195,3 +195,16 @@ Sprint 3 — A8 Visual Regression: `visual-diff-analyzer.js` (block [130], pixel
 | Docs § "Test Coverage" tagline | `129 blocks, 572 hard assertions` | `130 blocks, 581 hard assertions` |
 | Docs § "Running" code | `572 hard assertions`, `569/572` | `581 hard assertions`, `578/581` |
 | Feature table `All 56 detection categories` | `56` | `58` |
+
+## Stats Update (2026-06-06 — Sprint 4 v9.5.6)
+
+Sprint 4 — A12 Deep Accessibility: `a11y-deep-analyzer.js` (block [131], axe-core 4.12 + CVD color blind simulation). Hero and docs updated:
+
+| Field | Old | New |
+|---|---|---|
+| `stats[0].num` (DETECTION TYPES) | `58` | `59` |
+| `stats[1].num` (TEST BLOCKS) | `130` | `131` |
+| `stats[2].num` (ASSERTIONS RUN) | `581` | `590` |
+| Docs § "Test Coverage" tagline | `130 blocks, 581 hard assertions` | `131 blocks, 590 hard assertions` |
+| Docs § "Running" code | `581 hard assertions`, `578/581` | `590 hard assertions`, `587/590` |
+| Feature table `All 58 detection categories` | `58` | `59` |

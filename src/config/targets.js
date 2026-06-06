@@ -68,6 +68,10 @@ export const thresholds = {
     warnPercent: parseFloat(process.env.VISUAL_WARN_PERCENT ?? '0.1'),  // % pixels changed → warning
     critPercent: parseFloat(process.env.VISUAL_CRIT_PERCENT ?? '5.0'),  // % pixels changed → critical
   },
+  a11y: {
+    contrastAA:       parseFloat(process.env.A11Y_CONTRAST_AA ?? '4.5'),  // WCAG AA normal text contrast ratio
+    maxAxeViolations: parseInt(process.env.A11Y_MAX_AXE ?? '50', 10),     // cap axe-core violations per run
+  },
 };
 
 /**

@@ -444,6 +444,14 @@ export const harnessRoutes = [
     waitFor: null,
     expected: 'visual_baseline_created info (first run) · visual_regression warning (after change) · visual_diff_summary info (always)',
   },
+  // Sprint 4 — A12 Deep Accessibility: axe-core violations + color blind simulation
+  {
+    path: '/a11y-deep-issues.html',
+    name: 'A11y Deep',
+    critical: false,
+    waitFor: null,
+    expected: 'a11y_axe_violation (image-alt, link-name) · a11y_colorblind_risk (red-on-gray) · a11y_deep_summary info',
+  },
 ];
 
 /** Routes used for env-comparison tests (same path served by both servers). */

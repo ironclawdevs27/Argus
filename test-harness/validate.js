@@ -73,6 +73,7 @@ import { analyzeKeyboard } from '../src/utils/keyboard-analyzer.js';
 import { analyzeTheme }              from '../src/utils/theme-analyzer.js';
 import { analyzeDesignFidelity }    from '../src/utils/design-fidelity-analyzer.js';
 import { analyzeVisualRegression }  from '../src/utils/visual-diff-analyzer.js';
+import { analyzeA11yDeep }          from '../src/utils/a11y-deep-analyzer.js';
 import { parseFigmaUrl }           from '../src/adapters/figma.js';
 import { analyzeWebVitals }        from '../src/utils/web-vitals-analyzer.js';
 import { WatchSession } from '../src/orchestration/watch-mode.js';
@@ -5357,6 +5358,54 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
 
     // Clean up temp baseline directory
     try { fs.rmSync(tmpDir130, { recursive: true, force: true }); } catch {}
+  }
+
+  // ── Block [131] Sprint 4 — Axe-core + Color Blind Simulation (A12) ────────
+  {
+    console.log('\n[131] a11y-deep-analyzer — Sprint 4 axe-core + color blind simulation');
+
+    const browser131 = new CdpBrowserAdapter(mcp);
+    const url131     = `${B}/a11y-deep-issues.html`;
+
+    const results131 = await analyzeA11yDeep(browser131, url131);
+
+    assert(Array.isArray(results131),
+      '[131a] analyzeA11yDeep returns an array');
+
+    const axeViolations131 = results131.filter(f => f.type === 'a11y_axe_violation');
+    assert(axeViolations131.length >= 1,
+      `[131b] at least 1 a11y_axe_violation found (got ${axeViolations131.length})`);
+
+    const v131 = axeViolations131[0];
+    assert(
+      v131 !== undefined &&
+      typeof v131.axeId     === 'string' &&
+      typeof v131.impact    === 'string' &&
+      typeof v131.helpUrl   === 'string',
+      `[131c] a11y_axe_violation has required fields axeId/impact/helpUrl (got ${JSON.stringify(Object.keys(v131 ?? {}))})`
+    );
+
+    const warningOrCrit131 = axeViolations131.filter(f => f.severity === 'warning' || f.severity === 'critical');
+    assert(warningOrCrit131.length >= 1,
+      `[131d] serious/moderate axe violations map to warning or critical severity (got ${axeViolations131.map(f=>f.severity).join(',')})`);
+
+    const summary131 = results131.find(f => f.type === 'a11y_deep_summary');
+    assert(summary131 !== undefined,
+      `[131e] a11y_deep_summary always present (got types: ${[...new Set(results131.map(f=>f.type))].join(', ')})`);
+
+    assert(typeof summary131?.axeViolations === 'number',
+      `[131f] a11y_deep_summary has axeViolations count (number) (got ${typeof summary131?.axeViolations})`);
+
+    const imageAlt131 = axeViolations131.find(f => f.axeId === 'image-alt');
+    assert(imageAlt131 !== undefined,
+      `[131g] image-alt violation detected for img#no-alt (found axeIds: ${axeViolations131.map(f=>f.axeId).join(', ')})`);
+
+    const colorblind131 = results131.filter(f => f.type === 'a11y_colorblind_risk');
+    assert(colorblind131.length >= 1,
+      `[131h] a11y_colorblind_risk detected for red-on-gray element (got ${colorblind131.length})`);
+
+    assert(typeof colorblind131[0]?.contrastRatio === 'number',
+      `[131i] a11y_colorblind_risk has contrastRatio field (number) (got ${typeof colorblind131[0]?.contrastRatio})`);
   }
 }
 

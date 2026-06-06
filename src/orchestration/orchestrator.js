@@ -45,6 +45,7 @@ import '../utils/theme-analyzer.js';
 import '../utils/design-fidelity-analyzer.js';
 import '../utils/web-vitals-analyzer.js';
 import '../utils/visual-diff-analyzer.js';
+import '../utils/a11y-deep-analyzer.js';
 
 import { getExpensive }          from '../registry.js';
 import { deduplicateFindings as deduplicateErrors } from './report-processor.js';

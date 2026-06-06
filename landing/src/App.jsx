@@ -488,7 +488,7 @@ const pricingPlans = [
     dark: false,
     description: 'The complete QA harness, self-hosted. Full source on GitHub. No restrictions.',
     benefits: [
-      'All 58 detection categories',
+      'All 59 detection categories',
       'MCP server — callable from Claude',
       'CLI for CI/CD pipelines',
       'Slack & GitHub PR integration',
@@ -568,7 +568,7 @@ const pricingPlans = [
 
 // ── Pricing comparison rows ────────────────────────────────────────────────────
 const COMPARISON_ROWS = [
-  { feature: 'All 58 detection categories',         open: true,  pro: true,  team: true,  enterprise: true  },
+  { feature: 'All 59 detection categories',         open: true,  pro: true,  team: true,  enterprise: true  },
   { feature: 'MCP server & CLI tools',              open: true,  pro: true,  team: true,  enterprise: true  },
   { feature: 'Slack & GitHub PR integration',       open: true,  pro: true,  team: true,  enterprise: true  },
   { feature: 'Baseline & trend tracking',           open: true,  pro: true,  team: true,  enterprise: true  },
@@ -724,7 +724,7 @@ const docChapters = [
   {
     num: '05',
     title: 'Test Coverage',
-    tagline: '130 blocks, 581 hard assertions, fixture-driven with zero ambiguity',
+    tagline: '131 blocks, 590 hard assertions, fixture-driven with zero ambiguity',
     sections: [
       {
         body: 'Every detection category has a corresponding fixture HTML page that reliably triggers exactly that bug. Fixtures are served via HTTP — never file:// — so CORS, ES modules, and fetch APIs work correctly. Each block has at minimum 3 hard assertions and passes consistently across environments without flakiness.',
@@ -752,8 +752,8 @@ const docChapters = [
       {
         title: 'Running',
         code: `npm run test:unit     # 61 Vitest tests — no Chrome required
-npm run test:harness  # 581 hard assertions — Chrome required (headless)
-# Expected: 578/581 (3 permanent MCP-limited failures: drag, Issues panel)
+npm run test:harness  # 590 hard assertions — Chrome required (headless)
+# Expected: 587/590 (3 permanent MCP-limited failures: drag, Issues panel)
 # Soft assertions (Lighthouse, perf traces) require non-headless Chrome`,
       },
     ],
