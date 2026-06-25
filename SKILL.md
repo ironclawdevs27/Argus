@@ -1675,7 +1675,7 @@ for (const bp of breakpoints) {
 
 | Metric | Value |
 | --- | --- |
-| **Version** | `9.8.0` (PR Validator batch + HTML-report restyle; pending npm publish + `action.yml` pin bump) |
+| **Version** | `9.8.0` (PR Validator batch + HTML-report restyle; published to npm, `action.yml` pinned to 9.8.0) |
 | **Test blocks** | 166 |
 | **Hard assertions** | 961 |
 | **Soft assertions** | ~23 executed/run (Lighthouse / perf-trace / heap; Lighthouse now runs headless, the rest are environment-sensitive). Promoted to counted hard assertions in the weekly strict-soft lane via `ARGUS_HARNESS_STRICT_SOFT` (Phase 4.3 — `harness-strict.yml`); clean lane run = 984/984 (961 + 23; Linux-headless lane — projected, verified there not on Windows) |
