@@ -28,6 +28,7 @@
 import { spawn } from 'child_process';
 import crypto from 'crypto';
 import net from 'net';
+import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -49,13 +50,14 @@ import { saveSession, restoreSession, refreshSession } from '../src/utils/sessio
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend, getCurrentBranch } from '../src/utils/baseline-manager.js';
 import { mergeRunResults } from '../src/utils/flakiness-detector.js';
 import { runFlow, normalizeArray, resolveUidForSelector } from '../src/utils/flow-runner.js';
-import { chunkArray } from '../src/utils/parallel-crawler.js';
+import { chunkArray, mapWithConcurrency, auditRoutesConcurrently, withTimeout, auditRouteWithRetry, routeResilienceFromEnv } from '../src/utils/parallel-crawler.js';
 import { validateSchema, matchesContract, extractResponseBody } from '../src/utils/contract-validator.js';
 import { applyOverrides } from '../src/utils/severity-overrides.js';
 import { auditEnvVariables, detectFeatureFlagLeakage, enrichErrorsWithSource, detectDeadRoutes, INTERNAL_LINKS_SCRIPT } from '../src/utils/codebase-analyzer.js';
 import { isSlackConfigured } from '../src/utils/slack-guard.js';
-import { formatPrComment, buildStatusPayload, generateReleaseNotes, createCheckRun, completeCheckRun } from '../src/utils/github-reporter.js';
-import { discoverFromSitemap, discoverFromNextJs, discoverFromReactRouter, mergeRoutes, discoverRoutes } from '../src/utils/route-discoverer.js';
+import { formatPrComment, buildStatusPayload, generateReleaseNotes, createCheckRun, completeCheckRun, prResultToReport, reportPrValidation } from '../src/utils/github-reporter.js';
+import { discoverFromSitemap, discoverFromNextJs, discoverFromReactRouter, mergeRoutes, discoverRoutes, discoverNextJsRouteFiles } from '../src/utils/route-discoverer.js';
+import { buildImportGraph, parseImports, findDependents, resolveSpecifier } from '../src/utils/import-graph.js';
 import { detectFramework, generateTargetsJs, generateEnvFile } from '../src/cli/init.js';
 import os from 'os';
 import { generateHtmlReport } from '../src/utils/html-reporter.js';
@@ -86,8 +88,13 @@ import * as argusTargets from '../src/config/targets.js';
 import { createFinding } from '../src/domain/finding.js';
 import { withRetry } from '../src/utils/retry.js';
 import { diffNetworkRequests, diffConsoleMessages } from '../src/utils/diff.js';
-import { parsePrUrl, mapFilesToRoutes } from '../src/utils/pr-diff-analyzer.js';
-import { buildStepSummary, writeGithubOutputs, writeStepSummary, checkTargetReachable, normalizeRoutePaths } from '../src/cli/pr-validate.js';
+import { parsePrUrl, mapFilesToRoutes, mapFilesToRoutesDeep, fetchPrFiles, firstAddedLine, resolveAnnotationTarget, stripWorkspacePrefix, packageRelativePath } from '../src/utils/pr-diff-analyzer.js';
+import { prFilesResponse } from './contracts/github-pr-files-sample.js';
+import { buildStepSummary, writeGithubOutputs, writeStepSummary, checkTargetReachable, normalizeRoutePaths, allRoutesFailed, prExitCode } from '../src/cli/pr-validate.js';
+import { diffRoutesAgainstBaseline, decidePrBlock, resolvePrBaselineFile, loadPrBaseline, savePrBaseline, tagFindingNovelty, severityTally } from '../src/utils/pr-baseline.js';
+import { AUDIT_DEPTHS, ALL_EXPENSIVE_ANALYZERS, resolveAuditDepth, selectAnalyzers, runDepthAnalyzers } from '../src/utils/audit-depth.js';
+import { resolveTargetUrl, pickPreviewDeployment, previewUrlFromStatuses } from '../src/utils/deploy-preview.js';
+import { githubFetch, isRateLimitResponse, retryDelayMs, classifyGitHubError, scrubSecrets } from '../src/utils/github-api.js';
 import { findChrome } from '../src/cli/chrome-launcher.js';
 import { checkChrome, checkMcpConfig, checkEnvKeys } from '../src/cli/doctor.js';
 import { checkSourceMapExposure, checkOpenRedirects } from '../src/utils/security-analyzer.js';
@@ -98,6 +105,11 @@ import {
   TOOL_RESPONSE_SCHEMAS, TOOL_NAMES, formatZodError,
   auditResponseSchema, getContextResponseSchema, reportSummarySchema, prValidateResponseSchema,
 } from './contracts/mcp-tool-schemas.js';
+// Recorded-shape GitHub reporting-endpoint fixtures (block [166] — Phase F1).
+import {
+  issueCommentsListWithArgus, issueCommentsListNoArgus, checkRunCreateResponse, checkRunCompleteResponse,
+  makeReportingFetchStub, ARGUS_COMMENT_MARKER, ARGUS_COMMENT_ID, CHECK_RUN_ID, HEAD_SHA,
+} from './contracts/github-reporting-samples.js';
 
 // ── Section 1 gap-closer imports (blocks [94]–[107]) ──────────────────────────
 import { parseConsoleMsgResponse, parseNetworkReqResponse, parseListPagesResponse } from '../src/utils/mcp-parsers.js';
@@ -141,11 +153,11 @@ function assert(condition, message) {
  * Strict-soft mode (HARNESS_MAX_PLAN 4.3 \u2014 strict-soft CI lane).
  * The default per-PR run ships the environment-sensitive checks (perf-trace, heap-growth;
  * historically Lighthouse too, before the lighthouse_audit fix) as soft() so they cannot
- * fail the 846-gate. The weekly strict-soft lane (.github/workflows/harness-strict.yml,
+ * fail the 961-gate. The weekly strict-soft lane (.github/workflows/harness-strict.yml,
  * headless) sets ARGUS_HARNESS_STRICT_SOFT=1, which promotes EVERY soft() to a counted
  * hard assert(). Those ~23 checks then become real, verified-weekly assertions in that
- * lane only (clean run = 869/869). Leaving the flag unset (the default) keeps soft() a
- * non-counting log, so the 846-gate and every doc stat are unchanged.
+ * lane only (clean run = 984/984). Leaving the flag unset (the default) keeps soft() a
+ * non-counting log, so the 961-gate and every doc stat are unchanged.
  * (The lane was first built with Xvfb + non-headless Chrome, but that broke page rendering
  * on the GitHub runner and the lighthouse_audit fix made Lighthouse work headless \u2014 so the
  * lane is headless.) */
@@ -939,6 +951,111 @@ async function spawnArgusServer(cwd, extraEnv = {}) {
   proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }) + '\n');
 
   return { proc, initResp };
+}
+
+// ── PR Validator CLI end-to-end helpers (block [167] — Phase F2) ───────────────
+
+/**
+ * Minimal in-process mock of GitHub's "List pull request files" endpoint, so the CLI
+ * (src/cli/pr-validate.js) can be driven as a child process WITHOUT touching the live
+ * GitHub API (forbidden in the gate — rate limits + flakiness). fetchPrFiles honours
+ * GITHUB_API_URL (the env var GitHub Actions injects), which the caller points at this
+ * server. Responds to GET /repos/:owner/:repo/pulls/:n/files with the supplied file
+ * list; 404 + [] otherwise. Records each request (method, url, whether an Authorization
+ * header was present) so the test can assert the contract AND that no token ever left.
+ */
+function startMockGitHubApi(files) {
+  return new Promise((resolve) => {
+    const requests = [];
+    const server = http.createServer((req, res) => {
+      requests.push({ method: req.method, url: req.url, hadAuth: !!req.headers.authorization });
+      if (/\/repos\/[^/]+\/[^/]+\/pulls\/\d+\/files/.test(req.url)) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(files));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end('[]');
+      }
+    });
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port, requests }));
+  });
+}
+
+/** Parse a $GITHUB_OUTPUT file (key=value lines) into an object. */
+function parseGithubOutputFile(text) {
+  const out = {};
+  for (const line of String(text).split('\n')) {
+    const i = line.indexOf('=');
+    if (i > 0) out[line.slice(0, i)] = line.slice(i + 1);
+  }
+  return out;
+}
+
+/**
+ * Extract the JSON result object the CLI prints to stdout for downstream pipeline steps
+ * (`console.log(JSON.stringify(result, null, 2))`). The pretty-printed top-level object
+ * starts with `{\n  "prUrl"` and closes with a column-0 `\n}` (nested objects close
+ * indented), so those bounds isolate it unambiguously. Returns null if absent/unparseable.
+ */
+function extractCliResultJson(stdout) {
+  const start = stdout.indexOf('{\n  "prUrl"');
+  if (start < 0) return null;
+  const end = stdout.indexOf('\n}', start);
+  if (end < 0) return null;
+  try { return JSON.parse(stdout.slice(start, end + 2)); } catch { return null; }
+}
+
+/**
+ * Spawn src/cli/pr-validate.js as a child process (the exact entry point action.yml runs)
+ * with a HERMETIC env: GITHUB_TOKEN / GITHUB_BASE_REF / preview / source-dir / depth /
+ * concurrency are stripped so reporting skips, no baseline is found (→ the fail-safe
+ * absolute-block path runs), and target resolution stays on TARGET_DEV_URL. Captures
+ * stdout, stderr, the exit code, and the $GITHUB_OUTPUT + $GITHUB_STEP_SUMMARY files the
+ * CLI writes. The child gets its OWN chrome-devtools-mcp client (createMcpClient → Chrome
+ * 9222); the harness's own mcp is idle while we await, so the shared browser is not raced.
+ */
+function runPrValidateCli(extraEnv, { timeoutMs = 90000 } = {}) {
+  const cliPath = path.resolve(__dirname, '../src/cli/pr-validate.js');
+  const tmpDir  = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-prcli-'));
+  const outFile = path.join(tmpDir, 'gh_output');
+  const sumFile = path.join(tmpDir, 'gh_summary');
+  fs.writeFileSync(outFile, '');
+  fs.writeFileSync(sumFile, '');
+  const env = {
+    ...process.env,
+    GITHUB_OUTPUT: outFile,
+    GITHUB_STEP_SUMMARY: sumFile,
+    ARGUS_LOG_LEVEL: 'error',
+    ARGUS_LOG_PRETTY: '0',
+    ...extraEnv,
+  };
+  // Force hermeticity: any of these inherited from the harness/shell env would change the
+  // child's behaviour (reporting side effects, a real baseline, a preview/source-dir).
+  for (const k of ['GITHUB_TOKEN', 'GITHUB_BASE_REF', 'ARGUS_BASELINE_FILE', 'ARGUS_PREVIEW_URL',
+                   'ARGUS_PREVIEW_DETECT', 'ARGUS_SOURCE_DIR', 'ARGUS_UPDATE_BASELINE',
+                   'ARGUS_PR_AUDIT_DEPTH', 'ARGUS_CONCURRENCY']) {
+    if (!(k in extraEnv)) delete env[k];
+  }
+  return new Promise((resolve) => {
+    const proc = spawn(process.execPath, [cliPath], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '', stderr = '';
+    proc.stdout.on('data', d => { stdout += d.toString(); });
+    proc.stderr.on('data', d => { stderr += d.toString(); });
+    const timer = setTimeout(() => { try { proc.kill(); } catch {} }, timeoutMs);
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      let outputs = {}, summary = '';
+      try { outputs = parseGithubOutputFile(fs.readFileSync(outFile, 'utf8')); } catch {}
+      try { summary = fs.readFileSync(sumFile, 'utf8'); } catch {}
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      resolve({ exitCode: code, stdout, stderr, outputs, summary });
+    });
+    proc.on('error', (err) => {
+      clearTimeout(timer);
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      resolve({ exitCode: -1, stdout, stderr: stderr + '\n' + err.message, outputs: {}, summary: '' });
+    });
+  });
 }
 
 /** Send a tools/call and return the raw JSON-RPC response object. */
@@ -5811,6 +5928,94 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
       result137k.length === 1 && result137k[0].path === '/login',
       `[137k] mapFilesToRoutes proceeds when PR has excluded files alongside app files (got: ${JSON.stringify(result137k.map(r => r.path))})`
     );
+
+    // ── E1: fetchPrFiles surfaces { filename, status, patch } (recorded API fixture) ──
+    // Stub globalThis.fetch with the recorded /pulls/N/files response; assert the parsed
+    // shape that Phase A3 (line annotations) + C1 (hunk→component) depend on.
+    const _origFetch137 = globalThis.fetch;
+    try {
+      globalThis.fetch = async () => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => prFilesResponse,
+        text: async () => JSON.stringify(prFilesResponse),
+      });
+      const prFiles137 = await fetchPrFiles('https://github.com/acme/shop/pull/7');
+      const checkout137 = prFiles137.find(f => f.filename === 'src/pages/checkout.tsx');
+
+      // [137l] fetchPrFiles returns per-file status objects, not bare filename strings
+      assert(
+        prFiles137.length === prFilesResponse.length && checkout137 && checkout137.status === 'modified',
+        `[137l] fetchPrFiles returns { filename, status } objects (got: ${JSON.stringify(prFiles137.map(f => ({ f: f.filename, s: f.status })))})`
+      );
+
+      // [137m] fetchPrFiles preserves the unified-diff patch hunk text (Phase A3 input)
+      assert(
+        typeof checkout137.patch === 'string' && checkout137.patch.includes('@@ -12,7 +12,11 @@'),
+        `[137m] fetchPrFiles preserves patch hunk headers (got: ${JSON.stringify(checkout137 && checkout137.patch && checkout137.patch.slice(0, 40))})`
+      );
+
+      // [137n] a binary file (no patch in the API response) normalizes to patch:null, never undefined
+      const png137 = prFiles137.find(f => f.filename === 'public/logo.png');
+      assert(
+        png137 && png137.patch === null && ('patch' in png137),
+        `[137n] fetchPrFiles normalizes a missing patch to null (got: ${JSON.stringify(png137 && png137.patch)})`
+      );
+
+      // [137o] back-compat: mapFilesToRoutes treats the rich object[] and the string[] view identically
+      const routes137o = [{ path: '/checkout', name: 'Checkout' }, { path: '/about', name: 'About' }];
+      const fromObjects137 = mapFilesToRoutes(prFiles137, routes137o).map(r => r.path);
+      const fromStrings137 = mapFilesToRoutes(prFiles137.map(f => f.filename), routes137o).map(r => r.path);
+      assert(
+        fromObjects137.length === 1 && fromObjects137[0] === '/checkout' &&
+        JSON.stringify(fromObjects137) === JSON.stringify(fromStrings137),
+        `[137o] mapFilesToRoutes treats object[] and string[] identically (objs: ${JSON.stringify(fromObjects137)}, strs: ${JSON.stringify(fromStrings137)})`
+      );
+    } finally {
+      globalThis.fetch = _origFetch137;
+    }
+
+    // ── A3: file:line annotation resolution from patch hunks (pure — no fetch) ──
+    // These drive the same functions the CLI uses to anchor ::error file=,line=:: annotations.
+    const co137  = prFilesResponse.find(f => f.filename === 'src/pages/checkout.tsx');
+    const cs137  = prFilesResponse.find(f => f.filename === 'src/components/CartSummary.tsx');
+    const del137 = prFilesResponse.find(f => f.filename === 'src/legacy/oldCart.js');
+
+    // [137p] firstAddedLine returns the real new-file line of the first added (+) line,
+    // and null for a deletion-only hunk or an absent (binary) patch — never a fabricated line.
+    const fal137a = firstAddedLine(co137.patch);   // 13: context line 12, then the first +
+    const fal137b = firstAddedLine(cs137.patch);   // 1:  added at the hunk start (@@ +1,24 @@)
+    const fal137c = firstAddedLine(del137.patch);  // null: removed file, deletion-only hunk
+    const fal137d = firstAddedLine(null);          // null: binary file (patch omitted)
+    assert(
+      fal137a === 13 && fal137b === 1 && fal137c === null && fal137d === null,
+      `[137p] firstAddedLine parses the real first-added line; null for deletion-only/binary (got: ${fal137a}, ${fal137b}, ${fal137c}, ${fal137d})`
+    );
+
+    // [137q] resolveAnnotationTarget anchors a slug-matched route at the SPECIFIC changed
+    // file and its real first-added line — the input for the CLI's file:line annotation.
+    const at137 = resolveAnnotationTarget('/checkout', prFilesResponse);
+    assert(
+      at137 && at137.path === 'src/pages/checkout.tsx' && at137.line === 13,
+      `[137q] resolveAnnotationTarget anchors a matched route at the real file:line (got: ${JSON.stringify(at137)})`
+    );
+
+    // [137r] resolveAnnotationTarget NEVER fabricates a line — it returns null (so the CLI
+    // emits a route-level annotation) for an unmatched route, the root route, an infra file
+    // (maps to ALL routes — not a specific cause), and a slug-matched binary file (no line).
+    const at137none  = resolveAnnotationTarget('/about', prFilesResponse);
+    const at137root  = resolveAnnotationTarget('/', prFilesResponse);
+    const at137infra = resolveAnnotationTarget('/checkout', [
+      { filename: 'src/app/checkout/layout.tsx', patch: '@@ -1,2 +1,3 @@\n+const x = 1;' },
+    ]);
+    const at137bin = resolveAnnotationTarget('/logo', [
+      { filename: 'src/logo/logo.png', patch: null },
+    ]);
+    assert(
+      at137none === null && at137root === null && at137infra === null && at137bin === null,
+      `[137r] resolveAnnotationTarget never fabricates — null route-level fallback for unmatched/root/infra/binary (got: ${JSON.stringify([at137none, at137root, at137infra, at137bin])})`
+    );
   }
 
   // ── Block [138] PR Validate CLI helpers (no Chrome required) ──────
@@ -7098,21 +7303,27 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
         assert(v.ok, `[147h] argus_design_audit (degraded) response matches golden schema (got: ${v.msg})`); }
 
       // [147i] argus_pr_validate — happy path needs GitHub network (non-hermetic). Hermetic
-      // substitute: assert every schema-required key appears in handlePrValidate's RETURN
-      // literal in src/mcp-server.js. This guards a handler-side field rename — the same
-      // direction the 8 live-validated tools cover via their actual responses. Live error
-      // paths are already covered by [144f]/[144g].
-      const serverSrc147   = fs.readFileSync(path.resolve(__dirname, '../src/mcp-server.js'), 'utf8');
-      const prFnStart147   = serverSrc147.indexOf('async function handlePrValidate');
-      const prJsonStart147 = serverSrc147.indexOf('JSON.stringify({', prFnStart147);
-      const prJsonEnd147   = serverSrc147.indexOf('}, null, 2)', prJsonStart147);
-      const prRetLiteral147 = prJsonStart147 !== -1 && prJsonEnd147 > prJsonStart147
-        ? serverSrc147.slice(prJsonStart147, prJsonEnd147) : '';
-      const prReqKeys147    = Object.keys(prValidateResponseSchema.shape);
+      // substitute: assert every schema-required key appears in handlePrValidate's `result`
+      // object literal in src/mcp-server.js — the object that IS the tool response (A4 spreads
+      // it into the JSON via `{ ...result, reporting }`, so the keys live on `result`, not the
+      // JSON.stringify literal). Guards a handler-side field rename — the same direction the 8
+      // live-validated tools cover via their actual responses. Live error paths: [144f]/[144g].
+      const serverSrc147     = fs.readFileSync(path.resolve(__dirname, '../src/mcp-server.js'), 'utf8');
+      const prFnStart147     = serverSrc147.indexOf('async function handlePrValidate');
+      const prResultStart147 = serverSrc147.indexOf('const result = {', prFnStart147);
+      const prResultEnd147   = serverSrc147.indexOf('};', prResultStart147);
+      const prRetLiteral147  = prResultStart147 !== -1 && prResultEnd147 > prResultStart147
+        ? serverSrc147.slice(prResultStart147, prResultEnd147) : '';
+      // Only the REQUIRED keys must appear in the handler's `const result` literal. The
+      // optional ones (baseline / reporting, F4) are skipped: `reporting` is spread-appended
+      // (`{ ...result, reporting }`), not in the literal, and both are .optional() in the
+      // golden schema — so demanding them here would false-fail (see the schema's F4 note).
+      const prReqKeys147     = Object.keys(prValidateResponseSchema.shape)
+        .filter(k => !prValidateResponseSchema.shape[k].isOptional());
       const missingPrKeys147 = prReqKeys147.filter(k => !new RegExp(`[\\s{]${k}\\s*[,:]`).test(prRetLiteral147));
       assert(
-        prFnStart147 !== -1 && prRetLiteral147.length > 0 && missingPrKeys147.length === 0,
-        `[147i] argus_pr_validate handler return literal contains all ${prReqKeys147.length} schema-required keys — guards a handler field rename (missing: ${missingPrKeys147.join(', ') || 'none'})`
+        prFnStart147 !== -1 && prResultStart147 !== -1 && prRetLiteral147.length > 0 && missingPrKeys147.length === 0,
+        `[147i] argus_pr_validate handler result literal contains all ${prReqKeys147.length} schema-required keys — guards a handler field rename (missing: ${missingPrKeys147.join(', ') || 'none'})`
       );
 
       // [147j] META coverage-ratchet — every tool the server advertises has a golden
@@ -7152,6 +7363,55 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
       assert(
         auditObj147?.summary != null && m147.success === false,
         `[147m] report-summary schema rejects the cheap-audit summary (no total) — the audit/report summary contracts are distinct (rejected: ${!m147.success})`
+      );
+
+      // ── F4 — the two A4/B1-B2 rider fields are now EXPLICITLY pinned optional shapes, not
+      // just passthrough riders. [147o]/[147p] prove each pin is non-vacuous: a faithful value
+      // parses, a corrupted one is REJECTED. (The "accepts without the field" back-compat
+      // direction is [153c]; the always-present-on-the-live-response invariant is [147i].)
+      // A minimal, faithful happy-path argus_pr_validate result (the handlePrValidate shape). ──
+      const prBase147 = {
+        prUrl: 'https://github.com/acme/web/pull/7',
+        targetUrl: 'http://localhost:3000',
+        affectedRoutes: ['/checkout'],
+        changedFiles: ['src/pages/checkout.tsx'],
+        findings: [],
+        perRoute: [{ route: '/checkout', critical: 0, warning: 0, info: 0 }],
+        summary: { critical: 0, warning: 0, info: 0 },
+        blocked: false,
+        blockOn: 'critical',
+      };
+
+      // [147o] the A4 `reporting` shape is pinned: a well-formed reporting object parses, but
+      // retyping `reporting.posted` (boolean → string) is REJECTED — a handler rename/retype
+      // inside reporting now fails [147] rather than passing silently under .passthrough().
+      const goodReporting147 = prValidateResponseSchema.safeParse({
+        ...prBase147, reporting: { posted: true, checked: false, skipped: false, reason: 'no token' },
+      });
+      const badReporting147  = prValidateResponseSchema.safeParse({
+        ...prBase147, reporting: { posted: 'yes', checked: false, skipped: false },
+      });
+      assert(
+        goodReporting147.success === true && badReporting147.success === false,
+        `[147o] golden schema pins the A4 reporting shape — accepts a well-formed reporting, REJECTS reporting.posted retyped to string (good: ${goodReporting147.success}, badRejected: ${!badReporting147.success})`
+      );
+
+      // [147p] the B1/B2 `baseline` discriminated shape is pinned: BOTH the available:true
+      // (numeric new/persisting/resolved) and available:false (note) variants parse, but an
+      // available:true baseline MISSING `newCritical` is REJECTED — a rename inside baselineInfo
+      // is caught, and the discriminated union keeps the two variants from cross-validating.
+      const baselineOk147       = prValidateResponseSchema.safeParse({
+        ...prBase147, baseline: { available: true, newCritical: 0, newWarning: 0, newInfo: 0, persisting: 1, resolved: 2 },
+      });
+      const baselineFailsafe147 = prValidateResponseSchema.safeParse({
+        ...prBase147, baseline: { available: false, note: 'baseline unavailable — blocking on absolute counts' },
+      });
+      const baselineRenamed147  = prValidateResponseSchema.safeParse({
+        ...prBase147, baseline: { available: true, newWarning: 0, newInfo: 0, persisting: 1, resolved: 2 },
+      });
+      assert(
+        baselineOk147.success === true && baselineFailsafe147.success === true && baselineRenamed147.success === false,
+        `[147p] golden schema pins the B1/B2 baseline shape — accepts available:true + available:false variants, REJECTS an available:true baseline missing newCritical (ok: ${baselineOk147.success}, failsafe: ${baselineFailsafe147.success}, renamedRejected: ${!baselineRenamed147.success})`
       );
 
     } catch (e) {
@@ -7480,6 +7740,1898 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
            !cookie150.some(f => f.type === 'unclassified_devtools_issue'),
       `[150m] CORS + cookie Issues classify to specific types, not unclassified_devtools_issue (cors: ${cors150.map(f => f.type).join(',') || 'none'}; cookie: ${cookie150.map(f => f.type).join(',') || 'none'})`);
   }
+
+  // ── Block [151] PR Validator — idempotent GitHub PR comment (Phase A1) ──────────
+  // Wires github-reporter.js into the PR-validate path: the result→report adapter
+  // (prResultToReport), the formatPrComment block banner, and reportPrValidation's
+  // gating + create/update behaviour. Chrome-free + network-free — globalThis.fetch is
+  // stubbed (recorded request/response shapes), never the live GitHub API.
+  {
+    console.log('\n[151] PR Validator — idempotent GitHub PR comment (Phase A1)');
+
+    const prResult151 = {
+      prUrl:          'https://github.com/acme/shop/pull/7',
+      targetUrl:      'https://staging.example.com',
+      affectedRoutes: ['/checkout', '/about'],
+      changedFiles:   ['src/pages/checkout.tsx'],
+      summary:        { critical: 1, warning: 2, info: 0 },
+      blocked:        true,
+      blockOn:        'critical',
+      perRoute: [
+        { route: '/checkout', critical: 1, warning: 1, info: 0 },
+        { route: '/about',    critical: 0, warning: 1, info: 0 },
+      ],
+      findings: [
+        { severity: 'critical', type: 'console_error',     message: 'TypeError: x is null',       url: 'https://staging.example.com/checkout' },
+        { severity: 'warning',  type: 'seo_meta',          message: 'Missing meta description',    url: 'https://staging.example.com/checkout' },
+        { severity: 'warning',  type: 'a11y_axe_violation', message: 'Low contrast text',          url: 'https://staging.example.com/about' },
+      ],
+    };
+
+    // [151a] prResultToReport groups findings per-route (url → path) and totals the summary
+    const report151 = prResultToReport(prResult151);
+    const checkout151 = report151.routes.find(r => r.route === '/checkout');
+    assert(
+      report151.summary.total === 3 &&
+      checkout151 && checkout151.errors.length === 2 &&
+      report151.routes.some(r => r.route === '/about'),
+      `[151a] prResultToReport groups findings per-route + totals summary (routes: ${JSON.stringify(report151.routes.map(r => `${r.route}:${r.errors.length}`))}, total: ${report151.summary.total})`
+    );
+
+    // [151b] prResultToReport carries the block verdict + reason + affected routes for the banner
+    assert(
+      report151.prValidation.blocked === true &&
+      /critical/.test(report151.prValidation.reason) &&
+      report151.prValidation.affectedRoutes.join(',') === '/checkout,/about',
+      `[151b] prResultToReport.prValidation carries block reason + affected routes (got: ${JSON.stringify(report151.prValidation)})`
+    );
+
+    // [151c] formatPrComment renders the block banner + affected routes + findings table,
+    //        with the HTML marker that makes the comment idempotently updatable
+    const comment151 = formatPrComment(report151, { isFirstRun: false, resolvedCount: 0, flowResolvedCount: 0 });
+    assert(
+      comment151.includes('<!-- argus-qa-report -->') &&
+      comment151.includes('Merge blocked') &&
+      comment151.includes('Affected routes') &&
+      comment151.includes('TypeError: x is null'),
+      `[151c] formatPrComment renders banner + routes + findings + marker (got head: ${comment151.slice(0, 160)})`
+    );
+
+    // ── reportPrValidation: stub globalThis.fetch to assert request shape + idempotency ──
+    const _origFetch151   = globalThis.fetch;
+    const _savedToken151  = process.env.GITHUB_TOKEN;
+    const _savedRepo151   = process.env.GITHUB_REPOSITORY;
+    const _savedPr151     = process.env.GITHUB_PR_NUMBER;
+    const _savedSha151    = process.env.GITHUB_SHA;
+    const _savedHead151   = process.env.ARGUS_PR_HEAD_SHA;
+    const SECRET151       = 'ghp_unit_secret_do_not_leak_151';
+    // A2 wired reportPrValidation to also fire a Check Run when a head SHA is resolvable.
+    // These sub-tests exercise the A1 *comment* idempotency only, so unset both head-SHA
+    // sources — otherwise the extra Check Run POST would pollute the request list (e.g.
+    // GITHUB_SHA is set ambient on the CI runner) and break [151g]'s no-duplicate-POST check.
+    delete process.env.GITHUB_SHA;
+    delete process.env.ARGUS_PR_HEAD_SHA;
+    try {
+      // [151d] missing token → graceful skip: no fetch, no throw, no token in the result
+      delete process.env.GITHUB_TOKEN;
+      let calls151d = 0;
+      globalThis.fetch = async () => { calls151d++; return { ok: true, status: 200, json: async () => [], text: async () => '[]' }; };
+      const skip151 = await reportPrValidation(prResult151, { prUrl: prResult151.prUrl });
+      assert(
+        skip151.posted === false && skip151.skipped === true && calls151d === 0 &&
+        !JSON.stringify(skip151).includes(SECRET151),
+        `[151d] reportPrValidation skips cleanly without a token (no fetch, no throw) (got: ${JSON.stringify(skip151)}, fetchCalls: ${calls151d})`
+      );
+
+      // Create path: env repo/PR absent → owner/repo/PR resolved from the PR URL; GET
+      // finds no existing Argus comment → POST a new one.
+      process.env.GITHUB_TOKEN = SECRET151;
+      delete process.env.GITHUB_REPOSITORY;
+      delete process.env.GITHUB_PR_NUMBER;
+      const reqs151c = [];
+      globalThis.fetch = async (url, opts = {}) => {
+        const method = opts.method ?? 'GET';
+        reqs151c.push({ url, method, body: opts.body, auth: opts.headers?.Authorization });
+        return method === 'GET'
+          ? { ok: true, status: 200, json: async () => [], text: async () => '[]' }
+          : { ok: true, status: 201, json: async () => ({ id: 1001 }), text: async () => '{"id":1001}' };
+      };
+      const create151 = await reportPrValidation(prResult151, { prUrl: prResult151.prUrl });
+      const post151 = reqs151c.find(r => r.method === 'POST');
+
+      // [151e] create path → POST to the PR's issues/comments endpoint resolved from the URL
+      assert(
+        create151.posted === true &&
+        post151 && /\/repos\/acme\/shop\/issues\/7\/comments$/.test(post151.url) &&
+        post151.body.includes('<!-- argus-qa-report -->') && post151.body.includes('Merge blocked'),
+        `[151e] reportPrValidation POSTs a new comment to the URL-resolved PR endpoint with the block reason (got url: ${post151 && post151.url})`
+      );
+
+      // [151f] token rides only in the Authorization header — never the comment body
+      assert(
+        post151.auth === `Bearer ${SECRET151}` && !post151.body.includes(SECRET151),
+        `[151f] PR comment body never leaks the GITHUB_TOKEN (auth header only; body-leak: ${post151.body.includes(SECRET151)})`
+      );
+
+      // Update path: an existing Argus comment (marker present) → PATCH it, no new POST.
+      const reqs151u = [];
+      globalThis.fetch = async (url, opts = {}) => {
+        const method = opts.method ?? 'GET';
+        reqs151u.push({ url, method });
+        return method === 'GET'
+          ? { ok: true, status: 200, json: async () => ([{ id: 555, body: 'prior\n<!-- argus-qa-report -->\nold' }]), text: async () => '' }
+          : { ok: true, status: 200, json: async () => ({ id: 555 }), text: async () => '' };
+      };
+      const update151 = await reportPrValidation(prResult151, { prUrl: prResult151.prUrl });
+      const patch151    = reqs151u.find(r => r.method === 'PATCH');
+      const newPost151  = reqs151u.find(r => r.method === 'POST');
+
+      // [151g] idempotency — re-running updates the SAME comment (PATCH id 555), no duplicate POST
+      assert(
+        update151.posted === true && patch151 && /\/issues\/comments\/555$/.test(patch151.url) && !newPost151,
+        `[151g] reportPrValidation updates the existing Argus comment in place (PATCH: ${patch151 && patch151.url}, duplicate POST: ${!!newPost151})`
+      );
+    } finally {
+      globalThis.fetch = _origFetch151;
+      if (_savedToken151 === undefined) delete process.env.GITHUB_TOKEN;      else process.env.GITHUB_TOKEN      = _savedToken151;
+      if (_savedRepo151  === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = _savedRepo151;
+      if (_savedPr151    === undefined) delete process.env.GITHUB_PR_NUMBER;  else process.env.GITHUB_PR_NUMBER  = _savedPr151;
+      if (_savedSha151   === undefined) delete process.env.GITHUB_SHA;        else process.env.GITHUB_SHA        = _savedSha151;
+      if (_savedHead151  === undefined) delete process.env.ARGUS_PR_HEAD_SHA; else process.env.ARGUS_PR_HEAD_SHA = _savedHead151;
+    }
+  }
+
+  // ── Block [152] PR Validator — GitHub Check Run conclusion (Phase A2) ───────────
+  // reportPrValidation now also creates + completes a GitHub Check Run whose conclusion
+  // maps to the PR-Validator block decision (report.prValidation.blocked), NOT
+  // buildStatusPayload's new-critical-threshold rule — the two diverge for block-on=warning.
+  // Chrome-free + network-free — globalThis.fetch is stubbed (recorded request/response
+  // shapes), never the live GitHub API.
+  {
+    console.log('\n[152] PR Validator — GitHub Check Run conclusion (Phase A2)');
+
+    // Three PR-validate results exercising the conclusion mapping:
+    const base152 = {
+      prUrl: 'https://github.com/acme/shop/pull/7', targetUrl: 'https://staging.example.com',
+      affectedRoutes: ['/checkout'], changedFiles: ['src/pages/checkout.tsx'],
+    };
+    const blocked152 = { ...base152, blockOn: 'critical', blocked: true,
+      summary: { critical: 1, warning: 0, info: 0 },
+      findings: [{ severity: 'critical', type: 'console_error', message: 'TypeError: x is null', url: 'https://staging.example.com/checkout' }] };
+    const passing152 = { ...base152, blockOn: 'critical', blocked: false,
+      summary: { critical: 0, warning: 0, info: 1 },
+      findings: [{ severity: 'info', type: 'seo_meta', message: 'Title could be shorter', url: 'https://staging.example.com/checkout' }] };
+    // block-on=warning, ZERO criticals → blocked=true. buildStatusPayload (0 new criticals)
+    // would say success; the Check Run must still conclude failure (block decision wins).
+    const warnBlock152 = { ...base152, blockOn: 'warning', blocked: true,
+      summary: { critical: 0, warning: 2, info: 0 },
+      findings: [{ severity: 'warning', type: 'a11y_axe_violation', message: 'Low contrast text', url: 'https://staging.example.com/checkout' }] };
+
+    // Stub: comment GET → [] (forces create path), check-run POST → {id:9001}, all else ok.
+    const mkStub152 = (reqs) => async (url, opts = {}) => {
+      const method = opts.method ?? 'GET';
+      reqs.push({ url, method, body: opts.body, auth: opts.headers?.Authorization });
+      if (method === 'GET')             return { ok: true, status: 200, json: async () => [],            text: async () => '[]' };
+      if (/\/check-runs$/.test(url))    return { ok: true, status: 201, json: async () => ({ id: 9001 }), text: async () => '{"id":9001}' };
+      return { ok: true, status: 200, json: async () => ({ id: 1 }), text: async () => '{}' };
+    };
+
+    const _origFetch152  = globalThis.fetch;
+    const _savedToken152 = process.env.GITHUB_TOKEN;
+    const _savedRepo152  = process.env.GITHUB_REPOSITORY;
+    const _savedPr152    = process.env.GITHUB_PR_NUMBER;
+    const _savedSha152   = process.env.GITHUB_SHA;
+    const _savedHead152  = process.env.ARGUS_PR_HEAD_SHA;
+    const SECRET152      = 'ghp_check_run_secret_do_not_leak_152';
+    try {
+      process.env.GITHUB_TOKEN     = SECRET152;
+      delete process.env.GITHUB_REPOSITORY;   // resolve owner/repo + PR from the URL
+      delete process.env.GITHUB_PR_NUMBER;
+      delete process.env.GITHUB_SHA;
+      process.env.ARGUS_PR_HEAD_SHA = 'deadbeefcafe0001';
+
+      // ── blocked PR ──────────────────────────────────────────────────────────
+      const reqsB = [];
+      globalThis.fetch = mkStub152(reqsB);
+      const outB = await reportPrValidation(blocked152, { prUrl: blocked152.prUrl });
+      const crPostB  = reqsB.find(r => r.method === 'POST'  && /\/repos\/acme\/shop\/check-runs$/.test(r.url));
+      const crPatchB = reqsB.find(r => r.method === 'PATCH' && /\/check-runs\/9001$/.test(r.url));
+      const crPostBodyB  = crPostB  ? JSON.parse(crPostB.body)  : {};
+      const crPatchBodyB = crPatchB ? JSON.parse(crPatchB.body) : {};
+
+      // [152a] Check Run created against the PR head SHA, status in_progress
+      assert(
+        outB.checked === true && crPostB &&
+        crPostBodyB.head_sha === 'deadbeefcafe0001' && crPostBodyB.status === 'in_progress',
+        `[152a] reportPrValidation creates a Check Run on the PR head SHA (got: ${JSON.stringify({ checked: outB.checked, head: crPostBodyB.head_sha, status: crPostBodyB.status })})`
+      );
+
+      // [152b] blocked → conclusion: failure, status: completed (maps to the block decision)
+      assert(
+        crPatchB && crPatchBodyB.status === 'completed' && crPatchBodyB.conclusion === 'failure',
+        `[152b] blocked PR → Check Run completed with conclusion=failure (got: ${JSON.stringify({ status: crPatchBodyB.status, conclusion: crPatchBodyB.conclusion })})`
+      );
+
+      // [152c] token rides only in the Authorization header — never the Check Run bodies
+      assert(
+        crPostB.auth === `Bearer ${SECRET152}` &&
+        !String(crPostB.body).includes(SECRET152) && !String(crPatchB.body).includes(SECRET152),
+        `[152c] Check Run create/complete bodies never leak the GITHUB_TOKEN (postLeak: ${String(crPostB.body).includes(SECRET152)}, patchLeak: ${String(crPatchB.body).includes(SECRET152)})`
+      );
+
+      // ── passing PR → conclusion: success ──────────────────────────────────────
+      const reqsP = [];
+      globalThis.fetch = mkStub152(reqsP);
+      const outP = await reportPrValidation(passing152, { prUrl: passing152.prUrl });
+      const passPatch = reqsP.find(r => r.method === 'PATCH' && /\/check-runs\//.test(r.url));
+      assert(
+        outP.checked === true && passPatch && JSON.parse(passPatch.body).conclusion === 'success',
+        `[152d] non-blocked PR → Check Run conclusion=success (got: ${passPatch && JSON.parse(passPatch.body).conclusion})`
+      );
+
+      // ── block-on=warning, 0 criticals, blocked=true → conclusion still failure ──
+      // Proves the prValidation block verdict drives the conclusion, NOT buildStatusPayload's
+      // new-critical threshold (which sees 0 criticals → would conclude success).
+      const reqsW = [];
+      globalThis.fetch = mkStub152(reqsW);
+      const outW = await reportPrValidation(warnBlock152, { prUrl: warnBlock152.prUrl });
+      const warnPatch = reqsW.find(r => r.method === 'PATCH' && /\/check-runs\//.test(r.url));
+      assert(
+        outW.checked === true && warnPatch && JSON.parse(warnPatch.body).conclusion === 'failure',
+        `[152e] block-on=warning with 0 criticals still concludes failure — block decision drives the conclusion, not the critical threshold (got: ${warnPatch && JSON.parse(warnPatch.body).conclusion})`
+      );
+
+      // ── no resolvable head SHA → comment posts, Check Run skipped (no false gate) ──
+      delete process.env.ARGUS_PR_HEAD_SHA;
+      delete process.env.GITHUB_SHA;
+      const reqsN = [];
+      globalThis.fetch = mkStub152(reqsN);
+      const outN = await reportPrValidation(blocked152, { prUrl: blocked152.prUrl });
+      const anyCheckN = reqsN.find(r => /\/check-runs/.test(r.url));
+      const commentPostN = reqsN.find(r => r.method === 'POST' && /\/issues\/7\/comments$/.test(r.url));
+      assert(
+        outN.posted === true && outN.checked === false && !anyCheckN && commentPostN,
+        `[152f] no head SHA → comment still posts but Check Run is skipped (posted: ${outN.posted}, checked: ${outN.checked}, checkRunCalled: ${!!anyCheckN})`
+      );
+    } finally {
+      globalThis.fetch = _origFetch152;
+      if (_savedToken152 === undefined) delete process.env.GITHUB_TOKEN;      else process.env.GITHUB_TOKEN      = _savedToken152;
+      if (_savedRepo152  === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = _savedRepo152;
+      if (_savedPr152    === undefined) delete process.env.GITHUB_PR_NUMBER;  else process.env.GITHUB_PR_NUMBER  = _savedPr152;
+      if (_savedSha152   === undefined) delete process.env.GITHUB_SHA;        else process.env.GITHUB_SHA        = _savedSha152;
+      if (_savedHead152  === undefined) delete process.env.ARGUS_PR_HEAD_SHA; else process.env.ARGUS_PR_HEAD_SHA = _savedHead152;
+    }
+  }
+
+  // ── Block [153] PR Validator — MCP reporting parity (Phase A4) ──────────────────
+  // argus_pr_validate (the MCP tool, handlePrValidate) now reports through the SAME shared
+  // helper the CLI uses (reportPrValidation), so a reviewer sees an identical PR comment +
+  // Check Run regardless of which path ran. Verified hermetically — no Chrome, no live GitHub:
+  //   [153a] source-contract — handlePrValidate wires the helper, in a try/catch (best-effort),
+  //          AFTER the block decision, and appends `reporting` to the response.
+  //   [153b] the MCP-shaped result (affectedRoutes:string[], un-normalized targetUrl) feeds the
+  //          shared helper and produces a real PR comment with the block reason + route.
+  //   [153c] the golden response schema accepts the A4 response (with `reporting`) and still
+  //          requires the core keys — the [147] contract covers A4 without going vacuous.
+  {
+    console.log('\n[153] PR Validator — MCP reporting parity (Phase A4)');
+
+    // [153a] handlePrValidate source contract: the shared helper is wired in, isolated, and
+    // appended post-decision. Slice the function body (start → next async function).
+    const serverSrc153 = fs.readFileSync(path.resolve(__dirname, '../src/mcp-server.js'), 'utf8');
+    const fnStart153   = serverSrc153.indexOf('async function handlePrValidate');
+    const fnEnd153     = serverSrc153.indexOf('\nasync function', fnStart153 + 1);
+    const fnBody153    = fnStart153 !== -1
+      ? serverSrc153.slice(fnStart153, fnEnd153 === -1 ? undefined : fnEnd153) : '';
+    const callsHelper153 = /reportPrValidation\(\s*result\s*,/.test(fnBody153);
+    const inTryCatch153  = /try\s*{[\s\S]*?reportPrValidation\([\s\S]*?}\s*catch/.test(fnBody153);
+    const blockedBeforeReport153 =
+      fnBody153.indexOf('const blocked') !== -1 &&
+      fnBody153.indexOf('const blocked') < fnBody153.indexOf('reportPrValidation(');
+    const appendsReporting153 = /\.\.\.result,\s*reporting/.test(fnBody153);
+    const importsHelper153 = /import\s*{\s*reportPrValidation\s*}\s*from\s*'\.\/utils\/github-reporter\.js'/.test(serverSrc153);
+    assert(
+      fnStart153 !== -1 && callsHelper153 && inTryCatch153 && blockedBeforeReport153 && appendsReporting153 && importsHelper153,
+      `[153a] handlePrValidate wires reportPrValidation(result) in a try/catch AFTER the block decision and appends \`reporting\` (calls: ${callsHelper153}, try/catch: ${inTryCatch153}, post-decision: ${blockedBeforeReport153}, appends: ${appendsReporting153}, import: ${importsHelper153})`
+    );
+
+    // [153b] the EXACT result shape handlePrValidate builds — affectedRoutes as a string[],
+    // findings url'd off an un-normalized targetUrl — feeds the shared helper and yields a real
+    // PR comment carrying the block reason + the affected route. Chrome-free + network-free.
+    const mcpResult153 = {
+      prUrl: 'https://github.com/acme/web/pull/42',
+      targetUrl: 'https://staging.example.com',
+      affectedRoutes: ['/checkout'],
+      changedFiles: ['src/pages/checkout.tsx'],
+      findings: [{ severity: 'critical', type: 'console_error', message: 'TypeError: total is undefined', url: 'https://staging.example.com/checkout' }],
+      perRoute: [{ route: '/checkout', critical: 1, warning: 0, info: 0 }],
+      summary: { critical: 1, warning: 0, info: 0 },
+      blocked: true,
+      blockOn: 'critical',
+    };
+    const _origFetch153 = globalThis.fetch;
+    const _savedTok153  = process.env.GITHUB_TOKEN;
+    const _savedRepo153 = process.env.GITHUB_REPOSITORY;
+    const _savedPr153   = process.env.GITHUB_PR_NUMBER;
+    const _savedSha153  = process.env.GITHUB_SHA;
+    const _savedHead153 = process.env.ARGUS_PR_HEAD_SHA;
+    const SECRET153     = 'ghp_mcp_parity_secret_do_not_leak_153';
+    try {
+      process.env.GITHUB_TOKEN = SECRET153;
+      delete process.env.GITHUB_REPOSITORY;   // resolve owner/repo + PR from the URL
+      delete process.env.GITHUB_PR_NUMBER;
+      delete process.env.GITHUB_SHA;          // no head SHA → comment only, Check Run skipped
+      delete process.env.ARGUS_PR_HEAD_SHA;
+
+      const reqs153 = [];
+      globalThis.fetch = async (url, opts = {}) => {
+        const method = opts.method ?? 'GET';
+        reqs153.push({ url, method, body: opts.body, auth: opts.headers?.Authorization });
+        if (method === 'GET') return { ok: true, status: 200, json: async () => [], text: async () => '[]' };
+        return { ok: true, status: 201, json: async () => ({ id: 777 }), text: async () => '{"id":777}' };
+      };
+      const out153 = await reportPrValidation(mcpResult153, { prUrl: mcpResult153.prUrl });
+      const commentPost153 = reqs153.find(r => r.method === 'POST' && /\/repos\/acme\/web\/issues\/42\/comments$/.test(r.url));
+      const body153 = commentPost153 ? String(commentPost153.body) : '';
+      assert(
+        out153.posted === true && !!commentPost153 &&
+        body153.includes('/checkout') && /critical/i.test(body153) && !body153.includes(SECRET153),
+        `[153b] MCP-shaped result feeds the shared helper → PR comment posts with block reason + route, no token leak (posted: ${out153.posted}, hasRoute: ${body153.includes('/checkout')}, leak: ${body153.includes(SECRET153)})`
+      );
+    } finally {
+      globalThis.fetch = _origFetch153;
+      if (_savedTok153  === undefined) delete process.env.GITHUB_TOKEN;      else process.env.GITHUB_TOKEN      = _savedTok153;
+      if (_savedRepo153 === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = _savedRepo153;
+      if (_savedPr153   === undefined) delete process.env.GITHUB_PR_NUMBER;  else process.env.GITHUB_PR_NUMBER  = _savedPr153;
+      if (_savedSha153  === undefined) delete process.env.GITHUB_SHA;        else process.env.GITHUB_SHA        = _savedSha153;
+      if (_savedHead153 === undefined) delete process.env.ARGUS_PR_HEAD_SHA; else process.env.ARGUS_PR_HEAD_SHA = _savedHead153;
+    }
+
+    // [153c] the golden response schema covers the A4 response (with `reporting`, via
+    // passthrough) AND still REQUIRES the core keys — proves [147] tracks A4 non-vacuously.
+    const a4Response153 = { ...mcpResult153, reporting: { posted: true, checked: false, skipped: false } };
+    const withRep153    = prValidateResponseSchema.safeParse(a4Response153);
+    const noRep153      = prValidateResponseSchema.safeParse(mcpResult153);
+    const missingCore153 = { ...mcpResult153 };
+    delete missingCore153.blocked;          // a required core key — schema MUST reject
+    const rejects153    = prValidateResponseSchema.safeParse(missingCore153);
+    assert(
+      withRep153.success === true && noRep153.success === true && rejects153.success === false,
+      `[153c] golden schema accepts the A4 response (with reporting) + back-compat (without), still rejects a missing core key (withReporting: ${withRep153.success}, without: ${noRep153.success}, rejectsMissingBlocked: ${!rejects153.success})`
+    );
+  }
+
+  // ── Block [154] PR Validator — baseline-aware blocking (Phase B1) ───────────────
+  // The marquee correctness lever: block on findings the PR INTRODUCES, not pre-existing
+  // ones. Drives the real shared decision helper (decidePrBlock) + the head-vs-base diff
+  // (diffRoutesAgainstBaseline) against a baseline baked through the actual on-disk format
+  // (savePrBaseline → loadPrBaseline, path-keyed). Chrome-free + network-free. SAFETY-CRITICAL:
+  // a pre-existing critical must NOT block; a PR-introduced critical MUST; no baseline → fail
+  // safe to absolute blocking (never a silent pass).
+  {
+    console.log('\n[154] PR Validator — baseline-aware blocking (Phase B1)');
+
+    const PREEXIST154 = { severity: 'critical', type: 'console_error', message: 'TypeError: legacy is null',        url: 'http://x/checkout' };
+    const NEWCRIT154  = { severity: 'critical', type: 'console_error', message: 'ReferenceError: total is undefined', url: 'http://x/checkout' };
+    const RESOLVED154 = { severity: 'warning',  type: 'a11y_axe_violation', message: 'contrast fixed since base',     url: 'http://x/checkout' };
+    const NEWWARN154  = { severity: 'warning',  type: 'seo_meta',       message: 'Missing meta description',         url: 'http://x/about' };
+
+    // Bake a real on-disk baseline (path-keyed) the same way a base-branch run would:
+    // /checkout had the pre-existing critical + a warning the PR later resolves.
+    const tmpDir154   = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-b1-'));
+    const baseFile154 = path.join(tmpDir154, 'main.json');
+    savePrBaseline(baseFile154, [{ path: '/checkout', findings: [PREEXIST154, RESOLVED154] }]);
+    const baseline154 = loadPrBaseline(baseFile154);
+
+    // [154a] head-vs-base diff: persisting vs new vs resolved (via the real stored format)
+    const diff154 = diffRoutesAgainstBaseline(
+      [{ path: '/checkout', findings: [PREEXIST154, NEWCRIT154] }],
+      baseline154,
+    );
+    assert(
+      diff154.newFindings.length === 1 && diff154.newFindings[0].message === NEWCRIT154.message &&
+      diff154.persistingCount === 1 && diff154.resolvedCount === 1 &&
+      diff154.newSummary.critical === 1 && diff154.newSummary.warning === 0,
+      `[154a] diffRoutesAgainstBaseline classifies new/persisting/resolved off the real on-disk baseline (new: ${diff154.newFindings.length}, persisting: ${diff154.persistingCount}, resolved: ${diff154.resolvedCount}, newCrit: ${diff154.newSummary.critical})`
+    );
+
+    // [154b] a PRE-EXISTING critical must NOT block (baseline available)
+    const preExist154 = decidePrBlock({
+      routeFindings: [{ path: '/checkout', findings: [PREEXIST154] }],
+      summary: { critical: 1, warning: 0, info: 0 }, blockOn: 'critical', baseline: baseline154,
+    });
+    assert(
+      preExist154.baselineAvailable === true && preExist154.blocked === false &&
+      preExist154.newSummary.critical === 0 && preExist154.reason === null,
+      `[154b] decidePrBlock does NOT block on a pre-existing critical (blocked: ${preExist154.blocked}, baselineAvailable: ${preExist154.baselineAvailable}, newCrit: ${preExist154.newSummary.critical})`
+    );
+
+    // [154c] a PR-INTRODUCED critical MUST block, and the reason names "new"
+    const introduced154 = decidePrBlock({
+      routeFindings: [{ path: '/checkout', findings: [PREEXIST154, NEWCRIT154] }],
+      summary: { critical: 2, warning: 0, info: 0 }, blockOn: 'critical', baseline: baseline154,
+    });
+    assert(
+      introduced154.blocked === true && introduced154.newSummary.critical === 1 &&
+      /critical new finding/.test(introduced154.reason),
+      `[154c] decidePrBlock blocks on a PR-introduced critical (blocked: ${introduced154.blocked}, newCrit: ${introduced154.newSummary.critical}, reason: ${introduced154.reason})`
+    );
+
+    // [154d] fail-safe: no baseline → block on ABSOLUTE counts and SAY so (never a silent pass)
+    const noBase154 = decidePrBlock({
+      routeFindings: [{ path: '/checkout', findings: [PREEXIST154] }],
+      summary: { critical: 1, warning: 0, info: 0 }, blockOn: 'critical', baseline: null,
+    });
+    assert(
+      noBase154.baselineAvailable === false && noBase154.blocked === true &&
+      noBase154.newSummary === null && /baseline unavailable/i.test(noBase154.note) &&
+      /critical total finding/.test(noBase154.reason),
+      `[154d] no baseline → fail-safe absolute block + note (blocked: ${noBase154.blocked}, note: ${noBase154.note}, reason: ${noBase154.reason})`
+    );
+
+    // [154e] block-on=warning is baseline-aware too: a pre-existing warning doesn't block,
+    //        a PR-introduced warning does
+    const baseWarn154   = { severity: 'warning', type: 'seo_meta', message: 'old warning', url: 'http://x/about' };
+    const wTmp154       = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-b1w-'));
+    const wFile154      = path.join(wTmp154, 'main.json');
+    savePrBaseline(wFile154, [{ path: '/about', findings: [baseWarn154] }]);
+    const wBaseline154  = loadPrBaseline(wFile154);
+    const wPersist154   = decidePrBlock({ routeFindings: [{ path: '/about', findings: [baseWarn154] }],            summary: { critical: 0, warning: 1, info: 0 }, blockOn: 'warning', baseline: wBaseline154 });
+    const wIntro154     = decidePrBlock({ routeFindings: [{ path: '/about', findings: [baseWarn154, NEWWARN154] }], summary: { critical: 0, warning: 2, info: 0 }, blockOn: 'warning', baseline: wBaseline154 });
+    assert(
+      wPersist154.blocked === false && wIntro154.blocked === true && wIntro154.newSummary.warning === 1,
+      `[154e] block-on=warning gates on NEW warnings (pre-existing blocks: ${wPersist154.blocked}, introduced blocks: ${wIntro154.blocked}, newWarn: ${wIntro154.newSummary.warning})`
+    );
+
+    // [154f] resolvePrBaselineFile: override > GITHUB_BASE_REF (sanitized) > null
+    const _baseEnv154 = { f: process.env.ARGUS_BASELINE_FILE, b: process.env.GITHUB_BASE_REF, a: process.env.ARGUS_BASE_BRANCH };
+    delete process.env.ARGUS_BASELINE_FILE; delete process.env.GITHUB_BASE_REF; delete process.env.ARGUS_BASE_BRANCH;
+    try {
+      const nullPath154 = resolvePrBaselineFile({ outputDir: 'out' });           // no ref → null
+      process.env.GITHUB_BASE_REF = 'release/v2';
+      const refPath154  = resolvePrBaselineFile({ outputDir: 'out' });           // sanitized path
+      process.env.ARGUS_BASELINE_FILE = '/custom/base.json';
+      const ovrPath154  = resolvePrBaselineFile({ outputDir: 'out', baseRef: 'main' }); // override wins
+      assert(
+        nullPath154 === null &&
+        refPath154 === path.join('out', 'baselines', 'release__v2.json') &&
+        ovrPath154 === '/custom/base.json',
+        `[154f] resolvePrBaselineFile: null without a ref, sanitized base-ref path, ARGUS_BASELINE_FILE override (null: ${nullPath154}, ref: ${refPath154}, override: ${ovrPath154})`
+      );
+    } finally {
+      if (_baseEnv154.f === undefined) delete process.env.ARGUS_BASELINE_FILE; else process.env.ARGUS_BASELINE_FILE = _baseEnv154.f;
+      if (_baseEnv154.b === undefined) delete process.env.GITHUB_BASE_REF;     else process.env.GITHUB_BASE_REF     = _baseEnv154.b;
+      if (_baseEnv154.a === undefined) delete process.env.ARGUS_BASE_BRANCH;   else process.env.ARGUS_BASE_BRANCH   = _baseEnv154.a;
+    }
+
+    // [154g] the decision is STATED in the step summary — the diff counts when available,
+    //        and the explicit fail-safe note when not (B1 acceptance: "state it in the summary")
+    const availMd154 = buildStepSummary({
+      blocked: true, summary: { critical: 1, warning: 0, info: 0 }, affectedRoutes: [{ path: '/checkout' }],
+      perRoute: [], findings: [], changedFiles: [], blockOn: 'critical',
+      baseline: { available: true, newCritical: 1, newWarning: 0, newInfo: 0, persisting: 2, resolved: 1 },
+    });
+    const unavailMd154 = buildStepSummary({
+      blocked: true, summary: { critical: 1, warning: 0, info: 0 }, affectedRoutes: [],
+      perRoute: [], findings: [], changedFiles: [], blockOn: 'critical',
+      baseline: { available: false, note: 'Baseline unavailable — blocking on absolute finding counts.' },
+    });
+    assert(
+      availMd154.includes('### Baseline diff') && availMd154.includes('| New | 1 | 0 | 0 |') &&
+      availMd154.includes('2 persisting · 1 resolved') &&
+      unavailMd154.includes('Baseline unavailable'),
+      `[154g] buildStepSummary surfaces the baseline diff when available + the fail-safe note when not (availHasDiff: ${availMd154.includes('### Baseline diff')}, unavailHasNote: ${unavailMd154.includes('Baseline unavailable')})`
+    );
+
+    // Cleanup temp baseline dirs.
+    try { fs.rmSync(tmpDir154, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(wTmp154,   { recursive: true, force: true }); } catch {}
+  }
+
+  // ── Block [155] PR Validator — new/persisting/resolved in the PR comment (Phase B2) ─
+  // B1 made the BLOCK DECISION baseline-aware; B2 makes the PR COMMENT honest about it: the
+  // findings this PR INTRODUCES vs the ones that already existed, so a reviewer sees WHY the
+  // merge was (or wasn't) blocked. Drives the real chain — tagFindingNovelty (the per-finding
+  // isNew tags) → prResultToReport (baseline-aware reason + banner) → formatPrComment /
+  // reportPrValidation (stubbed fetch). Chrome-free + network-free. The marquee invariant:
+  // the comment's counts RECONCILE with the block decision.
+  {
+    console.log('\n[155] PR Validator — new/persisting/resolved in the PR comment (Phase B2)');
+
+    const PRE155     = { severity: 'critical', type: 'console_error',     message: 'LEGACY: x is null',          url: 'https://staging.example.com/checkout' };
+    const NEW155     = { severity: 'critical', type: 'console_error',     message: 'NEW: total is undefined',     url: 'https://staging.example.com/checkout' };
+    const RESBASE155 = { severity: 'warning',  type: 'a11y_axe_violation', message: 'contrast fixed since base',   url: 'https://staging.example.com/checkout' };
+
+    // Bake a real on-disk baseline (path-keyed) as a base-branch run would: /checkout had the
+    // pre-existing critical + a warning the PR later resolves.
+    const tmp155  = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-b2-'));
+    const file155 = path.join(tmp155, 'main.json');
+    savePrBaseline(file155, [{ path: '/checkout', findings: [PRE155, RESBASE155] }]);
+    const baseline155 = loadPrBaseline(file155);
+
+    // [155a] tagFindingNovelty tags the SAME finding objects the comment renders: a baseline
+    //        finding is persisting (isNew=false), an absent one is PR-introduced (isNew=true).
+    const pre155a = { ...PRE155 };
+    const new155a = { ...NEW155 };
+    tagFindingNovelty([{ path: '/checkout', findings: [pre155a, new155a] }], baseline155);
+    assert(
+      pre155a.isNew === false && new155a.isNew === true,
+      `[155a] tagFindingNovelty tags persisting vs PR-introduced off the real baseline (preExisting.isNew: ${pre155a.isNew}, introduced.isNew: ${new155a.isNew})`
+    );
+
+    // [155b] prResultToReport threads the baseline into prValidation AND the block reason
+    //        reconciles with the NEW counts (1 new critical drove the block, not 2 absolute).
+    const report155b = prResultToReport({
+      targetUrl: 'https://staging.example.com',
+      summary: { critical: 2, warning: 0, info: 0 },
+      findings: [{ ...NEW155, isNew: true }, { ...PRE155, isNew: false }],
+      affectedRoutes: ['/checkout'], changedFiles: ['src/pages/checkout.tsx'],
+      blocked: true, blockOn: 'critical',
+      baseline: { available: true, newCritical: 1, newWarning: 0, newInfo: 0, persisting: 1, resolved: 1 },
+    });
+    assert(
+      report155b.prValidation.baseline.newCritical === 1 &&
+      report155b.prValidation.baseline.persisting === 1 &&
+      report155b.prValidation.reason === '1 critical new finding(s) found',
+      `[155b] prResultToReport threads baseline + reason reconciles with new counts (baseline: ${JSON.stringify(report155b.prValidation.baseline)}, reason: ${report155b.prValidation.reason})`
+    );
+
+    // [155c] formatPrComment renders the new/persisting/resolved line and lists ONLY the
+    //        introduced finding — the persisting one is excluded from the "New Findings" table.
+    const comment155c = formatPrComment(report155b, { isFirstRun: false, resolvedCount: 1, flowResolvedCount: 0 });
+    assert(
+      comment155c.includes('1 new critical') && comment155c.includes('1 persisting') &&
+      comment155c.includes('1 resolved') &&
+      comment155c.includes('NEW: total is undefined') && !comment155c.includes('LEGACY: x is null'),
+      `[155c] comment surfaces new/persisting/resolved + lists only the introduced finding (hasNewLine: ${comment155c.includes('1 new critical')}, listsNew: ${comment155c.includes('NEW: total is undefined')}, excludesPersisting: ${!comment155c.includes('LEGACY: x is null')})`
+    );
+
+    // [155d] fail-safe: when no baseline was available the comment states it (never silent).
+    const failSafe155 = prResultToReport({
+      targetUrl: 'https://staging.example.com',
+      summary: { critical: 1, warning: 0, info: 0 },
+      findings: [{ ...PRE155 }],
+      affectedRoutes: ['/checkout'], blocked: true, blockOn: 'critical',
+      baseline: { available: false, note: 'Baseline unavailable — blocking on absolute finding counts.' },
+    });
+    const comment155d = formatPrComment(failSafe155, { isFirstRun: false, resolvedCount: 0, flowResolvedCount: 0 });
+    assert(
+      comment155d.includes('Baseline unavailable') &&
+      /total finding/.test(failSafe155.prValidation.reason),
+      `[155d] no baseline → comment states the fail-safe + the reason names "total" (hasNote: ${comment155d.includes('Baseline unavailable')}, reason: ${failSafe155.prValidation.reason})`
+    );
+
+    // [155e] END-TO-END reconciliation through reportPrValidation (stubbed fetch, never live
+    //        GitHub): a PRE-EXISTING-ONLY run is ALLOWED (B1) and the posted comment SAYS 0 new
+    //        / 1 persisting / 1 resolved (B2) — the comment reconciles with the block decision.
+    const _origFetch155 = globalThis.fetch;
+    const _saved155 = {
+      tok: process.env.GITHUB_TOKEN, repo: process.env.GITHUB_REPOSITORY, pr: process.env.GITHUB_PR_NUMBER,
+      sha: process.env.GITHUB_SHA, head: process.env.ARGUS_PR_HEAD_SHA,
+    };
+    const SECRET155 = 'ghp_b2_secret_do_not_leak_155';
+    delete process.env.GITHUB_REPOSITORY; delete process.env.GITHUB_PR_NUMBER;   // resolve from URL
+    delete process.env.GITHUB_SHA; delete process.env.ARGUS_PR_HEAD_SHA;          // no Check Run noise
+    process.env.GITHUB_TOKEN = SECRET155;
+    try {
+      // Reproduce the CLI's Step 6a exactly: head run = pre-existing critical only (RESBASE155
+      // resolved, nothing new), so decidePrBlock does NOT block.
+      const routeFindings155 = [{ path: '/checkout', findings: [{ ...PRE155 }] }];
+      const summary155 = { critical: 1, warning: 0, info: 0 };
+      const decision155 = decidePrBlock({ routeFindings: routeFindings155, summary: summary155, blockOn: 'critical', baseline: baseline155 });
+      tagFindingNovelty(routeFindings155, baseline155);
+      const baselineInfo155 = decision155.baselineAvailable
+        ? { available: true, newCritical: decision155.newSummary.critical, newWarning: decision155.newSummary.warning, newInfo: decision155.newSummary.info, persisting: decision155.persistingCount, resolved: decision155.resolvedCount }
+        : { available: false, note: decision155.note };
+      const result155 = {
+        prUrl: 'https://github.com/acme/shop/pull/7', targetUrl: 'https://staging.example.com',
+        affectedRoutes: ['/checkout'], changedFiles: ['src/pages/checkout.tsx'],
+        findings: routeFindings155.flatMap(r => r.findings), perRoute: [{ route: '/checkout', ...summary155 }],
+        summary: summary155, blocked: decision155.blocked, blockOn: 'critical', baseline: baselineInfo155,
+      };
+
+      const reqs155 = [];
+      globalThis.fetch = async (url, opts = {}) => {
+        const method = opts.method ?? 'GET';
+        reqs155.push({ url, method, body: opts.body, auth: opts.headers?.Authorization });
+        return method === 'GET'
+          ? { ok: true, status: 200, json: async () => [], text: async () => '[]' }
+          : { ok: true, status: 201, json: async () => ({ id: 7001 }), text: async () => '{"id":7001}' };
+      };
+      const out155 = await reportPrValidation(result155, { prUrl: result155.prUrl });
+      const post155 = reqs155.find(r => r.method === 'POST');
+
+      assert(
+        decision155.blocked === false && out155.posted === true && post155 &&
+        post155.body.includes('Merge allowed') &&
+        post155.body.includes('0 new critical') && post155.body.includes('1 persisting') && post155.body.includes('1 resolved') &&
+        !post155.body.includes(SECRET155),
+        `[155e] pre-existing-only run is ALLOWED and the posted comment reconciles (blocked: ${decision155.blocked}, allowed: ${post155 && post155.body.includes('Merge allowed')}, 0new: ${post155 && post155.body.includes('0 new critical')}, 1persisting: ${post155 && post155.body.includes('1 persisting')}, 1resolved: ${post155 && post155.body.includes('1 resolved')}, leak: ${post155 && post155.body.includes(SECRET155)})`
+      );
+    } finally {
+      globalThis.fetch = _origFetch155;
+      if (_saved155.tok  === undefined) delete process.env.GITHUB_TOKEN;       else process.env.GITHUB_TOKEN       = _saved155.tok;
+      if (_saved155.repo === undefined) delete process.env.GITHUB_REPOSITORY;  else process.env.GITHUB_REPOSITORY  = _saved155.repo;
+      if (_saved155.pr   === undefined) delete process.env.GITHUB_PR_NUMBER;   else process.env.GITHUB_PR_NUMBER   = _saved155.pr;
+      if (_saved155.sha  === undefined) delete process.env.GITHUB_SHA;         else process.env.GITHUB_SHA         = _saved155.sha;
+      if (_saved155.head === undefined) delete process.env.ARGUS_PR_HEAD_SHA;  else process.env.ARGUS_PR_HEAD_SHA  = _saved155.head;
+    }
+
+    try { fs.rmSync(tmp155, { recursive: true, force: true }); } catch {}
+  }
+
+  // ── Block [156] C1 framework-aware route mapping (import graph + Next.js convention) ──
+  // Drives the REAL production mapper (mapFilesToRoutesDeep) against import-graph-fixture/ —
+  // a Next.js pages/ app where each component is imported by a known set of pages. Asserts
+  // precision (a changed component narrows to only the routes that render it) AND the
+  // safety invariant (any ambiguity falls back to ALL routes — never miss a regression).
+  {
+    console.log('\n[156] pr-diff-analyzer — mapFilesToRoutesDeep framework-aware mapping (C1)');
+
+    const igRoot    = path.join(__dirname, 'import-graph-fixture');
+    const routes156 = [
+      { path: '/',         name: 'Home' },
+      { path: '/checkout', name: 'Checkout' },
+      { path: '/about',    name: 'About' },
+    ];
+    const ALL156 = ['/', '/about', '/checkout']; // sorted full route set (the conservative fallback)
+    const deep   = files => mapFilesToRoutesDeep(files, routes156, { sourceDir: igRoot }).map(r => r.path).sort();
+    const eq     = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+    // [156a] discoverNextJsRouteFiles pairs each route with the page FILE that defines it —
+    // the file↔path map the import-graph resolution keys off.
+    const rf156 = discoverNextJsRouteFiles(igRoot);
+    const checkoutPair156 = rf156.find(p => p.path === '/checkout');
+    assert(
+      rf156.length === 3 &&
+      checkoutPair156 && /checkout\.jsx$/.test(checkoutPair156.file) &&
+      rf156.some(p => p.path === '/') && rf156.some(p => p.path === '/about'),
+      `[156a] discoverNextJsRouteFiles returns {path,file} pairs for /, /checkout, /about (got paths: ${JSON.stringify(rf156.map(p => p.path).sort())}; checkout file: ${checkoutPair156 && path.basename(checkoutPair156.file)})`
+    );
+
+    // [156b] MARQUEE: a changed component imported by exactly one page maps to ONLY that
+    // page's route — not the blunt all-routes fallback the slug heuristic would give.
+    const r156b = deep(['components/CartSummary.jsx']);
+    assert(
+      r156b.length === 1 && r156b[0] === '/checkout',
+      `[156b] CartSummary.jsx (imported only by /checkout) → [/checkout] only (got: ${JSON.stringify(r156b)})`
+    );
+
+    // [156c] alias resolution: a component imported via a tsconfig path alias (@/components/…)
+    // still resolves to its rendering route.
+    const r156c = deep(['components/Profile.jsx']);
+    assert(
+      r156c.length === 1 && r156c[0] === '/about',
+      `[156c] Profile.jsx (imported by /about via @/ alias) → [/about] only (got: ${JSON.stringify(r156c)})`
+    );
+
+    // [156d] TRANSITIVE: a util imported by a component that a page imports
+    // (lib/formatPrice → CartSummary → /checkout) maps through the chain.
+    const r156d = deep(['lib/formatPrice.js']);
+    assert(
+      r156d.length === 1 && r156d[0] === '/checkout',
+      `[156d] lib/formatPrice.js (→ CartSummary → /checkout) resolves transitively → [/checkout] (got: ${JSON.stringify(r156d)})`
+    );
+
+    // [156e] SAFETY — never miss a regression: a changed file imported by NO page is
+    // AMBIGUOUS (could be an alias we failed to resolve), so it must fall back to ALL routes,
+    // never narrow to []/a subset.
+    const r156e = deep(['lib/orphan.js']);
+    assert(
+      eq(r156e, ALL156),
+      `[156e] lib/orphan.js (imported by no page) → conservative fallback to ALL routes (got: ${JSON.stringify(r156e)})`
+    );
+
+    // [156f] SAFETY — a changed file that is not a node in the source tree (deleted, or a
+    // monorepo subdir outside sourceDir — C2's scope) is ambiguous → ALL routes.
+    const r156f = deep(['src/widgets/Ghost.jsx']);
+    assert(
+      eq(r156f, ALL156),
+      `[156f] a file absent from the source tree → conservative fallback to ALL routes (got: ${JSON.stringify(r156f)})`
+    );
+
+    // [156g] opt-in: with NO sourceDir, mapFilesToRoutesDeep is byte-identical to the slug
+    // heuristic mapFilesToRoutes — the prior CLI behaviour is unchanged when C1 is off.
+    const noDir156   = mapFilesToRoutesDeep(['components/CartSummary.jsx'], routes156, {}).map(r => r.path).sort();
+    const heur156    = mapFilesToRoutes(['components/CartSummary.jsx'], routes156).map(r => r.path).sort();
+    assert(
+      eq(noDir156, heur156) && eq(noDir156, ALL156),
+      `[156g] no sourceDir → identical to mapFilesToRoutes slug heuristic (deep: ${JSON.stringify(noDir156)}, heuristic: ${JSON.stringify(heur156)})`
+    );
+
+    // [156h] multiple changed components union to the set of routes that render any of them.
+    const r156h = deep(['components/Hero.jsx', 'components/CartSummary.jsx']);
+    assert(
+      eq(r156h, ['/', '/checkout']),
+      `[156h] Hero.jsx + CartSummary.jsx → union [/, /checkout] (got: ${JSON.stringify(r156h)})`
+    );
+
+    // [156i] a changed PAGE file maps to its own route by convention (it IS the route file).
+    const r156i = deep(['pages/checkout.jsx']);
+    assert(
+      r156i.length === 1 && r156i[0] === '/checkout',
+      `[156i] pages/checkout.jsx (the page itself) → [/checkout] by convention (got: ${JSON.stringify(r156i)})`
+    );
+
+    // [156k] SAFETY (the load-bearing case): a PR that changes a precisely-resolvable
+    // component AND an ambiguous file (imported by no page) must NOT narrow to just the
+    // component's route — the ambiguous file forces the conservative ALL-routes fallback,
+    // so a regression introduced by the ambiguous file is never missed.
+    const r156k = deep(['components/CartSummary.jsx', 'lib/orphan.js']);
+    assert(
+      eq(r156k, ALL156),
+      `[156k] component + ambiguous file → conservative ALL routes, never narrowed to the component's route alone (got: ${JSON.stringify(r156k)})`
+    );
+
+    // [156j] import-graph primitive: parseImports + buildImportGraph wire the reverse edge
+    // CartSummary → /checkout's page file (the edge [156b]/[156d] depend on).
+    const g156      = buildImportGraph(igRoot);
+    const cartAbs   = path.join(igRoot, 'components', 'CartSummary.jsx');
+    const checkAbs  = path.join(igRoot, 'pages', 'checkout.jsx');
+    const importers = g156.reverse.get(cartAbs);
+    const specs156  = parseImports("import { CartSummary } from '../components/CartSummary';\nconst x = require('./a');\nawait import('@/b');");
+    assert(
+      g156.truncated === false && importers instanceof Set && importers.has(checkAbs) &&
+      specs156.includes('../components/CartSummary') && specs156.includes('./a') && specs156.includes('@/b'),
+      `[156j] buildImportGraph reverse edge CartSummary→checkout + parseImports extracts import/require/dynamic specifiers (importer has checkout: ${importers instanceof Set && importers.has(checkAbs)}, specs: ${JSON.stringify(specs156)})`
+    );
+  }
+
+  // ── Block [157] C2 monorepo path awareness (workspace prefixes) ──────────────────
+  // Drives the REAL production mappers against import-graph-monorepo-fixture/ — a monorepo
+  // whose app lives under apps/web/. GitHub returns repo-root-relative changed-file paths
+  // ("apps/web/...") while ARGUS_SOURCE_DIR points at the package subdir, so C2 must re-base
+  // the path into the package's import graph (C2a) and keep workspace dirs out of slug
+  // matching (C2b) — WITHOUT ever narrowing away a possible regression.
+  {
+    console.log('\n[157] pr-diff-analyzer — monorepo path awareness (C2)');
+
+    const webRoot   = path.join(__dirname, 'import-graph-monorepo-fixture', 'apps', 'web');
+    const routes157 = [
+      { path: '/',         name: 'Home' },
+      { path: '/checkout', name: 'Checkout' },
+    ];
+    const ALL157 = ['/', '/checkout'];
+    const deep   = files => mapFilesToRoutesDeep(files, routes157, { sourceDir: webRoot }).map(r => r.path).sort();
+    const eq     = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+    // [157a] MARQUEE: sourceDir is the apps/web package subdir, the PR path is repo-root-
+    // relative ("apps/web/..."); C2 re-bases it into the package graph so a changed component
+    // narrows to ONLY its rendering route. Without C2 the doubled prefix misses the node and
+    // the mapper falls back to ALL routes — so this narrow is the entire C2a payoff.
+    const r157a = deep(['apps/web/components/CartSummary.jsx']);
+    assert(
+      r157a.length === 1 && r157a[0] === '/checkout',
+      `[157a] monorepo apps/web/components/CartSummary.jsx → [/checkout] only (re-based into the package graph) (got: ${JSON.stringify(r157a)})`
+    );
+
+    // [157b] TRANSITIVE in a monorepo: a util under apps/web resolves through the chain
+    // (formatPrice → CartSummary → /checkout) once the workspace prefix is re-based.
+    const r157b = deep(['apps/web/lib/formatPrice.js']);
+    assert(
+      r157b.length === 1 && r157b[0] === '/checkout',
+      `[157b] monorepo apps/web/lib/formatPrice.js → [/checkout] transitively (got: ${JSON.stringify(r157b)})`
+    );
+
+    // [157c] SAFETY — never miss a regression: a monorepo file imported by NO page is still
+    // ambiguous and must fall back to ALL routes, not narrow.
+    const r157c = deep(['apps/web/lib/orphan.js']);
+    assert(
+      eq(r157c, ALL157),
+      `[157c] monorepo orphan (imported by no page) → conservative ALL routes (got: ${JSON.stringify(r157c)})`
+    );
+
+    // [157d] SAFETY — a changed file in a DIFFERENT package (apps/admin, not under sourceDir
+    // apps/web) shares no prefix overlap, never resolves into this package's graph, and falls
+    // back to ALL routes — it is NEVER misattributed to a web route.
+    const r157d = deep(['apps/admin/pages/index.jsx']);
+    assert(
+      eq(r157d, ALL157),
+      `[157d] foreign-package file (apps/admin/…) → conservative ALL routes, never misattributed (got: ${JSON.stringify(r157d)})`
+    );
+
+    // [157e] SAFETY (load-bearing): a precisely-resolvable monorepo component bundled with an
+    // ambiguous monorepo file must NOT narrow to the component's route — the ambiguous file
+    // forces the conservative ALL-routes fallback (mirrors [156k] for monorepo paths).
+    const r157e = deep(['apps/web/components/CartSummary.jsx', 'apps/web/lib/orphan.js']);
+    assert(
+      eq(r157e, ALL157),
+      `[157e] component + ambiguous monorepo file → conservative ALL routes (got: ${JSON.stringify(r157e)})`
+    );
+
+    // [157f] C2b slug hygiene: the workspace prefix "apps/web/" is stripped before slug
+    // tokenization, so a checkout file in the web package matches ONLY /checkout — the
+    // workspace dir "web" no longer spuriously matches a literal /web route.
+    const slugRoutes157 = [{ path: '/' }, { path: '/web' }, { path: '/checkout' }];
+    const r157f = mapFilesToRoutes(['apps/web/checkout.tsx'], slugRoutes157).map(r => r.path).sort();
+    assert(
+      r157f.length === 1 && r157f[0] === '/checkout',
+      `[157f] slug heuristic: apps/web/checkout.tsx → [/checkout] only (no spurious /web from the workspace dir) (got: ${JSON.stringify(r157f)})`
+    );
+
+    // [157g] C2b SAFETY: a workspace-prefix file with no route-meaningful slug left after the
+    // strip ("apps/web/index.tsx" → "index") matches no route → conservative ALL routes — it
+    // does NOT spuriously narrow to /web.
+    const r157g = mapFilesToRoutes(['apps/web/index.tsx'], slugRoutes157).map(r => r.path).sort();
+    assert(
+      eq(r157g, ['/', '/checkout', '/web']),
+      `[157g] slug heuristic: apps/web/index.tsx → conservative ALL routes (no spurious /web narrow) (got: ${JSON.stringify(r157g)})`
+    );
+
+    // [157h] pure-fn primitives the above rest on: stripWorkspacePrefix drops the 2-segment
+    // workspace prefix (and leaves non-workspace + remainderless paths intact); packageRelativePath
+    // re-bases a repo-root path onto a package subdir and returns null for a foreign package.
+    const strip1 = stripWorkspacePrefix('apps/web/components/Foo.tsx');
+    const strip2 = stripWorkspacePrefix('src/pages/checkout.tsx');
+    const strip3 = stripWorkspacePrefix('apps/web');
+    const rel1   = packageRelativePath(webRoot, 'apps/web/components/Foo.tsx');
+    const rel2   = packageRelativePath(webRoot, 'apps/admin/x.js');
+    assert(
+      strip1 === 'components/Foo.tsx' && strip2 === 'src/pages/checkout.tsx' && strip3 === 'apps/web' &&
+      rel1 === 'components/Foo.tsx' && rel2 === null,
+      `[157h] stripWorkspacePrefix + packageRelativePath primitives (strip: ${JSON.stringify([strip1, strip2, strip3])}, rebase: ${JSON.stringify([rel1, rel2])})`
+    );
+  }
+
+  // ── Block [158] C3 stylesheet attribution / guarded fallback tightening ──────────
+  // Drives the REAL production mapper (mapFilesToRoutesDeep) against import-graph-fixture/ for
+  // CSS-family changes. C3 makes stylesheets first-class import-graph LEAF nodes, so a changed
+  // NON-global stylesheet attributes to ONLY its importing routes (the same C1 machinery +
+  // safety rails) instead of the slug heuristic's blunt all-routes fallback. Global stylesheets
+  // keep their conservative INFRA → ALL classification on purpose. Every narrowing here is
+  // paired with the proof that the dropped route(s) truly don't import the file.
+  {
+    console.log('\n[158] pr-diff-analyzer — stylesheet attribution / guarded fallback (C3)');
+
+    const igRoot    = path.join(__dirname, 'import-graph-fixture');
+    const routes158 = [
+      { path: '/',         name: 'Home' },
+      { path: '/checkout', name: 'Checkout' },
+      { path: '/about',    name: 'About' },
+    ];
+    const ALL158 = ['/', '/about', '/checkout'];
+    const deep   = files => mapFilesToRoutesDeep(files, routes158, { sourceDir: igRoot }).map(r => r.path).sort();
+    const heur   = files => mapFilesToRoutes(files, routes158).map(r => r.path).sort();
+    const eq     = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+    // [158a] MARQUEE: a CSS module imported by exactly one page narrows to ONLY that page's
+    // route — where the slug heuristic, finding no route segment in the file name, blasts ALL.
+    // The narrowing is the entire C3 payoff, and the heuristic comparison proves it is real.
+    const r158a  = deep(['components/CartSummary.module.css']);
+    const h158a  = heur(['components/CartSummary.module.css']);
+    assert(
+      r158a.length === 1 && r158a[0] === '/checkout' && eq(h158a, ALL158),
+      `[158a] CartSummary.module.css (imported only by /checkout) → [/checkout] in deep mode, while the slug heuristic blasts ALL (deep: ${JSON.stringify(r158a)}, heuristic: ${JSON.stringify(h158a)})`
+    );
+
+    // [158b] UNION + SAFE EXCLUSION: a stylesheet imported by two components on different routes
+    // (Hero → /, CartSummary → /checkout) narrows to the UNION of just those routes. /about is
+    // dropped — and that drop is PROVABLY safe: /about's page does not import brand.css, so it
+    // truly cannot regress from a brand.css change.
+    const r158b = deep(['styles/brand.css']);
+    assert(
+      eq(r158b, ['/', '/checkout']) && !r158b.includes('/about'),
+      `[158b] styles/brand.css (imported by / + /checkout) → [/, /checkout] only; /about safely excluded (it does not import the file) (got: ${JSON.stringify(r158b)})`
+    );
+
+    // [158c] SAFETY — never miss a regression: an orphan stylesheet on disk imported by NO page
+    // is ambiguous and must fall back to ALL routes, never narrow to []/a subset.
+    const r158c = deep(['styles/theme.css']);
+    assert(
+      eq(r158c, ALL158),
+      `[158c] styles/theme.css (imported by no page) → conservative fallback to ALL routes (got: ${JSON.stringify(r158c)})`
+    );
+
+    // [158d] SAFETY (load-bearing): a precisely-resolvable CSS module bundled with an AMBIGUOUS
+    // stylesheet (the orphan) must NOT narrow to the module's route — the ambiguous file forces
+    // the conservative ALL-routes fallback, so a regression it could cause is never missed.
+    const r158d = deep(['components/CartSummary.module.css', 'styles/theme.css']);
+    assert(
+      eq(r158d, ALL158),
+      `[158d] CSS module + ambiguous orphan stylesheet → conservative ALL routes, never narrowed to the module's route alone (got: ${JSON.stringify(r158d)})`
+    );
+
+    // [158e] opt-in: with NO sourceDir, the same CSS module change is byte-identical to the slug
+    // heuristic (ALL) — C3 precision is opt-in via ARGUS_SOURCE_DIR; prior behaviour is unchanged.
+    const noDir158 = mapFilesToRoutesDeep(['components/CartSummary.module.css'], routes158, {}).map(r => r.path).sort();
+    assert(
+      eq(noDir158, h158a) && eq(noDir158, ALL158),
+      `[158e] no sourceDir → identical to mapFilesToRoutes slug heuristic for a stylesheet (deep: ${JSON.stringify(noDir158)}, heuristic: ${JSON.stringify(h158a)})`
+    );
+
+    // [158f] INTENTIONAL BOUNDARY: a GLOBAL stylesheet (globals.css — INFRA_PATTERNS) keeps the
+    // conservative ALL-routes classification even in deep mode. By convention it is imported by
+    // the root layout and applies to every route, so narrowing it could miss a regression — C3
+    // narrows only NON-global stylesheets.
+    const r158f = deep(['styles/globals.css']);
+    assert(
+      eq(r158f, ALL158),
+      `[158f] global stylesheet (styles/globals.css) → ALL routes even in deep mode (infra short-circuit preserved on purpose) (got: ${JSON.stringify(r158f)})`
+    );
+
+    // [158g] import-graph CSS-node primitives the above rest on: a stylesheet is a graph NODE,
+    // carries a reverse edge from its importer (CartSummary.module.css ← CartSummary, which
+    // findDependents walks transitively to the /checkout page), an orphan stylesheet has zero
+    // dependents (drives [158c]), and resolveSpecifier resolves an explicit relative `.css`
+    // import to the on-disk file.
+    const g158     = buildImportGraph(igRoot);
+    const cssAbs   = path.join(igRoot, 'components', 'CartSummary.module.css');
+    const themeAbs = path.join(igRoot, 'styles', 'theme.css');
+    const cartAbs  = path.join(igRoot, 'components', 'CartSummary.jsx');
+    const checkAbs = path.join(igRoot, 'pages', 'checkout.jsx');
+    const cssRevEdge   = g158.reverse.get(cssAbs);
+    const cssDeps      = findDependents(g158.reverse, [cssAbs]);
+    const resolvedCss  = resolveSpecifier('./CartSummary.module.css', cartAbs, []);
+    assert(
+      g158.truncated === false &&
+      g158.files.has(cssAbs) && g158.files.has(themeAbs) &&
+      cssRevEdge instanceof Set && cssRevEdge.has(cartAbs) &&
+      cssDeps.has(checkAbs) &&
+      findDependents(g158.reverse, [themeAbs]).size === 0 &&
+      resolvedCss === cssAbs,
+      `[158g] import-graph stylesheet leaf nodes + reverse edges + resolveSpecifier('.css') (cssNode: ${g158.files.has(cssAbs)}, revEdge→cart: ${cssRevEdge instanceof Set && cssRevEdge.has(cartAbs)}, deps→checkout: ${cssDeps.has(checkAbs)}, orphanDeps: ${findDependents(g158.reverse, [themeAbs]).size}, resolved: ${resolvedCss === cssAbs})`
+    );
+  }
+
+  // ── Block [159] D1 bounded-concurrency route auditing (parallel-crawler) ──────────
+  // Drives the REAL concurrency primitives the PR Validator's route loop now uses
+  // (mapWithConcurrency + auditRoutesConcurrently) with fake async workers + fake clients — no
+  // Chrome. The load-bearing safety property is "results identical to sequential": parallel
+  // auditing must preserve route order (so the aggregate findings + the baseline-aware block
+  // decision never depend on how routes interleave) AND give each lane its own client (so
+  // concurrent crawlRouteCheap calls never share a Chrome page-navigation state). The
+  // ARGUS_CONCURRENCY default (1) must stay strictly sequential with no extra clients.
+  {
+    console.log('\n[159] parallel-crawler — bounded-concurrency route auditing (D1)');
+
+    const items159 = [0, 1, 2, 3, 4, 5];
+
+    // [159a] RESULTS IDENTICAL TO SEQUENTIAL: items complete OUT of order (higher indices resolve
+    // first), yet results come back in INPUT order — byte-identical to a plain sequential map.
+    const out159a = await mapWithConcurrency(items159, 3, async (n) => {
+      await new Promise(r => setTimeout(r, (items159.length - n) * 5)); // invert delay
+      return n * 10;
+    });
+    assert(
+      JSON.stringify(out159a) === JSON.stringify(items159.map(n => n * 10)),
+      `[159a] mapWithConcurrency preserves INPUT order under out-of-order completion → identical to sequential (got: ${JSON.stringify(out159a)})`
+    );
+
+    // [159b] BOUNDED CONCURRENCY (proves real parallelism): with concurrency 3 over 6 items the
+    // observed simultaneous-in-flight peak is exactly 3 — >1 = genuinely parallel, =3 = bounded.
+    let live159b = 0, peak159b = 0;
+    await mapWithConcurrency(items159, 3, async () => {
+      live159b++; peak159b = Math.max(peak159b, live159b);
+      await new Promise(r => setTimeout(r, 15));
+      live159b--;
+    });
+    assert(
+      peak159b === 3,
+      `[159b] mapWithConcurrency caps in-flight workers at the concurrency, and ran them in parallel (expected peak 3, got: ${peak159b})`
+    );
+
+    // [159c] DEFAULT SAFETY — concurrency 1 is strictly sequential: peak in-flight is 1 AND order
+    // preserved. This is the ARGUS_CONCURRENCY default, so the prior behaviour is byte-preserved.
+    let live159c = 0, peak159c = 0;
+    const out159c = await mapWithConcurrency(items159, 1, async (n) => {
+      live159c++; peak159c = Math.max(peak159c, live159c);
+      await new Promise(r => setTimeout(r, 2));
+      live159c--;
+      return n;
+    });
+    assert(
+      peak159c === 1 && JSON.stringify(out159c) === JSON.stringify(items159),
+      `[159c] mapWithConcurrency concurrency=1 → strictly sequential (peak ${peak159c}, order ${JSON.stringify(out159c)})`
+    );
+
+    // [159d] CLIENT-PER-LANE EXCLUSIVITY (the safety core of the CLI path): auditRoutesConcurrently
+    // gives each lane its OWN client and NEVER lets two routes use the same client at once
+    // (crawlRouteCheap mutates page-nav state). Fake clients track concurrent in-use; the assertion
+    // proves max-per-client === 1 while overall parallelism is 3, plus correct create/close counts.
+    const routes159  = [{ path: '/a' }, { path: '/b' }, { path: '/c' }, { path: '/d' }];
+    const inUse159   = new Map();   // client → current in-use count
+    const peakPer159 = new Map();   // client → peak in-use count
+    let created159 = 0, closed159 = 0, overallPeak159 = 0, overallLive159 = 0;
+    const out159d = await auditRoutesConcurrently(routes159, {
+      concurrency:   3,
+      primaryClient: 'C0',
+      createClient:  async () => `C${++created159}`,
+      closeClient:   () => { closed159++; },
+      crawlRoute: async (route, client) => {
+        overallLive159++; overallPeak159 = Math.max(overallPeak159, overallLive159);
+        const u = (inUse159.get(client) ?? 0) + 1;
+        inUse159.set(client, u);
+        peakPer159.set(client, Math.max(peakPer159.get(client) ?? 0, u));
+        await new Promise(r => setTimeout(r, 10));
+        inUse159.set(client, inUse159.get(client) - 1);
+        overallLive159--;
+        return { path: route.path, client };
+      },
+    });
+    const maxPerClient159 = Math.max(...peakPer159.values());
+    assert(
+      maxPerClient159 === 1 && overallPeak159 === 3 && created159 === 2 && closed159 === 2 &&
+      JSON.stringify(out159d.map(r => r.path)) === JSON.stringify(['/a', '/b', '/c', '/d']),
+      `[159d] auditRoutesConcurrently: one client per lane (max-per-client ${maxPerClient159}), parallel peak ${overallPeak159}, created ${created159}/closed ${closed159} extra clients, route order ${JSON.stringify(out159d.map(r => r.path))}`
+    );
+
+    // [159e] DEFAULT SAFETY — concurrency 1 makes NO extra client and uses ONLY the primary client
+    // (byte-identical to the prior sequential single-client loop), results in route order.
+    let created159e = 0;
+    const seen159e = new Set();
+    const out159e = await auditRoutesConcurrently(routes159, {
+      concurrency:   1,
+      primaryClient: 'PRIMARY',
+      createClient:  async () => { created159e++; return `X${created159e}`; },
+      crawlRoute: async (route, client) => { seen159e.add(client); return route.path; },
+    });
+    assert(
+      created159e === 0 && seen159e.size === 1 && seen159e.has('PRIMARY') &&
+      JSON.stringify(out159e) === JSON.stringify(['/a', '/b', '/c', '/d']),
+      `[159e] auditRoutesConcurrently concurrency=1 → 0 extra clients, only the primary used, route order preserved (created: ${created159e}, clients: ${[...seen159e].join(',')})`
+    );
+  }
+
+  // ── Block [160] D2 selective analyzer depth policy (audit-depth) ──────────────────
+  // Drives the REAL shared depth policy both PR-validate paths now use (resolveAuditDepth +
+  // selectAnalyzers + runDepthAnalyzers) — Chrome-free. The load-bearing properties: the
+  // default tier is byte-identical (cheap → no expensive analyzers), an invalid value fails
+  // SAFE to cheap, the 'standard' tier is file-type-selective (and never runs the slow
+  // deep-only analyzers), the catalog the policy emits matches the LIVE registry exactly (a
+  // drift guard — a renamed analyzer must fail here, not silently never run), and the
+  // executor runs only the selected analyzers while isolating a failure (depth only ADDS
+  // findings — it can never turn a real failure into a PASS).
+  {
+    console.log('\n[160] audit-depth — selective analyzer depth policy (D2)');
+
+    const DEEP_ONLY_160 = ['lighthouse', 'memory', 'design-fidelity', 'har-recorder'];
+
+    // [160a] resolveAuditDepth: valid tiers pass through; unset/invalid fail SAFE to cheap;
+    // case-insensitive + trimmed. A misconfigured ARGUS_PR_AUDIT_DEPTH must never deepen or skip.
+    assert(
+      resolveAuditDepth('deep') === 'deep' && resolveAuditDepth('standard') === 'standard' &&
+      resolveAuditDepth(undefined) === 'cheap' && resolveAuditDepth('full') === 'cheap' &&
+      resolveAuditDepth('  DEEP ') === 'deep' && AUDIT_DEPTHS[0] === 'cheap',
+      `[160a] resolveAuditDepth fails safe to cheap on invalid + passes valid tiers (deep→${resolveAuditDepth('deep')}, full→${resolveAuditDepth('full')}, '  DEEP '→${resolveAuditDepth('  DEEP ')})`
+    );
+
+    // [160b] DEFAULT SAFETY — cheap → [] regardless of changed files (byte-identical to the
+    // prior crawlRouteCheap-only behaviour). The default depth must add NO expensive analyzers.
+    const cheap160 = selectAnalyzers({ depth: 'cheap', changedFiles: ['a.css', 'B.tsx', 'c.png'] });
+    const dflt160  = selectAnalyzers({ changedFiles: ['a.css'] });   // depth omitted → cheap
+    assert(
+      cheap160.length === 0 && dflt160.length === 0,
+      `[160b] cheap (and omitted) depth selects ZERO expensive analyzers regardless of files (cheap: ${JSON.stringify(cheap160)}, default: ${JSON.stringify(dflt160)})`
+    );
+
+    // [160c] standard + a stylesheet change → the layout/theming/visual/contrast set, and
+    // NEVER a slow deep-only analyzer.
+    const css160 = selectAnalyzers({ depth: 'standard', changedFiles: ['src/styles/app.scss'] });
+    const cssSet160 = new Set(css160);
+    assert(
+      ['css', 'responsive', 'theme', 'motion', 'visual', 'a11y-deep'].every(a => cssSet160.has(a)) &&
+      css160.length === 6 && DEEP_ONLY_160.every(d => !cssSet160.has(d)),
+      `[160c] standard + .scss → stylesheet analyzer set, no deep-only (got: ${JSON.stringify(css160)})`
+    );
+
+    // [160d] standard + a component change → the a11y/interaction/vitals/form set; the
+    // "selective" promise that the slow analyzers stay in 'deep' only.
+    const tsx160 = selectAnalyzers({ depth: 'standard', changedFiles: ['components/Checkout.tsx'] });
+    const tsxSet160 = new Set(tsx160);
+    assert(
+      ['a11y-deep', 'snapshot', 'keyboard', 'hover', 'web-vitals', 'form'].every(a => tsxSet160.has(a)) &&
+      tsx160.length === 6 && DEEP_ONLY_160.every(d => !tsxSet160.has(d)),
+      `[160d] standard + .tsx → component analyzer set, excludes every deep-only analyzer (got: ${JSON.stringify(tsx160)})`
+    );
+
+    // [160e] standard + a non-UI-only change (docs / config) degrades to cheap → [].
+    const nonui160 = selectAnalyzers({ depth: 'standard', changedFiles: ['README.md', 'tsconfig.json', 'deploy.yml'] });
+    assert(
+      nonui160.length === 0,
+      `[160e] standard + non-UI files only → [] (degrades to cheap, got: ${JSON.stringify(nonui160)})`
+    );
+
+    // [160f] deep → the full registry catalog (all 16, incl. lighthouse + memory).
+    const deep160 = selectAnalyzers({ depth: 'deep' });
+    assert(
+      deep160.length === 16 && JSON.stringify(deep160) === JSON.stringify(ALL_EXPENSIVE_ANALYZERS) &&
+      deep160.includes('lighthouse') && deep160.includes('memory'),
+      `[160f] deep → full ${deep160.length}-analyzer catalog incl. lighthouse + memory`
+    );
+
+    // [160g] DRIFT GUARD — the policy catalog (ALL_EXPENSIVE_ANALYZERS) must EQUAL the names
+    // the live registry actually exposes (getExpensive). A renamed/added/removed analyzer
+    // fails HERE (loudly) instead of selectAnalyzers silently emitting a name that matches no
+    // analyzer (the recurring "Argus mis-reads its own state" bug class).
+    const regNames160 = getExpensive().map(a => a.name).sort();
+    const catalog160  = [...ALL_EXPENSIVE_ANALYZERS].sort();
+    assert(
+      JSON.stringify(regNames160) === JSON.stringify(catalog160),
+      `[160g] ALL_EXPENSIVE_ANALYZERS set-equals the live registry getExpensive() names (registry: ${regNames160.length}, catalog: ${catalog160.length}, equal: ${JSON.stringify(regNames160) === JSON.stringify(catalog160)})`
+    );
+
+    // [160h] standard unions the rules over a mixed bundle, deduped, in registry order
+    // (determinism — the order/dedup matters because routeFindings are aggregated in order).
+    const union160 = selectAnalyzers({ depth: 'standard', changedFiles: ['theme.css', 'Card.tsx'] });
+    const expectedOrder160 = ALL_EXPENSIVE_ANALYZERS.filter(a => union160.includes(a));
+    assert(
+      union160.filter(a => a === 'a11y-deep').length === 1 &&
+      JSON.stringify(union160) === JSON.stringify(expectedOrder160) &&
+      union160.every(a => ALL_EXPENSIVE_ANALYZERS.includes(a)),
+      `[160h] standard .css+.tsx → deduped union in registry order, a11y-deep once (got: ${JSON.stringify(union160)})`
+    );
+
+    // [160i] EXECUTION — runDepthAnalyzers runs ONLY the selected analyzers, collects their
+    // findings, and ISOLATES a thrower (siblings still contribute) — depth is additive only,
+    // so it can never turn a real failure into a PASS. DI fake analyzers + a fake browser (no
+    // Chrome); also proves an UNSELECTED analyzer's critical finding never leaks in.
+    const exec160 = [
+      { name: 'good1',    analyze: async () => [{ type: 'g1', severity: 'warning' }] },
+      { name: 'bad',      analyze: async () => { throw new Error('analyzer boom'); } },
+      { name: 'good2',    analyze: async () => ({ findings: [{ type: 'g2', severity: 'info' }] }) },
+      { name: 'unwanted', analyze: async () => [{ type: 'NOPE', severity: 'critical' }] },
+    ];
+    const wantedOut160 = await runDepthAnalyzers(exec160, { id: 'fake' }, 'http://x/checkout', { path: '/checkout' }, ['good1', 'bad', 'good2']);
+    const emptyOut160  = await runDepthAnalyzers(exec160, { id: 'fake' }, 'http://x/checkout', { path: '/checkout' }, []);
+    assert(
+      JSON.stringify(wantedOut160.map(f => f.type)) === JSON.stringify(['g1', 'g2']) &&
+      !wantedOut160.some(f => f.type === 'NOPE') && emptyOut160.length === 0,
+      `[160i] runDepthAnalyzers runs only selected, isolates a thrower, drops unselected, [] on empty (wanted: ${JSON.stringify(wantedOut160.map(f => f.type))}, empty: ${emptyOut160.length})`
+    );
+  }
+
+  // ── Block [161] D3 deploy-preview URL auto-detection (deploy-preview) ──────────────
+  // Drives the REAL target-URL resolver both PR-validate paths now use (resolveTargetUrl) —
+  // Chrome-free, network stubbed via globalThis.fetch. Load-bearing properties: an explicit
+  // ARGUS_PREVIEW_URL / per-call target is honoured; an opt-in GitHub-Deployments probe adopts
+  // ONLY a live (success) preview for the PR head SHA; a failed/missing preview and any probe
+  // error degrade gracefully to TARGET_DEV_URL (never a false target); and the default path
+  // (no preview env) is byte-identical to the pre-D3 TARGET_DEV_URL with NO network call.
+  {
+    console.log('\n[161] deploy-preview — preview URL auto-detection + graceful fallback (D3)');
+
+    const PREVIEW_DEP_161 = { id: 7001, environment: 'Preview – app', production_environment: false, transient_environment: true };
+    const PROD_DEP_161    = { id: 7000, environment: 'Production', production_environment: true };
+    const OK_STATUS_161   = [{ state: 'success', environment_url: 'https://pr-99-preview.vercel.app' }];
+    const FAIL_STATUS_161 = [{ state: 'failure', environment_url: 'https://broken.vercel.app' }];
+
+    // Stub: the deployments list returns prod + preview; the statuses call returns `statuses`.
+    const stubDeploy161 = (statuses) => async (url) =>
+      /\/deployments\?sha=/.test(String(url))
+        ? { ok: true, json: async () => [PROD_DEP_161, PREVIEW_DEP_161] }
+        : { ok: true, json: async () => statuses };
+
+    // [161a] explicit env override (ARGUS_PREVIEW_URL) is adopted as the target, no probe.
+    const env161a = await resolveTargetUrl({ env: { ARGUS_PREVIEW_URL: 'https://pr-42.example.app', TARGET_DEV_URL: 'http://dev' } });
+    assert(
+      env161a.url === 'https://pr-42.example.app' && env161a.source === 'env:ARGUS_PREVIEW_URL',
+      `[161a] ARGUS_PREVIEW_URL is adopted as the audit target (got ${JSON.stringify(env161a)})`
+    );
+
+    const _origFetch161 = globalThis.fetch;
+    try {
+      // [161b] opt-in auto-detection adopts the live (success) preview environment_url for the
+      // PR head SHA, picking the preview deployment over the production one.
+      globalThis.fetch = stubDeploy161(OK_STATUS_161);
+      const det161b = await resolveTargetUrl({
+        env: { ARGUS_PREVIEW_DETECT: '1', TARGET_DEV_URL: 'http://dev' },
+        prUrl: 'https://github.com/o/r/pull/99', headSha: 'deadbeef', token: 't',
+      });
+      assert(
+        det161b.url === 'https://pr-99-preview.vercel.app' && det161b.source === 'deployment',
+        `[161b] opt-in detection adopts the live preview environment_url (got ${JSON.stringify(det161b)})`
+      );
+
+      // [161c] SAFETY — a FAILED deploy status is never adopted; resolution degrades to
+      // TARGET_DEV_URL rather than auditing a broken preview (the false-target guard, the
+      // success-state filter is the mutation target).
+      globalThis.fetch = stubDeploy161(FAIL_STATUS_161);
+      const det161c = await resolveTargetUrl({
+        env: { ARGUS_PREVIEW_DETECT: '1', TARGET_DEV_URL: 'http://dev' },
+        prUrl: 'https://github.com/o/r/pull/99', headSha: 'deadbeef', token: 't',
+      });
+      assert(
+        det161c.url === 'http://dev' && det161c.source === 'target-dev-url' &&
+        previewUrlFromStatuses(FAIL_STATUS_161) === null,
+        `[161c] a failed deploy status is NOT adopted — degrades to TARGET_DEV_URL (got ${JSON.stringify(det161c)})`
+      );
+
+      // [161d] fail-safe — a probe THROW still resolves to TARGET_DEV_URL (never throws), and
+      // production deployments are excluded by the preview heuristic.
+      globalThis.fetch = async () => { throw new Error('ECONNRESET'); };
+      const det161d = await resolveTargetUrl({
+        env: { ARGUS_PREVIEW_DETECT: 'true', TARGET_DEV_URL: 'http://dev' },
+        prUrl: 'https://github.com/o/r/pull/99', headSha: 'deadbeef', token: 't',
+      });
+      assert(
+        det161d.url === 'http://dev' && det161d.source === 'target-dev-url' &&
+        pickPreviewDeployment([PROD_DEP_161]) === null &&
+        pickPreviewDeployment([PROD_DEP_161, PREVIEW_DEP_161]) === PREVIEW_DEP_161,
+        `[161d] a probe error degrades safely; production deployments are excluded (got ${JSON.stringify(det161d)})`
+      );
+    } finally {
+      globalThis.fetch = _origFetch161;
+    }
+
+    // [161e] DEFAULT byte-identical — with nothing set the resolver returns exactly
+    // TARGET_DEV_URL (no network call), and an explicit per-call target outranks an env preview.
+    const def161      = await resolveTargetUrl({ env: { TARGET_DEV_URL: 'http://localhost:3000' } });
+    const explicit161 = await resolveTargetUrl({ env: { ARGUS_PREVIEW_URL: 'https://preview.app' }, explicitTarget: 'https://explicit.example' });
+    assert(
+      def161.url === 'http://localhost:3000' && def161.source === 'target-dev-url' &&
+      explicit161.url === 'https://explicit.example' && explicit161.source === 'explicit',
+      `[161e] default == TARGET_DEV_URL byte-identical; explicit target outranks env preview (default ${JSON.stringify(def161)}, explicit ${JSON.stringify(explicit161)})`
+    );
+  }
+
+  // ── Block [162] D4 per-route audit timeout / retry (parallel-crawler + the guard) ──────
+  // Drives the REAL D4 primitives (withTimeout / auditRouteWithRetry / routeResilienceFromEnv)
+  // + the REAL all-routes-failed guard — Chrome-free, no network. Load-bearing safety property:
+  // a hung route audit must REJECT (→ recorded as a route ERROR → fed to allRoutesFailed → merge
+  // blocked), NEVER resolve as a silent zero-findings pass. A bounded route can only BLOCK, never
+  // false-PASS. [162e] proves the timeout → route-error → block chain end-to-end.
+  {
+    console.log('\n[162] route timeout/retry — per-route audit bound + all-routes-failed guard (D4)');
+
+    const never162 = () => new Promise(() => {});                       // never settles (a hung audit)
+    const after162 = (ms, val) => new Promise(r => setTimeout(() => r(val), ms));
+
+    // [162a] CORE SAFETY — withTimeout REJECTS a hung audit (it never resolves on timeout). A
+    // resolution here would let a hung route count as a clean pass (a false PASS). This is the
+    // mutation target: flipping the timeout from reject→resolve fails this assertion.
+    let rejected162a = false, msg162a = '';
+    try { await withTimeout(never162(), 25, 'Route audit /x'); }
+    catch (e) { rejected162a = true; msg162a = e.message; }
+    assert(
+      rejected162a && /Route audit \/x timed out after 25ms/.test(msg162a),
+      `[162a] withTimeout REJECTS a hung audit, never resolves (got: ${rejected162a ? msg162a : 'RESOLVED — false pass!'})`
+    );
+
+    // [162b] withTimeout resolves with the value when the work finishes in time, and is unbounded
+    // when ms<=0 (work passed through) — so the bound never spuriously fails a fast, real audit.
+    const inTime162  = await withTimeout(after162(5, 'audit-result'), 500);
+    const unbound162 = await withTimeout(after162(5, 'passthrough'), 0);
+    assert(
+      inTime162 === 'audit-result' && unbound162 === 'passthrough',
+      `[162b] withTimeout resolves in time + is unbounded at ms<=0 (in-time: ${inTime162}, unbounded: ${unbound162})`
+    );
+
+    // [162c] RETRY — auditRouteWithRetry retries a transient failure then succeeds, firing onRetry
+    // once per retry. A flaky route recovers instead of being recorded as a failure.
+    let calls162c = 0; const retried162c = [];
+    const out162c = await auditRouteWithRetry(
+      async () => { calls162c++; if (calls162c < 3) throw new Error(`flap ${calls162c}`); return 'recovered'; },
+      { retries: 3, onRetry: (attempt, err) => retried162c.push(`${attempt}:${err.message}`) },
+    );
+    assert(
+      out162c === 'recovered' && calls162c === 3 && retried162c.join(',') === '1:flap 1,2:flap 2',
+      `[162c] auditRouteWithRetry retries a transient failure then succeeds (calls: ${calls162c}, onRetry: ${JSON.stringify(retried162c)})`
+    );
+
+    // [162d] FAIL-LOUD — when every attempt times out, auditRouteWithRetry THROWS (it never
+    // returns a value), so the caller records a route error. Proves the timeout reaches every
+    // retry and the final state is a throw, not a silent resolution.
+    let starts162d = 0, threw162d = false, msg162d = '';
+    try {
+      await auditRouteWithRetry(() => { starts162d++; return never162(); },
+        { timeoutMs: 15, retries: 1, label: 'Route audit /slow' });
+    } catch (e) { threw162d = true; msg162d = e.message; }
+    assert(
+      threw162d && starts162d === 2 && /Route audit \/slow timed out after 15ms/.test(msg162d),
+      `[162d] every-attempt-timeout THROWS fail-loud after retries (threw: ${threw162d}, starts: ${starts162d}, msg: ${msg162d})`
+    );
+
+    // [162e] END-TO-END (the D4 acceptance) — a single route whose audit hangs is bounded, throws,
+    // is recorded as a route ERROR, and the REAL allRoutesFailed guard BLOCKS. A clean only-route
+    // and a partial failure do NOT over-block (existing policy). routeResilienceFromEnv defaults to
+    // the bounded 120000 ms / 0 retries (never unbounded-by-accident).
+    const perRoute162 = [];
+    try {
+      await auditRouteWithRetry(() => never162(), { timeoutMs: 25, label: 'Route audit /only' });
+      perRoute162.push({ route: '/only', critical: 0, warning: 0, info: 0 });           // would be a false pass
+    } catch (err) {
+      perRoute162.push({ route: '/only', critical: 0, warning: 0, info: 0, error: err.message });
+    }
+    const blocked162   = allRoutesFailed(perRoute162);
+    const cleanOnly162 = allRoutesFailed([{ route: '/a', critical: 0, warning: 0, info: 0 }]);
+    const partial162   = allRoutesFailed([{ route: '/a', error: 'x' }, { route: '/b', critical: 0 }]);
+    const policy162    = routeResilienceFromEnv({});
+    assert(
+      blocked162 === true && /timed out after 25ms/.test(perRoute162[0].error ?? '') &&
+      cleanOnly162 === false && partial162 === false &&
+      policy162.timeoutMs === 120000 && policy162.retries === 0,
+      `[162e] a timed-out only-route is recorded as an error and BLOCKS via allRoutesFailed; clean + partial do not over-block; default bound 120000/0 (blocked: ${blocked162}, err: ${perRoute162[0].error}, clean: ${cleanOnly162}, partial: ${partial162}, policy: ${JSON.stringify(policy162)})`
+    );
+  }
+
+  // ── Block [163] E2 GitHub API resilience (shared resilient github-api client) ──────────
+  // Drives the REAL githubFetch + pure helpers (Chrome-free) with a stubbed globalThis.fetch
+  // and an injected no-op sleep (so retries are instant). Both PR-validate GitHub throw-path
+  // callers — fetchPrFiles (the PR diff) + ghFetch (the PR comment/Check Run) — route through
+  // this client. Load-bearing safety: a rate-limit is RETRIED (resilience), a 404/422 is NOT
+  // (no API hammering), and EVERY thrown message stays SECRET-FREE — the CLI surfaces a fetch
+  // error's message into a ::error:: annotation, so a token leak there would expose a secret.
+  {
+    console.log('\n[163] GitHub API resilience — shared resilient client (E2)');
+    const TOKEN163 = 'ghp_supersecret_harness_token_0123456789';
+    const noSleep163 = async () => {};
+    const mk163 = (body, { status = 200, ok = status >= 200 && status < 300, statusText = 'OK', headers } = {}) => ({
+      ok, status, statusText, headers,
+      json: async () => body,
+      text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
+    });
+
+    // [163a] RESILIENCE — a 403 PRIMARY rate-limit (X-RateLimit-Remaining: 0) is RETRIED with
+    // backoff, then succeeds. A real GitHub rate-limit must not become an immediate hard fail.
+    let calls163a = 0;
+    const ok163a = await githubFetch('https://api.github.com/x', {
+      sleep: noSleep163,
+      fetchImpl: async () => {
+        calls163a++;
+        return calls163a < 3
+          ? mk163('API rate limit exceeded', { status: 403, ok: false, headers: { 'x-ratelimit-remaining': '0' } })
+          : mk163({ ok: 1 });
+      },
+    });
+    const body163a = await ok163a.json();
+    assert(
+      calls163a === 3 && body163a && body163a.ok === 1,
+      `[163a] a 403 primary rate-limit is retried then succeeds (calls: ${calls163a}, body: ${JSON.stringify(body163a)})`
+    );
+
+    // [163b] NO-HAMMER + SECRET-FREE — a 404 is NOT retried (exactly one call), and the thrown
+    // message carries the cause + context but NEVER the token and NEVER "is not defined".
+    let calls163b = 0, err163b = null;
+    try {
+      await githubFetch('https://api.github.com/x', {
+        sleep: noSleep163, context: 'GET repos/o/r/pulls/7/files (page 1)',
+        headers: { Authorization: `Bearer ${TOKEN163}` },
+        fetchImpl: async () => { calls163b++; return mk163('Not Found', { status: 404, ok: false, statusText: 'Not Found' }); },
+      });
+    } catch (e) { err163b = e; }
+    assert(
+      calls163b === 1 && err163b &&
+      /404 \(not found\)/.test(err163b.message) &&
+      err163b.message.includes('GET repos/o/r/pulls/7/files') &&
+      !err163b.message.includes(TOKEN163) && !err163b.message.includes('is not defined'),
+      `[163b] a 404 is not retried; error carries the cause, never the token (calls: ${calls163b}, msg: ${err163b && err163b.message})`
+    );
+
+    // [163c] STRUCTURED + SCRUBBED — a 422 throws a structured "unprocessable" cause, and a
+    // token echoed in the response body is redacted in the thrown message (defensive scrub).
+    let err163c = null;
+    try {
+      await githubFetch('https://api.github.com/x', {
+        sleep: noSleep163,
+        fetchImpl: async () => mk163(`Validation Failed; debug Authorization: Bearer ${TOKEN163}`, { status: 422, ok: false }),
+      });
+    } catch (e) { err163c = e; }
+    assert(
+      err163c && /422 \(unprocessable\)/.test(err163c.message) &&
+      err163c.message.includes('Bearer ***') && !err163c.message.includes(TOKEN163),
+      `[163c] a 422 throws a structured, token-scrubbed error (msg: ${err163c && err163c.message})`
+    );
+
+    // [163d] BOUNDED EXHAUSTION — a persistent rate-limit (429) is retried up to maxAttempts then
+    // THROWS "rate limit exceeded — retries exhausted" (never an unbounded loop, never a silent
+    // pass). retryDelayMs honours Retry-After (pure) and isRateLimitResponse draws the retry line.
+    let calls163d = 0, err163d = null;
+    try {
+      await githubFetch('https://api.github.com/x', {
+        sleep: noSleep163, maxAttempts: 3,
+        fetchImpl: async () => { calls163d++; return mk163('API rate limit exceeded', { status: 429, ok: false }); },
+      });
+    } catch (e) { err163d = e; }
+    const ra163  = retryDelayMs(429, { 'retry-after': '3' }, 1, { maxMs: 8000 });
+    const rl163  = isRateLimitResponse(403, { 'x-ratelimit-remaining': '0' }) && isRateLimitResponse(429, {});
+    const norl163 = isRateLimitResponse(403, {}) || isRateLimitResponse(404, {});
+    assert(
+      calls163d === 3 && err163d && /rate limit exceeded/.test(err163d.message) &&
+      /retries exhausted/.test(err163d.message) && ra163 === 3000 && rl163 === true && norl163 === false,
+      `[163d] persistent rate-limit exhausts to a fail-loud throw; retryDelayMs/isRateLimitResponse classify (calls: ${calls163d}, ra: ${ra163}, rl: ${rl163}, norl: ${norl163}, msg: ${err163d && err163d.message})`
+    );
+
+    // [163e] RETRY BOUNDARY — a transient 5xx is RETRIED then succeeds, while a plain 403
+    // (permissions, no rate-limit header) is TERMINAL (one call, "forbidden"): the resilient
+    // client retries only the transient/rate-limited statuses, never a permissions error.
+    let calls163e1 = 0;
+    await githubFetch('https://api.github.com/x', {
+      sleep: noSleep163,
+      fetchImpl: async () => { calls163e1++; return calls163e1 < 2 ? mk163('Bad Gateway', { status: 502, ok: false }) : mk163({}); },
+    });
+    let calls163e2 = 0, err163e = null;
+    try {
+      await githubFetch('https://api.github.com/x', {
+        sleep: noSleep163,
+        fetchImpl: async () => { calls163e2++; return mk163('Resource not accessible by integration', { status: 403, ok: false }); },
+      });
+    } catch (e) { err163e = e; }
+    assert(
+      calls163e1 === 2 && calls163e2 === 1 && err163e && /403 \(forbidden\)/.test(err163e.message),
+      `[163e] a transient 5xx is retried then succeeds; a plain 403 is terminal forbidden (5xx calls: ${calls163e1}, 403 calls: ${calls163e2}, msg: ${err163e && err163e.message})`
+    );
+  }
+
+  // ── Block [164] PR Validator — block-decision + guard matrix (Phase E3) ─────────
+  // Exhaustive merge-gate coverage: the block-on policy matrix (none|warning|critical) ×
+  // {0, only-info, warning, critical} findings, the all-routes-failed guard, the base-unavailable
+  // fail-safe, and the decision → exit-code mapping — all driven through the REAL shared helpers
+  // (decidePrBlock + allRoutesFailed + prExitCode). Chrome-free, network-free. SAFETY-CRITICAL:
+  // a finding at/above the threshold must BLOCK (exit 1) and a clean/below-threshold run must PASS
+  // (exit 0); the guard must trip only when EVERY route errored; a failed audit must never PASS.
+  {
+    console.log('\n[164] PR Validator — block-decision + guard matrix (E3)');
+
+    // Finding fixtures for the four severity states a route can present.
+    const CRIT164 = { severity: 'critical', type: 'console_error', message: 'TypeError: x is null',     url: 'http://x/checkout' };
+    const WARN164 = { severity: 'warning',  type: 'seo_meta',      message: 'Missing meta description', url: 'http://x/checkout' };
+    const INFO164 = { severity: 'info',     type: 'design_token',  message: 'token nit',                url: 'http://x/checkout' };
+    const STATES = {
+      none:     { findings: [],        summary: { critical: 0, warning: 0, info: 0 } },
+      onlyInfo: { findings: [INFO164], summary: { critical: 0, warning: 0, info: 1 } },
+      warning:  { findings: [WARN164], summary: { critical: 0, warning: 1, info: 0 } },
+      critical: { findings: [CRIT164], summary: { critical: 1, warning: 0, info: 0 } },
+    };
+
+    // Decide one matrix cell with NO baseline (fail-safe → absolute counts), returning the REAL
+    // decision and the REAL exit code that decision produces.
+    const cell = (blockOn, state) => {
+      const s = STATES[state];
+      const d = decidePrBlock({
+        routeFindings: [{ path: '/checkout', findings: s.findings }],
+        summary: s.summary, blockOn, baseline: null,
+      });
+      return { blocked: d.blocked, exit: prExitCode({ blocked: d.blocked }), note: d.note, reason: d.reason, baselineAvailable: d.baselineAvailable };
+    };
+    const row = (blockOn) => ['none', 'onlyInfo', 'warning', 'critical']
+      .map(st => { const c = cell(blockOn, st); return `${st}:${c.blocked ? 'B' : 'p'}${c.exit}`; }).join(' ');
+
+    // [164a] block-on=none NEVER blocks — every state passes with exit 0 (even a critical).
+    const noneRow = ['none', 'onlyInfo', 'warning', 'critical'].map(st => cell('none', st));
+    assert(
+      noneRow.every(c => c.blocked === false && c.exit === 0),
+      `[164a] block-on=none never blocks across {0,info,warning,critical} → all pass exit 0 (${row('none')})`
+    );
+
+    // [164b] block-on=warning blocks iff critical+warning > 0: {0}pass {info}pass {warn}BLOCK {crit}BLOCK.
+    const wN = cell('warning', 'none'), wI = cell('warning', 'onlyInfo'), wW = cell('warning', 'warning'), wC = cell('warning', 'critical');
+    assert(
+      wN.blocked === false && wN.exit === 0 && wI.blocked === false && wI.exit === 0 &&
+      wW.blocked === true  && wW.exit === 1 && wC.blocked === true  && wC.exit === 1,
+      `[164b] block-on=warning gates on warning+critical (${row('warning')})`
+    );
+
+    // [164c] block-on=critical blocks iff critical > 0: {0}pass {info}pass {warn}pass {crit}BLOCK.
+    const cN = cell('critical', 'none'), cI = cell('critical', 'onlyInfo'), cW = cell('critical', 'warning'), cC = cell('critical', 'critical');
+    assert(
+      cN.blocked === false && cN.exit === 0 && cI.blocked === false && cI.exit === 0 &&
+      cW.blocked === false && cW.exit === 0 && cC.blocked === true  && cC.exit === 1,
+      `[164c] block-on=critical gates on criticals only; a warning alone passes (${row('critical')})`
+    );
+
+    // [164d] base-unavailable fail-safe rides EVERY matrix cell: no baseline → baselineAvailable
+    // false + a "baseline unavailable" note on every decision, and a BLOCKED cell's reason is
+    // scoped "total" (absolute counts), never "new"; a passing cell has reason === null.
+    const everyNotes = [].concat(noneRow, [wN, wI, wW, wC, cN, cI, cW, cC])
+      .every(c => c.baselineAvailable === false && /baseline unavailable/i.test(c.note));
+    assert(
+      everyNotes && cC.reason !== null && /total/.test(cC.reason) && !/\bnew\b/.test(cC.reason) && cN.reason === null,
+      `[164d] no-baseline fail-safe note on every cell; blocked reason scoped "total" not "new" (notes: ${everyNotes}, critReason: ${cC.reason}, passReason: ${cN.reason})`
+    );
+
+    // [164e] all-routes-failed guard: trips ONLY when every audited route errored (→ throw →
+    // exit 1); a partial failure, a clean route, and an empty list never over-block.
+    const allErr164  = allRoutesFailed([{ route: '/a', error: 'x' }, { route: '/b', error: 'y' }]);
+    const partial164 = allRoutesFailed([{ route: '/a', error: 'x' }, { route: '/b', critical: 0 }]);
+    const clean164   = allRoutesFailed([{ route: '/a', critical: 0 }]);
+    const empty164   = allRoutesFailed([]);
+    assert(
+      allErr164 === true && partial164 === false && clean164 === false && empty164 === false,
+      `[164e] all-routes-failed trips only when EVERY route errored (all: ${allErr164}, partial: ${partial164}, clean: ${clean164}, empty: ${empty164})`
+    );
+
+    // [164f] decision → exit-code mapping is the REAL prExitCode: a failed audit (all routes
+    // errored) → exit 1; a partial failure (guard false) → 0; a blocked decision → 1; a clean
+    // pass → 0; defaults → 0. This is how the all-routes-failed guard reaches exit 1 (failed arm).
+    assert(
+      prExitCode({ failed: allErr164 }) === 1 && prExitCode({ failed: partial164 }) === 0 &&
+      prExitCode({ blocked: true }) === 1 && prExitCode({ blocked: false }) === 0 && prExitCode() === 0,
+      `[164f] prExitCode maps the merge gate: failed→1, blocked→1, pass→0 (allFailed→${prExitCode({ failed: allErr164 })}, blocked→${prExitCode({ blocked: true })}, pass→${prExitCode({ blocked: false })})`
+    );
+
+    // [164g] the base dimension flips the SAME cell: against a real on-disk baseline a
+    // pre-existing critical does NOT block (exit 0), while a NEW critical DOES (exit 1) — proving
+    // the matrix is baseline-aware, not just absolute. Drives savePrBaseline → loadPrBaseline.
+    const tmp164  = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-e3-'));
+    const file164 = path.join(tmp164, 'main.json');
+    savePrBaseline(file164, [{ path: '/checkout', findings: [CRIT164] }]);     // base already had the critical
+    const base164 = loadPrBaseline(file164);
+    const preExisting164 = decidePrBlock({ routeFindings: [{ path: '/checkout', findings: [CRIT164] }], summary: STATES.critical.summary, blockOn: 'critical', baseline: base164 });
+    const NEWCRIT164 = { severity: 'critical', type: 'console_error', message: 'ReferenceError: total is not defined', url: 'http://x/checkout' };
+    const introduced164 = decidePrBlock({ routeFindings: [{ path: '/checkout', findings: [CRIT164, NEWCRIT164] }], summary: { critical: 2, warning: 0, info: 0 }, blockOn: 'critical', baseline: base164 });
+    assert(
+      preExisting164.blocked === false && prExitCode({ blocked: preExisting164.blocked }) === 0 &&
+      introduced164.blocked === true  && prExitCode({ blocked: introduced164.blocked }) === 1 &&
+      introduced164.newSummary.critical === 1 && /new/.test(introduced164.reason),
+      `[164g] base-aware: pre-existing critical passes (exit 0), PR-introduced critical blocks (exit 1) (preExist: ${preExisting164.blocked}, intro: ${introduced164.blocked}, newCrit: ${introduced164.newSummary.critical})`
+    );
+  }
+
+  // ── Block [165] PR Validator — CLI ↔ MCP block-decision PARITY (Phase E4) ───────
+  // The two PR-validate paths (CLI src/cli/pr-validate.js + MCP handlePrValidate in
+  // src/mcp-server.js) audit DIFFERENT route sources by design (routes-file vs config/targets.js),
+  // but they MUST agree on the merge-block decision for the SAME findings. They guarantee this
+  // structurally: both build the decidePrBlock `summary` input through the shared severityTally and
+  // both delegate the gate to the shared decidePrBlock (deriving `blocked` from decision.blocked) —
+  // neither re-implements the none|warning|critical matrix. This block pins that contract from the
+  // SOURCE (so a future edit can't fork the gate) AND behaviourally (same inputs → same decision,
+  // incl. blockOn-casing normalization). Chrome-free, network-free. Complements [164] (matrix
+  // correctness) with cross-PATH agreement. SAFETY-CRITICAL: a path that quietly computed the
+  // summary or the gate differently could PASS a PR the other path would BLOCK (a false PASS).
+  {
+    console.log('\n[165] PR Validator — CLI ↔ MCP block-decision parity (E4)');
+
+    const cliSrc165 = fs.readFileSync(path.resolve(__dirname, '../src/cli/pr-validate.js'), 'utf8');
+    const mcpSrc165 = fs.readFileSync(path.resolve(__dirname, '../src/mcp-server.js'), 'utf8');
+
+    // [165a] Shared DECISION — neither path re-implements the block-on matrix: both call the shared
+    // decidePrBlock, derive `blocked` from decision.blocked, and IMPORT it from pr-baseline (rather
+    // than defining a local gate). `effectiveSummary` is decidePrBlock-internal, so its absence from
+    // both path files proves neither hand-rolls the gate.
+    const cliDelegates165 = /decidePrBlock\(/.test(cliSrc165) && /blocked\s*=\s*decision\.blocked/.test(cliSrc165) &&
+      /decidePrBlock[\s\S]*from '\.\.\/utils\/pr-baseline\.js'/.test(cliSrc165);
+    const mcpDelegates165 = /decidePrBlock\(/.test(mcpSrc165) && /blocked\s*=\s*decision\.blocked/.test(mcpSrc165) &&
+      /decidePrBlock[\s\S]*from '\.\/utils\/pr-baseline\.js'/.test(mcpSrc165);
+    const noLocalGate165 = !cliSrc165.includes('effectiveSummary') && !mcpSrc165.includes('effectiveSummary');
+    assert(
+      cliDelegates165 && mcpDelegates165 && noLocalGate165,
+      `[165a] both paths delegate the gate to the shared decidePrBlock + derive blocked from decision.blocked; neither re-implements it (cli: ${cliDelegates165}, mcp: ${mcpDelegates165}, noLocalGate: ${noLocalGate165})`
+    );
+
+    // [165b] Shared SUMMARY tally — both build the decidePrBlock `summary` input via
+    // severityTally(allFindings) (the legacy inline ".filter(f => f.severity === 'critical').length"
+    // triplet is gone from the aggregate), AND severityTally is byte-identical to that legacy recipe
+    // for a mixed findings array — so the swap can never change what feeds the gate.
+    const cliUsesTally165 = cliSrc165.includes('severityTally(allFindings)');
+    const mcpUsesTally165 = mcpSrc165.includes('severityTally(allFindings)');
+    const mixed165 = [
+      { severity: 'critical' }, { severity: 'critical' }, { severity: 'warning' },
+      { severity: 'info' }, { severity: 'info' }, { severity: 'info' }, { severity: 'trace' },
+    ];
+    const legacyRecipe165 = {
+      critical: mixed165.filter(f => f.severity === 'critical').length,
+      warning:  mixed165.filter(f => f.severity === 'warning').length,
+      info:     mixed165.filter(f => f.severity === 'info').length,
+    };
+    const tally165 = severityTally(mixed165);
+    const tallyMatches165 = JSON.stringify(tally165) === JSON.stringify(legacyRecipe165);
+    assert(
+      cliUsesTally165 && mcpUsesTally165 && tallyMatches165 &&
+      tally165.critical === 2 && tally165.warning === 1 && tally165.info === 3,
+      `[165b] both paths build the summary via the shared severityTally, byte-identical to the inline filter recipe (cli: ${cliUsesTally165}, mcp: ${mcpUsesTally165}, tally: ${JSON.stringify(tally165)}, legacy: ${JSON.stringify(legacyRecipe165)})`
+    );
+
+    // [165c] Behavioural PARITY — the SAME findings + baseline + blockOn yield the SAME decision
+    // through each path's recipe. We reproduce both recipes (severityTally → decidePrBlock →
+    // decision.blocked → prExitCode) and assert deep agreement across the block-on matrix, INCLUDING
+    // the MCP path's raw/un-normalized blockOn (e.g. ' Critical ') matching the CLI's pre-normalized
+    // 'critical' — decidePrBlock's internal normalization is the single agreement point.
+    const findings165 = [
+      { severity: 'critical', type: 'console_error', message: 'TypeError', url: 'http://x/checkout' },
+      { severity: 'warning',  type: 'seo_meta',      message: 'meta',      url: 'http://x/checkout' },
+    ];
+    const routeFindings165 = [{ path: '/checkout', findings: findings165 }];
+    // CLI recipe: summary via shared tally, blockOn pre-normalized (the CLI does toLowerCase().trim()).
+    const cliDecide165 = (blockOnRaw) => {
+      const blockOn = String(blockOnRaw).toLowerCase().trim();
+      const d = decidePrBlock({ routeFindings: routeFindings165, summary: severityTally(findings165), blockOn, baseline: null });
+      return { blocked: d.blocked, reason: d.reason, exit: prExitCode({ blocked: d.blocked }) };
+    };
+    // MCP recipe: identical summary, but pass blockOn RAW (no pre-normalization — the MCP path does not).
+    const mcpDecide165 = (blockOnRaw) => {
+      const d = decidePrBlock({ routeFindings: routeFindings165, summary: severityTally(findings165), blockOn: blockOnRaw, baseline: null });
+      return { blocked: d.blocked, reason: d.reason, exit: prExitCode({ blocked: d.blocked }) };
+    };
+    const parityCases165 = [
+      ['critical', ' Critical '],   // crit present → block under critical
+      ['warning',  'WARNING'],      // crit+warn present → block under warning
+      ['none',     'None'],         // never blocks
+    ];
+    const parityHolds165 = parityCases165.every(([cliRaw, mcpRaw]) =>
+      JSON.stringify(cliDecide165(cliRaw)) === JSON.stringify(mcpDecide165(mcpRaw)));
+    // Not vacuously equal-because-both-broken: the decisions are the expected ones.
+    const sane165 = cliDecide165('critical').blocked === true  && cliDecide165('critical').exit === 1 &&
+                    cliDecide165('none').blocked     === false && cliDecide165('none').exit     === 0;
+    assert(
+      parityHolds165 && sane165,
+      `[165c] same findings/blockOn → identical decision via both recipes incl. blockOn-casing (parity: ${parityHolds165}, crit: ${JSON.stringify(cliDecide165('critical'))} == ${JSON.stringify(mcpDecide165(' Critical '))}, none: ${JSON.stringify(cliDecide165('none'))})`
+    );
+
+    // [165d] The ROUTE-SOURCE divergence is DOCUMENTED as intentional in BOTH files (E4 acceptance:
+    // "the chosen resolution is in the code"), each naming the divergence, the shared reportPrValidation
+    // helper, and the E4 reference.
+    const cliDoc165 = /INTENTIONAL DIVERGENCE/.test(cliSrc165) && /ROUTE-SOURCE/.test(cliSrc165) &&
+      /reportPrValidation/.test(cliSrc165) && /E4/.test(cliSrc165);
+    const mcpDoc165 = /INTENTIONAL DIVERGENCE/.test(mcpSrc165) && /ROUTE-SOURCE/.test(mcpSrc165) &&
+      /reportPrValidation/.test(mcpSrc165) && /E4/.test(mcpSrc165);
+    assert(
+      cliDoc165 && mcpDoc165,
+      `[165d] both files document the intentional route-source divergence + shared reporting + E4 (cli: ${cliDoc165}, mcp: ${mcpDoc165})`
+    );
+  }
+
+  // ── Block [166] PR Validator — recorded GitHub reporting fixtures (Phase F1) ─────
+  // The inline `{ id: N }` stubs in [151]/[152] prove the request SHAPE; this block proves
+  // Argus correctly PARSES the documented GitHub *response* shape. It drives the REAL
+  // reporter exports (postPrComment / createCheckRun / completeCheckRun / reportPrValidation)
+  // against test-harness/contracts/github-reporting-samples.js — faithful issue-comment +
+  // check-run objects (a bot comment among humans, full documented fields) routed by
+  // makeReportingFetchStub. A response-shape change GitHub could make (id dropped/retyped,
+  // body renamed, comment flattened) would break the parse here. Chrome-free + network-free.
+  {
+    console.log('\n[166] PR Validator — recorded GitHub reporting API fixtures (Phase F1)');
+
+    const prResult166 = {
+      prUrl:          'https://github.com/acme/shop/pull/7',
+      targetUrl:      'https://staging.example.com',
+      affectedRoutes: ['/checkout'],
+      changedFiles:   ['src/pages/checkout.tsx'],
+      summary:        { critical: 1, warning: 0, info: 0 },
+      blocked:        true,
+      blockOn:        'critical',
+      perRoute:       [{ route: '/checkout', critical: 1, warning: 0, info: 0 }],
+      findings: [
+        { severity: 'critical', type: 'console_error', message: 'TypeError: x is null', url: 'https://staging.example.com/checkout' },
+      ],
+    };
+    const report166 = prResultToReport(prResult166);
+    const diff166   = { isFirstRun: false, resolvedCount: 0, flowResolvedCount: 0 };
+
+    // [166a] fixture faithfulness — the recorded comment + check-run objects carry the
+    // documented GitHub fields, EXACTLY ONE list comment carries the marker, and that marker
+    // is the same one a live formatPrComment() render emits (so the fixture cannot silently
+    // drift from what Argus actually writes). Non-vacuous: specific field reads + 1-of-3 find.
+    const liveBody166    = formatPrComment(report166, diff166);
+    const markerLive166  = liveBody166.includes(ARGUS_COMMENT_MARKER);
+    const markedComments = issueCommentsListWithArgus.filter(c => c.body.includes(ARGUS_COMMENT_MARKER));
+    const argusFixture166 = markedComments[0];
+    const commentShape166 = issueCommentsListWithArgus.every(c =>
+      Number.isInteger(c.id) && typeof c.body === 'string' &&
+      typeof c.user?.login === 'string' && typeof c.html_url === 'string' && typeof c.created_at === 'string');
+    const checkRunShape166 =
+      Number.isInteger(checkRunCreateResponse.id) && checkRunCreateResponse.head_sha === HEAD_SHA &&
+      checkRunCreateResponse.status === 'in_progress' &&
+      checkRunCompleteResponse.status === 'completed' && typeof checkRunCompleteResponse.conclusion === 'string';
+    assert(
+      markerLive166 && markedComments.length === 1 && argusFixture166?.id === ARGUS_COMMENT_ID &&
+      commentShape166 && checkRunShape166,
+      `[166a] reporting fixtures faithful to the documented GitHub shape; exactly one comment carries the live formatPrComment marker (markerLive: ${markerLive166}, markedCount: ${markedComments.length}, argusId: ${argusFixture166?.id}, commentShape: ${commentShape166}, checkRunShape: ${checkRunShape166})`
+    );
+
+    const _origFetch166 = globalThis.fetch;
+    const _tok166  = process.env.GITHUB_TOKEN;
+    const _repo166 = process.env.GITHUB_REPOSITORY;
+    const _pr166   = process.env.GITHUB_PR_NUMBER;
+    const _sha166  = process.env.GITHUB_SHA;
+    const _head166 = process.env.ARGUS_PR_HEAD_SHA;
+    const SECRET166 = 'ghp_reporting_fixture_secret_do_not_leak_166';
+    try {
+      process.env.GITHUB_TOKEN = SECRET166;
+      delete process.env.GITHUB_SHA;
+      delete process.env.ARGUS_PR_HEAD_SHA;
+
+      // [166b] postPrComment reads id+body off the FAITHFUL comments list: a list carrying the
+      // prior Argus bot-comment (among two human comments) → PATCH that exact comment id, no
+      // duplicate POST; a list WITHOUT it → POST a fresh comment. Proves the marker scan
+      // discriminates real comment objects. Token rides only in the Authorization header.
+      const reqsU166 = [];
+      globalThis.fetch = makeReportingFetchStub({ comments: issueCommentsListWithArgus, onRequest: r => reqsU166.push(r) });
+      await postPrComment(report166, diff166, { repo: 'acme/shop', prNumber: 7 });
+      const patchU166 = reqsU166.find(r => r.method === 'PATCH' && new RegExp(`/issues/comments/${ARGUS_COMMENT_ID}$`).test(r.url));
+      const postU166  = reqsU166.find(r => r.method === 'POST'  && /\/issues\/7\/comments$/.test(r.url));
+      const authU166  = patchU166?.headers?.Authorization;
+      const leakU166  = reqsU166.some(r => String(r.body ?? '').includes(SECRET166));
+
+      const reqsC166 = [];
+      globalThis.fetch = makeReportingFetchStub({ comments: issueCommentsListNoArgus, onRequest: r => reqsC166.push(r) });
+      await postPrComment(report166, diff166, { repo: 'acme/shop', prNumber: 7 });
+      const postC166  = reqsC166.find(r => r.method === 'POST'  && /\/issues\/7\/comments$/.test(r.url));
+      const patchC166 = reqsC166.find(r => r.method === 'PATCH');
+
+      assert(
+        patchU166 && !postU166 && authU166 === `Bearer ${SECRET166}` && !leakU166 &&
+        postC166 && !patchC166,
+        `[166b] postPrComment PATCHes the prior Argus comment (id ${ARGUS_COMMENT_ID}) from the faithful list, no dup POST; a list without it POSTs anew; token in auth header only (update: ${!!patchU166}, dupPost: ${!!postU166}, create: ${!!postC166}, bodyLeak: ${leakU166})`
+      );
+
+      // [166c] createCheckRun reads `id` off the rich create response (not a toy {id}) and hands
+      // it to completeCheckRun, which PATCHes /check-runs/{thatId} with completed+failure (the
+      // blocked decision). The create POST carries head_sha + in_progress; no token in any body.
+      const reqsK166 = [];
+      globalThis.fetch = makeReportingFetchStub({ onRequest: r => reqsK166.push(r) });
+      const checkId166 = await createCheckRun(undefined, HEAD_SHA, { repo: 'acme/shop' });
+      await completeCheckRun(checkId166, report166, diff166, { repo: 'acme/shop' });
+      const crPost166   = reqsK166.find(r => r.method === 'POST'  && /\/check-runs$/.test(r.url));
+      const crPatch166  = reqsK166.find(r => r.method === 'PATCH' && new RegExp(`/check-runs/${CHECK_RUN_ID}$`).test(r.url));
+      const crPostBody  = crPost166  ? JSON.parse(crPost166.body)  : {};
+      const crPatchBody = crPatch166 ? JSON.parse(crPatch166.body) : {};
+      const crLeak166   = reqsK166.some(r => String(r.body ?? '').includes(SECRET166));
+      assert(
+        checkId166 === CHECK_RUN_ID &&
+        crPost166 && crPostBody.head_sha === HEAD_SHA && crPostBody.status === 'in_progress' &&
+        crPatch166 && crPatchBody.status === 'completed' && crPatchBody.conclusion === 'failure' && !crLeak166,
+        `[166c] createCheckRun reads id ${CHECK_RUN_ID} off the faithful response → completeCheckRun PATCHes /check-runs/${CHECK_RUN_ID} (completed/failure); no token leak (id: ${checkId166}, postStatus: ${crPostBody.status}, patchConclusion: ${crPatchBody.conclusion})`
+      );
+
+      // [166d] END-TO-END — reportPrValidation off the full recorded fixture set + a resolvable
+      // head SHA (repo/PR resolved from the URL): one idempotent comment PATCH (the prior Argus
+      // comment id) + a Check Run create→complete (the fixture id), and the GITHUB_TOKEN never
+      // appears in ANY request body across the whole flow.
+      process.env.ARGUS_PR_HEAD_SHA = HEAD_SHA;
+      delete process.env.GITHUB_REPOSITORY;
+      delete process.env.GITHUB_PR_NUMBER;
+      const reqsE166 = [];
+      globalThis.fetch = makeReportingFetchStub({ comments: issueCommentsListWithArgus, onRequest: r => reqsE166.push(r) });
+      const out166 = await reportPrValidation(prResult166, { prUrl: prResult166.prUrl });
+      const ePatchComment166 = reqsE166.find(r => r.method === 'PATCH' && new RegExp(`/issues/comments/${ARGUS_COMMENT_ID}$`).test(r.url));
+      const eCrPost166       = reqsE166.find(r => r.method === 'POST'  && /\/check-runs$/.test(r.url));
+      const eCrPatch166      = reqsE166.find(r => r.method === 'PATCH' && new RegExp(`/check-runs/${CHECK_RUN_ID}$`).test(r.url));
+      const eLeak166         = reqsE166.some(r => String(r.body ?? '').includes(SECRET166));
+      assert(
+        out166.posted === true && out166.checked === true &&
+        ePatchComment166 && eCrPost166 && eCrPatch166 && !eLeak166,
+        `[166d] reportPrValidation drives the whole reporting flow off the recorded fixtures: idempotent comment PATCH (id ${ARGUS_COMMENT_ID}) + Check Run create→complete (id ${CHECK_RUN_ID}); no token in any body (posted: ${out166.posted}, checked: ${out166.checked}, commentPatch: ${!!ePatchComment166}, crCreate: ${!!eCrPost166}, crComplete: ${!!eCrPatch166}, leak: ${eLeak166})`
+      );
+    } finally {
+      globalThis.fetch = _origFetch166;
+      if (_tok166  === undefined) delete process.env.GITHUB_TOKEN;      else process.env.GITHUB_TOKEN      = _tok166;
+      if (_repo166 === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = _repo166;
+      if (_pr166   === undefined) delete process.env.GITHUB_PR_NUMBER;  else process.env.GITHUB_PR_NUMBER  = _pr166;
+      if (_sha166  === undefined) delete process.env.GITHUB_SHA;        else process.env.GITHUB_SHA        = _sha166;
+      if (_head166 === undefined) delete process.env.ARGUS_PR_HEAD_SHA; else process.env.ARGUS_PR_HEAD_SHA = _head166;
+    }
+  }
+
+  // ── Block [167] PR Validator — CLI end-to-end (child process) against the fixture app (F2) ──
+  // Drives the REAL CLI entry point src/cli/pr-validate.js as a CHILD PROCESS — exactly what
+  // action.yml runs in CI — against the live harness fixture server (devPort) + an injected PR
+  // file list (a hermetic in-process mock of GitHub's /pulls/N/files, reached via the new
+  // GITHUB_API_URL seam). This is the ONLY block that exercises main()'s full wiring end-to-end
+  // (fetchPrFiles → mapFilesToRoutesDeep → reachability → Chrome audit → baseline-aware
+  // decidePrBlock → $GITHUB_OUTPUT / step summary / ::error annotations / process exit code),
+  // closing the "CLI/MCP main() never E2E-driven" KNOWN LIMITATION every Phase A–E item flagged.
+  {
+    console.log('\n[167] PR Validator — CLI end-to-end (child process) against the fixture app (F2)');
+
+    let resA167 = null, resB167 = null;
+    let mockAReqs167 = [], mockBReqs167 = [], resultB167 = null;
+    let routesFile167 = null;
+    try {
+      const target167 = `http://localhost:${devPort}`;
+
+      // Scenario A — a docs-only PR (README.md + docs/*.md) → mapFilesToRoutes returns [] →
+      // the CLI skips the audit and exits 0 BEFORE Chrome is even contacted (fully hermetic).
+      const mockA167 = await startMockGitHubApi([
+        { filename: 'README.md',     status: 'modified', patch: null },
+        { filename: 'docs/guide.md', status: 'modified', patch: null },
+      ]);
+      mockAReqs167 = mockA167.requests;
+      try {
+        resA167 = await runPrValidateCli({
+          ARGUS_PR_URL:   'https://github.com/acme/shop/pull/7',
+          GITHUB_API_URL: `http://127.0.0.1:${mockA167.port}`,
+          TARGET_DEV_URL: target167,
+          ARGUS_BLOCK_ON: 'critical',
+        });
+      } finally {
+        try { mockA167.server.close(); } catch {}
+      }
+
+      // Scenario B — a real Chrome audit that BLOCKS. The changed file's slug matches no route,
+      // so mapFilesToRoutes falls back to ALL routes (= the one configured fixture route); the
+      // CLI audits /blank-page.html → an intrinsic blank_page CRITICAL → with no baseline the
+      // fail-safe absolute-block path fires → exit 1.
+      routesFile167 = path.join(os.tmpdir(), `argus-f2-routes-${Date.now()}.json`);
+      fs.writeFileSync(routesFile167, JSON.stringify([{ path: '/blank-page.html', name: 'blank' }]));
+      const mockB167 = await startMockGitHubApi([
+        { filename: 'src/app/widget.tsx', status: 'modified', patch: '@@ -0,0 +1,2 @@\n+export const Widget = () => null;' },
+      ]);
+      mockBReqs167 = mockB167.requests;
+      try {
+        resB167 = await runPrValidateCli({
+          ARGUS_PR_URL:      'https://github.com/acme/shop/pull/8',
+          GITHUB_API_URL:    `http://127.0.0.1:${mockB167.port}`,
+          TARGET_DEV_URL:    target167,
+          ARGUS_BLOCK_ON:    'critical',
+          ARGUS_ROUTES_FILE: routesFile167,
+        });
+        resultB167 = extractCliResultJson(resB167.stdout);
+      } finally {
+        try { mockB167.server.close(); } catch {}
+      }
+    } catch (e167) {
+      console.log('  [167] setup error: ' + e167.message);
+    } finally {
+      if (routesFile167) { try { fs.rmSync(routesFile167, { force: true }); } catch {} }
+    }
+
+    const exA167   = resA167?.exitCode;
+    const exB167   = resB167?.exitCode;
+    const outA167  = resA167?.outputs ?? {};
+    const outB167  = resB167?.outputs ?? {};
+    const sumA167  = resA167?.summary ?? '';
+    const sumB167  = resB167?.summary ?? '';
+    const stdoutB167 = resB167?.stdout ?? '';
+    const stderrB167 = resB167?.stderr ?? '';
+
+    // [167a] Scenario A: a docs-only PR skips the audit and exits 0 (no Chrome needed) — the CLI
+    //   took the "no affected routes" early-exit path and did not error.
+    assert(
+      exA167 === 0 && (resA167?.stdout ?? '').includes('No affected routes'),
+      `[167a] docs-only PR → CLI skips the audit and exits 0 (exit: ${exA167}, skipLog: ${(resA167?.stdout ?? '').includes('No affected routes')})`
+    );
+
+    // [167b] Scenario A: $GITHUB_OUTPUT reflects the pass — blocked=false, zero criticals, empty
+    //   affected_routes (the key=value contract that action.yml's downstream steps consume).
+    assert(
+      outA167.blocked === 'false' && outA167.critical_count === '0' && outA167.affected_routes === '',
+      `[167b] skip run writes GITHUB_OUTPUT blocked=false / critical_count=0 / affected_routes='' (got: ${JSON.stringify(outA167)})`
+    );
+
+    // [167c] Scenario A: the step summary renders the PASSED banner, and the mock GitHub API
+    //   received exactly the /pulls/7/files request with NO Authorization header (tokenless run).
+    assert(
+      sumA167.includes('Argus PR Validator — PASSED') &&
+      mockAReqs167.length === 1 && /\/pulls\/7\/files/.test(mockAReqs167[0].url) && mockAReqs167[0].hadAuth === false,
+      `[167c] skip run step summary = PASSED + mock served /pulls/7/files tokenless (passed: ${sumA167.includes('PASSED')}, reqs: ${JSON.stringify(mockAReqs167)})`
+    );
+
+    // [167d] Scenario B: the real fixture audit found a critical and the CLI exited 1 — the CI
+    //   merge gate. (Paired with [167a]'s exit 0, this proves the CLI distinguishes 0 vs 1.)
+    assert(
+      exB167 === 1,
+      `[167d] blocking PR → CLI audits the fixture route and exits 1 (exit: ${exB167}, stderrTail: ${(resB167?.stderr ?? '').slice(-200)})`
+    );
+
+    // [167e] Scenario B: $GITHUB_OUTPUT marks the block — blocked=true, ≥1 critical, and
+    //   affected_routes names the audited route.
+    assert(
+      outB167.blocked === 'true' && Number(outB167.critical_count) >= 1 && outB167.affected_routes === '/blank-page.html',
+      `[167e] block run writes GITHUB_OUTPUT blocked=true / critical_count≥1 / affected_routes=/blank-page.html (got: ${JSON.stringify(outB167)})`
+    );
+
+    // [167f] Scenario B: two visible-CI-feedback ::error annotations are emitted — a per-FINDING
+    //   one anchored on the audited route (stdout, console.log line 459) AND the merge-BLOCKED
+    //   reason (stderr, console.error line 572; GitHub treats both streams as annotations) — and
+    //   the JSON result printed for downstream steps agrees blocked=true.
+    const findingAnnot167 = /::error[^\n]*\[blank_page\][^\n]*blank-page\.html/.test(stdoutB167);
+    const blockAnnot167   = /::error::Argus PR Validator:.*Merge blocked/.test(stdoutB167 + '\n' + stderrB167);
+    assert(
+      findingAnnot167 && blockAnnot167 && resultB167 && resultB167.blocked === true,
+      `[167f] block run emits a per-finding ::error annotation + the merge-blocked ::error annotation + JSON result blocked=true (finding: ${findingAnnot167}, blocked: ${blockAnnot167}, json.blocked: ${resultB167?.blocked})`
+    );
+
+    // [167g] Scenario B: the step summary renders the BLOCKED banner + the per-route breakdown
+    //   row + the blank_page finding type (the reviewer-facing detail).
+    assert(
+      sumB167.includes('BLOCKED — merge prevented') &&
+      sumB167.includes('/blank-page.html') &&
+      sumB167.includes('blank_page'),
+      `[167g] block run step summary = BLOCKED banner + route row + blank_page (blocked: ${sumB167.includes('BLOCKED')}, row: ${sumB167.includes('/blank-page.html')}, type: ${sumB167.includes('blank_page')})`
+    );
+
+    // [167h] Scenario B: the JSON result is internally consistent — the audited route is the one
+    //   configured route, the critical tally is ≥1, a blank_page finding is present; and the mock
+    //   served /pulls/8/files tokenless (proving GITHUB_TOKEN never reached GitHub end-to-end).
+    assert(
+      resultB167 &&
+      Array.isArray(resultB167.affectedRoutes) && resultB167.affectedRoutes.includes('/blank-page.html') &&
+      resultB167.summary && resultB167.summary.critical >= 1 &&
+      Array.isArray(resultB167.findings) && resultB167.findings.some(f => f.type === 'blank_page') &&
+      mockBReqs167.length === 1 && /\/pulls\/8\/files/.test(mockBReqs167[0].url) && mockBReqs167[0].hadAuth === false,
+      `[167h] block run JSON result: audited /blank-page.html, critical≥1, blank_page present, mock tokenless (affected: ${JSON.stringify(resultB167?.affectedRoutes)}, crit: ${resultB167?.summary?.critical}, types: ${JSON.stringify((resultB167?.findings ?? []).map(f => f.type).slice(0, 5))}, reqs: ${JSON.stringify(mockBReqs167)})`
+    );
+  }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -7536,7 +9688,7 @@ async function main() {
     console.log(`Results: ${passed}/${total} hard assertions passed, ${failed} failed`);
     if (STRICT_SOFT) {
       console.log('  (strict-soft lane: count includes ~23 promoted soft() checks; ' +
-        'the documented per-PR gate is 845 with soft() un-promoted.)');
+        'the documented per-PR gate is 961 with soft() un-promoted.)');
     }
     if (failLog.length > 0) {
       console.log('\nFailed assertions:');

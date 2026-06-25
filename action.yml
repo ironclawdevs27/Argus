@@ -11,8 +11,26 @@ inputs:
     description: |
       Base URL of the running application to audit (e.g. https://staging.example.com).
       The application must already be running and reachable from the runner before this action starts.
-      For deploy-preview workflows, start your app in a prior step and pass the preview URL here.
+      Acts as the fallback target: when preview-url is set, or detect-preview finds a live
+      per-PR deploy preview, that preview is audited instead and this URL is used only if no
+      preview is found. For a simple deploy-preview workflow, pass the preview URL here directly.
     required: true
+
+  preview-url:
+    description: |
+      Explicit per-PR deploy-preview URL to audit instead of target-url (e.g. a Vercel/Netlify
+      preview URL resolved by a prior step). Takes precedence over target-url; leave empty to use
+      target-url or detect-preview.
+    required: false
+    default: ''
+
+  detect-preview:
+    description: |
+      Set to "true" to auto-detect the PR's deploy-preview URL from its GitHub Deployments
+      (Vercel / Netlify / any GitHub Deployment) using the PR head SHA, degrading gracefully to
+      target-url when no live preview is found. Off by default.
+    required: false
+    default: ''
 
   github-token:
     description: 'GitHub token for fetching the PR file list. Defaults to the workflow GITHUB_TOKEN. Required for private repositories.'
@@ -40,6 +58,21 @@ inputs:
       When omitted, Argus looks for argus.routes.json in the workspace root (requires checkout),
       then falls back to auditing the root path (/) only.
       Recommended: commit an argus.routes.json to your repo so CI always knows which pages to test.
+    required: false
+    default: ''
+
+  route-timeout:
+    description: |
+      Per-route audit timeout in milliseconds (default 120000). A route whose audit exceeds this
+      is recorded as a failed route — a hung audit can never silently pass. Set 0 to disable the
+      bound. Raise it if you enable a deeper audit (audit-depth) on heavy pages.
+    required: false
+    default: ''
+
+  route-retries:
+    description: |
+      Number of times to retry a failed or timed-out route audit before recording it as a failure
+      (default 0, max 5). Retries are immediate; use for flaky targets.
     required: false
     default: ''
 
@@ -134,8 +167,29 @@ runs:
         TARGET_DEV_URL: ${{ inputs.target-url }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
         ARGUS_BLOCK_ON: ${{ inputs.block-on }}
+        # Deploy-preview auto-detection (D3): an explicit preview URL, or opt-in detection of the
+        # PR's GitHub Deployment preview (keyed on ARGUS_PR_HEAD_SHA below). Both fail safe to
+        # TARGET_DEV_URL — empty by default → no behaviour change.
+        ARGUS_PREVIEW_URL: ${{ inputs.preview-url }}
+        ARGUS_PREVIEW_DETECT: ${{ inputs.detect-preview }}
         ARGUS_PR_URL: ${{ inputs.pr-url != '' && inputs.pr-url || format('https://github.com/{0}/pull/{1}', github.repository, github.event.pull_request.number) }}
         ARGUS_ROUTES_FILE: ${{ inputs.routes-file }}
+        # PR head SHA for the Argus Check Run. The runner's default GITHUB_SHA on a
+        # pull_request event is the ephemeral merge commit; the Check Run must attach to the
+        # PR head so it shows on the PR's Checks tab. (Posting the comment + Check Run
+        # requires the consuming workflow to grant `pull-requests: write` + `checks: write`.)
+        ARGUS_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # Baseline-aware blocking (optional): the PR's target branch. When a baseline file for
+        # this branch is present under REPORT_OUTPUT_DIR/baselines/ (restore it with
+        # actions/cache + a base-branch run that sets ARGUS_UPDATE_BASELINE=1), Argus blocks on
+        # the findings the PR INTRODUCES rather than pre-existing ones. With no baseline present
+        # it fails safe to blocking on absolute counts — so this is a no-op by default.
+        GITHUB_BASE_REF: ${{ github.base_ref }}
+        # Per-route audit timeout + retry (D4). Empty → the built-in defaults (120000 ms, 0
+        # retries). A timed-out route is counted as a failed route, so a hung audit blocks the
+        # merge rather than silently passing.
+        ARGUS_ROUTE_TIMEOUT_MS: ${{ inputs.route-timeout }}
+        ARGUS_ROUTE_RETRIES: ${{ inputs.route-retries }}
         ARGUS_RETRY_ATTEMPTS: '2'
         MCP_BROWSER_URL: 'http://127.0.0.1:9222'
         REPORT_OUTPUT_DIR: '/tmp/argus-reports'

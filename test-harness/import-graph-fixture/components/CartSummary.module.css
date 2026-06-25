@@ -1,0 +1,7 @@
+/* C3 fixture: a CSS module imported ONLY by components/CartSummary.jsx (which only /checkout
+   renders). Its name shares no slug with any route, so the slug heuristic blasts ALL routes;
+   the import graph attributes it to /checkout alone. */
+.summary {
+  display: flex;
+  gap: 0.5rem;
+}

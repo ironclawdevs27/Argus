@@ -4,7 +4,7 @@ name: Argus Harness (strict-soft lane)
 # with ARGUS_HARNESS_STRICT_SOFT=1, which promotes every soft() check (Lighthouse
 # scores, perf-trace summaries, heap-growth) to a counted hard assertion. The per-PR
 # gate (harness-ci.yml) keeps these soft to avoid flaky merges; this lane verifies
-# them as hard, weekly + on demand. Expected: 869/869 (846 + ~23 promoted soft checks).
+# them as hard, weekly + on demand. Expected: 984/984 (961 + 23 promoted soft checks).
 #
 # HISTORY: an earlier revision used Xvfb + non-headless Chrome, on the (disproven)
 # assumption that Lighthouse needs a real display. After the lighthouse_audit argument
@@ -77,7 +77,7 @@ jobs:
           # runner from brushing the timeout.
           MCP_TOOL_TIMEOUT_MS: '60000'
         run: npm run test:harness
-        # The 846 hard assertions must still pass; the promoted soft() checks add ~23 more
-        # (clean run = 869/869). A red run here surfaces a real soft-assertion regression
+        # The 961 hard assertions must still pass; the promoted soft() checks add 23 more
+        # (clean run = 984/984). A red run here surfaces a real soft-assertion regression
         # (e.g. Lighthouse no longer returning scores, a Chrome perf-trace API change) that
         # the headless per-PR gate cannot see because those checks are soft there.

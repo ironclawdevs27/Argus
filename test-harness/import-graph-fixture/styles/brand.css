@@ -1,0 +1,6 @@
+/* C3 fixture: a stylesheet imported by Hero.jsx (→ /) AND CartSummary.jsx (→ /checkout). The
+   import graph attributes it to the UNION of those two routes only — /about provably does not
+   import it, so it is safely excluded (the narrowing never drops a route that uses the file). */
+:root {
+  --brand: #5e0ed7;
+}

@@ -809,7 +809,11 @@ argus/
 │   │   ├── root-cause-linker.js      — Git diff heuristic: linkRootCauses — suspect files/commits on new findings
 │   │   ├── flow-runner.js            — User flow DSL: runFlow / runAllFlows
 │   │   ├── html-reporter.js          — HTML dashboard: generateHtmlReport()
-│   │   ├── parallel-crawler.js       — Concurrency sharding (ARGUS_CONCURRENCY=N)
+│   │   ├── parallel-crawler.js       — Concurrency sharding (chunkArray) + D1 bounded route auditing (mapWithConcurrency/auditRoutesConcurrently, ARGUS_CONCURRENCY) + D4 per-route timeout/retry (withTimeout/auditRouteWithRetry/routeResilienceFromEnv)
+│   │   ├── audit-depth.js            — PR-validate selective analyzer depth: resolveAuditDepth/selectAnalyzers/runDepthAnalyzers (ARGUS_PR_AUDIT_DEPTH) (D2)
+│   │   ├── deploy-preview.js         — PR-validate deploy-preview URL detection: resolveTargetUrl/previewUrlFromStatuses (ARGUS_PREVIEW_URL/ARGUS_PREVIEW_DETECT) (D3)
+│   │   ├── import-graph.js           — Static ES/CJS + stylesheet import graph: buildImportGraph/findDependents (PR-validate route mapping C1/C3)
+│   │   ├── pr-baseline.js            — PR-validate baseline-aware blocking: decidePrBlock/diffRoutesAgainstBaseline/tagFindingNovelty (B1/B2)
 │   │   ├── contract-validator.js     — API contract validation: validateSchema (D7.4)
 │   │   ├── severity-overrides.js     — Severity policy overrides: applyOverrides (D7.5)
 │   │   ├── slack-guard.js            — Slack-optional guard: isSlackConfigured()
@@ -826,7 +830,7 @@ argus/
 │       ├── doctor.js                 — checkChrome/checkMcpConfig/checkEnvKeys pre-flight checks; argus-doctor bin
 │       └── pr-validate.js            — headless CI entry point for GitHub Actions; exports buildStepSummary/writeGithubOutputs
 ├── test/
-│   └── unit/                         — Vitest unit tests, 9 files / 94 tests — no Chrome required
+│   └── unit/                         — Vitest unit tests, 18 files / 366 tests — no Chrome required
 │       ├── finding.test.js           — createFinding() — 8 tests
 │       ├── config-schema.test.js     — validateConfig() — 8 tests
 │       ├── report-processor.test.js  — deduplicateFindings + rebuildSummary — 11 tests
@@ -834,9 +838,19 @@ argus/
 │       ├── baseline-manager.test.js  — loadBaseline/saveBaseline/applyBaseline — 10 tests
 │       ├── flow-runner.test.js       — normalizeArray + runFlow mock browser — 11 tests
 │       ├── screen-recorder.test.js   — PollingRecorder (mock browser) + CdpScreenRecorder guard — 8 tests
-│       └── pdf-exporter.test.js      — exportReportToPdf / exportPageToPdf guard paths — 3 tests
+│       ├── pdf-exporter.test.js      — exportReportToPdf / exportPageToPdf guard paths — 3 tests
+│       ├── parser-fuzz.test.js       — fast-check property tests over the wire/parser fns — 22 tests
+│       ├── import-graph.test.js      — parseImports/resolveSpecifier/buildImportGraph/findDependents + stylesheet leaves (C1/C3) — 18 tests
+│       ├── pr-baseline.test.js       — decidePrBlock/diffRoutesAgainstBaseline/tagFindingNovelty (B1/B2) — 32 tests
+│       ├── pr-diff-analyzer.test.js  — fetchPrFiles/mapFilesToRoutes/mapFilesToRoutesDeep (C1–C3)/firstAddedLine/resolveAnnotationTarget — 51 tests
+│       ├── pr-validator.test.js      — prResultToReport/reportPrValidation comment+Check Run+MCP wiring (A1–A4) + CLI-helper & github-reporter I/O coverage (F3) — 53 tests
+│       ├── parallel-crawler.test.js  — mapWithConcurrency/auditRoutesConcurrently bounded route auditing (D1) — 17 tests
+│       ├── audit-depth.test.js       — resolveAuditDepth/selectAnalyzers/runDepthAnalyzers selective depth (D2) — 22 tests
+│       ├── deploy-preview.test.js    — resolveTargetUrl/previewUrlFromStatuses deploy-preview detection (D3) — 30 tests
+│       ├── route-timeout.test.js     — withTimeout/auditRouteWithRetry/routeResilienceFromEnv/allRoutesFailed (D4) — 25 tests
+│       └── github-api.test.js        — githubFetch resilience (rate-limit/5xx/network retry) + scrubSecrets (E2) — 24 tests
 ├── test-harness/
-│   ├── validate.js                   — 149-block correctness harness (846/846 gate)
+│   ├── validate.js                   — 166-block correctness harness (961/961 gate)
 │   ├── contracts/                    — golden Zod response schemas for the 9 MCP tools (block [147]) + chrome-devtools-mcp inputSchema canary snapshot (block [148])
 │   ├── harness-config.js             — Route definitions + expected findings
 │   ├── server.js                     — Fixture HTTP server (ports 3100 dev / 3101 staging)
@@ -903,7 +917,7 @@ argus/
 
 ## Known MCP Tool Limitations
 
-**None** — the harness passes `846/846` and `KNOWN_PERMANENT` in `validate.js` is empty (since v9.7.2). All three historical "permanent failures" were Argus bugs:
+**None** — the harness passes `961/961` and `KNOWN_PERMANENT` in `validate.js` is empty (since v9.7.2). All three historical "permanent failures" were Argus bugs:
 
 > **`type_text` clarification:** `type_text` fires DOM `input` events when the element is properly focused first via `mcp.click({ uid })`. Always use uid-based focus — passing `{ selector }` to `mcp.click` silently does nothing.
 

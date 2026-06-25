@@ -141,6 +141,28 @@ function parseLocElements(xml, baseUrl) {
  */
 export function discoverFromNextJs(sourceDir) {
   const discovered = new Set();
+  for (const { path: routePath } of discoverNextJsRouteFiles(sourceDir)) {
+    discovered.add(routePath);
+  }
+  return [...discovered];
+}
+
+/**
+ * Like discoverFromNextJs, but returns each route paired with the absolute path of the
+ * page/route source FILE that defines it. The PR Validator's framework-aware route mapping
+ * (PR_VALIDATOR C1) uses this to map a changed file back to the route(s) it renders:
+ * directly when the changed file IS a page, or transitively (via the import graph) when a
+ * changed component is imported by a page. discoverFromNextJs is the path-only projection
+ * of this function (so the two can never disagree on which files are routes).
+ *
+ * `file` is whatever absolute/relative form `path.join(sourceDir, …)` yields — callers that
+ * compare it against an import graph must build that graph from the SAME sourceDir.
+ *
+ * @param {string} sourceDir  project root (contains pages/ and/or app/)
+ * @returns {Array<{ path: string, file: string }>}
+ */
+export function discoverNextJsRouteFiles(sourceDir) {
+  const routeFiles = [];
 
   // ── pages/ ────────────────────────────────────────────────────────────────
   const pagesDir = path.join(sourceDir, 'pages');
@@ -162,7 +184,7 @@ export function discoverFromNextJs(sourceDir) {
       // Skip dynamic segments like [slug] — no concrete URL to crawl
       if (urlParts.some(p => p.includes('['))) continue;
 
-      discovered.add(urlParts.length === 0 ? '/' : '/' + urlParts.join('/'));
+      routeFiles.push({ path: urlParts.length === 0 ? '/' : '/' + urlParts.join('/'), file });
     }
   }
 
@@ -183,11 +205,11 @@ export function discoverFromNextJs(sourceDir) {
       // Skip dynamic segments like [id] — no concrete URL to crawl
       if (filtered.some(p => p.includes('['))) continue;
 
-      discovered.add(filtered.length === 0 ? '/' : '/' + filtered.join('/'));
+      routeFiles.push({ path: filtered.length === 0 ? '/' : '/' + filtered.join('/'), file });
     }
   }
 
-  return [...discovered];
+  return routeFiles;
 }
 
 // ── C3.3: React Router route discovery ───────────────────────────────────────

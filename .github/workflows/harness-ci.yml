@@ -11,7 +11,7 @@ env:
 
 jobs:
   harness:
-    name: Test Harness (149 blocks · 846 assertions)
+    name: Test Harness (166 blocks · 961 assertions)
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -59,8 +59,8 @@ jobs:
 
       - name: Run test harness (with coverage)
         run: npm run coverage:harness
-        # Runs the 846-assertion harness under c8 — the harness exit code still gates:
-        # KNOWN_PERMANENT is empty (since v9.7.2), so all 846 pass and any failure exits 1
+        # Runs the 961-assertion harness under c8 — the harness exit code still gates:
+        # KNOWN_PERMANENT is empty (since v9.7.2), so all 961 pass and any failure exits 1
         # (c8 propagates the child exit code). c8 captures in-process src/ coverage to
         # coverage/harness/coverage-final.json. If a genuine upstream limit appears, add
         # its block ID to KNOWN_PERMANENT in test-harness/validate.js.

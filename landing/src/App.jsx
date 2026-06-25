@@ -38,8 +38,8 @@ const navHrefs = {
 
 const stats = [
   { num: '67', label: 'DETECTION\nTYPES' },
-  { num: '149', label: 'TEST\nBLOCKS' },
-  { num: '846', label: 'ASSERTIONS\nRUN' },
+  { num: '166', label: 'TEST\nBLOCKS' },
+  { num: '961', label: 'ASSERTIONS\nRUN' },
 ]
 
 const headingWords = ['Every', 'Bug', 'Caught']
@@ -107,8 +107,8 @@ const features = [
   },
   {
     icon: GitBranch,
-    title: 'GitHub PR Integration',
-    desc: 'Auto-posts a findings table on every pull request and sets a commit status check. New criticals block merges.',
+    title: 'Baseline-Aware PR Gating',
+    desc: 'Maps a PR diff to the routes it actually touches, audits only those, and blocks merges only on regressions the PR introduces. Posts an idempotent findings comment plus a GitHub Check Run.',
     tag: 'CI / CD',
   },
   {
@@ -578,7 +578,7 @@ const pricingPlans = [
       'Everything in Pro',
       'Unlimited projects',
       'Team dashboard & member sharing',
-      'Per-branch baselines in CI',
+      'Hosted baselines shared across the team',
       'Trend charts & regression alerts',
       'Priority support (< 4 hr response)',
       'Custom Slack notifications per team',
@@ -725,7 +725,7 @@ const docChapters = [
         title: 'Extended Detections',
         bullets: [
           'Redirect chains, cookie flags, API contract validation, severity policy overrides',
-          'Core Web Vitals (LCP, FID, CLS, FCP, TTFB) via Performance API — headless-compatible',
+          'Core Web Vitals (LCP, CLS, FCP, TTI, TTFB) via Performance API — headless-compatible',
           'Bundle size regression: JS ≥ 500 KB / ≥ 2 MB, CSS ≥ 150 KB',
           'Duplicate element IDs, mixed content, HTML dashboard, parallel route crawling',
           'Hover-state CSS bugs, accessibility tree analysis, keystroke constraint enforcement',
@@ -776,7 +776,7 @@ const docChapters = [
   {
     num: '05',
     title: 'Test Coverage',
-    tagline: '149 blocks, 846 hard assertions, fixture-driven with zero ambiguity',
+    tagline: '166 blocks, 961 hard assertions, fixture-driven with zero ambiguity',
     sections: [
       {
         body: 'Every detection category has a corresponding fixture HTML page that reliably triggers exactly that bug. Fixtures are served via HTTP — never file:// — so CORS, ES modules, and fetch APIs work correctly. Each block has at minimum 3 hard assertions and passes consistently across environments without flakiness.',
@@ -813,8 +813,25 @@ const docChapters = [
           'Block 148: Upstream canary — chrome-devtools-mcp inputSchema snapshot diff (tool set + required + property names/types) + Chrome-rot deprecation watch, 5 assertions',
           'Block 149: Per-category negative controls — a well-formed page trips no detector; 65-category over-fire sweep driving the real pipeline, 70 assertions',
           'Block 150: Verification-gap closure — positive fixtures for focus_lost, security_no_https, cors_violation and cookie_attribute_missing (the last two fixed a real Chrome-149 Issues-panel classifier bug), 13 assertions',
-          '94 Vitest unit tests covering core logic — zero Chrome dependency',
-          'All 846 hard assertions pass — zero permanent failures',
+          'Block 151: PR Validator — idempotent GitHub PR comment, 7 assertions',
+          'Block 152: PR Validator — GitHub Check Run conclusion maps to the block decision, 6 assertions',
+          'Block 153: PR Validator — the argus_pr_validate MCP tool reports through the same shared helper as the CI Action, 3 assertions',
+          'Block 154: PR Validator — baseline-aware blocking; gates on the findings a PR introduces vs a stored per-branch baseline, fail-safe to absolute when none, 7 assertions',
+          'Block 155: PR Validator — the PR comment surfaces new/persisting/resolved counts that reconcile with the block decision, 5 assertions',
+          'Block 156: PR Validator — framework-aware route mapping; a changed component maps to only the routes whose pages import it (import graph), conservative-fallback on ambiguity, 11 assertions',
+          'Block 157: PR Validator — monorepo path awareness; re-bases apps/web/… paths into the package graph, foreign packages never misattributed, 8 assertions',
+          'Block 158: PR Validator — stylesheet attribution; a changed non-global CSS module narrows to only its importing routes, global stylesheets stay conservative, 7 assertions',
+          'Block 159: PR Validator — bounded-concurrency route auditing; results stay in route order regardless of completion, one Chrome client per lane, 5 assertions',
+          'Block 160: PR Validator — selective analyzer depth; file-type-aware expensive-analyzer policy, opt-in, default cheap, drift-guarded registry, 9 assertions',
+          'Block 161: PR Validator — deploy-preview URL auto-detection; adopts only a live (success) GitHub-Deployment preview, degrades to the configured target, 5 assertions',
+          'Block 162: PR Validator — per-route timeout/retry; a hung audit times out and is recorded as a route error (never a false pass), feeding the all-routes-failed guard, 5 assertions',
+          'Block 163: PR Validator — GitHub API resilience; one shared resilient client retries rate-limit/5xx/network with capped backoff and never leaks the token in an error, 5 assertions',
+          'Block 164: PR Validator — block-decision + guard matrix; block-on × severity exhaustively pinned plus the all-routes-failed guard, base-unavailable fail-safe, and decision→exit-code mapping, 7 assertions',
+          'Block 165: PR Validator — CLI↔MCP block-decision parity; both paths build the summary via one shared tally and delegate to one shared gate, so they reach the identical decision for the same findings, 4 assertions',
+          'Block 166: PR Validator — recorded GitHub reporting fixtures; proves Argus parses the documented comment/Check-Run response shape, idempotently updates one marker-tagged comment, and never leaks the token, 4 assertions',
+          'Block 167: PR Validator — CLI end-to-end; drives the real CLI as a child process (docs-only PR → exit 0; a critical → exit 1), pinning exit codes, GitHub Action outputs, annotations, and the JSON result, 8 assertions',
+          '366 Vitest unit tests covering core logic — zero Chrome dependency',
+          'All 961 hard assertions pass — zero permanent failures',
         ],
       },
       {
@@ -826,9 +843,9 @@ const docChapters = [
       },
       {
         title: 'Running',
-        code: `npm run test:unit     # 94 Vitest tests — no Chrome required
-npm run test:harness  # 846 hard assertions — Chrome required (headless)
-# Expected: 846/846 — no permanent failures
+        code: `npm run test:unit     # 366 Vitest tests — no Chrome required
+npm run test:harness  # 961 hard assertions — Chrome required (headless)
+# Expected: 961/961 — no permanent failures
 # Weekly strict-soft lane promotes ~23 soft checks to hard via ARGUS_HARNESS_STRICT_SOFT`,
       },
     ],
@@ -884,7 +901,7 @@ npm run test:harness  # 846 hard assertions — Chrome required (headless)
           'argus_get_context() — LLM-optimized diagnostic context with fix-loop: pass snapshot_id back to get resolved/new_issues/persisting diff',
           'argus_design_audit(url, figmaFrameUrl) — compares live DOM against Figma frame via REST API; 13 mismatch finding types with selector fallback; requires FIGMA_API_TOKEN',
           'argus_visual_diff(url) — pixel-level screenshot baseline comparison via pixelmatch; first call saves baseline, subsequent calls emit visual_regression findings; pass updateBaseline: true to reset after intentional UI changes',
-          'argus_pr_validate(prUrl) — fetches PR diff, maps changed files to affected routes, runs targeted argus_audit per route, returns { findings, affectedRoutes, blocked, blockOn }; blocks merge on new criticals',
+          'argus_pr_validate(prUrl) — fetches the PR diff, maps changed files to affected routes (framework-aware when ARGUS_SOURCE_DIR is set), audits only those routes, and reports through the same shared helper as the CI Action; returns { findings, affectedRoutes, blocked, blockOn, baseline, reporting }; blocks merge only on regressions the PR introduces vs the per-branch baseline',
         ],
       },
       {
@@ -970,6 +987,100 @@ npm run test:harness  # 846 hard assertions — Chrome required (headless)
           'Component presence — Figma-specified selector exists in DOM',
           'Summary — aggregate counts for all 13 types in every audit',
         ],
+      },
+    ],
+  },
+  {
+    num: '10',
+    title: 'PR Validation & Merge Gating',
+    tagline: 'Block only on what the pull request introduces — baseline-aware, framework-aware, fail-safe',
+    sections: [
+      {
+        body: 'The PR Validator turns Argus into a merge gate. On a pull request it fetches the diff, maps the changed files to the routes they actually affect, audits only those routes, diffs the findings against a stored per-branch baseline, and blocks the merge only on the regressions the PR itself introduces. It posts the result back onto the PR — a comment and a Check Run — so a reviewer never has to open the Actions tab. Every step is conservative by construction: when anything is ambiguous it widens scope or blocks, never the reverse.',
+      },
+      {
+        title: 'Two Entry Points, One Decision',
+        bullets: [
+          'CLI (argus-pr-validate) — the headless CI entry point the GitHub Action wraps; audits a routes-file for CI safety and speed',
+          'argus_pr_validate MCP tool — the conversational path; audits your targets.js routes for dev convenience',
+          'The route source diverges by design, but the block decision is shared: both build the severity tally and delegate to one decidePrBlock gate, so they reach the identical verdict for the same findings',
+          'Both report through one shared helper, so the PR comment and Check Run look identical no matter which path produced them',
+        ],
+      },
+      {
+        title: 'Baseline-Aware Blocking',
+        bullets: [
+          'Diffs the PR-head findings against a per-branch baseline (reports/baselines/<base-branch>.json, restored via the actions/cache pattern)',
+          'Gates on NEW criticals/warnings only — a pre-existing issue on an affected route no longer blocks every PR that touches that route',
+          'Surfaces NEW / PERSISTING / RESOLVED counts in the comment and step summary, reconciled with the block decision',
+          'Fail-safe: with no baseline available it blocks on absolute counts and says so in the summary — it never silently passes a broken app',
+        ],
+      },
+      {
+        title: 'Framework-Aware Route Mapping',
+        bullets: [
+          'Opt-in via ARGUS_SOURCE_DIR — a static ES/CJS import graph maps a changed component to only the routes whose page files import it',
+          'Next.js convention + tsconfig path aliases; monorepo-aware (re-bases apps/web/… paths into the right package graph, never misattributes a foreign package)',
+          'A changed non-global stylesheet narrows to only its importing routes; a global stylesheet stays conservative (all routes)',
+          'Only ever NARROWS, and only when every changed file resolves cleanly — any ambiguity falls back to the slug heuristic, so a regression is never mapped away',
+        ],
+      },
+      {
+        title: 'Safety Properties',
+        bullets: [
+          'All-routes-failed guard — if every audited route errors (app unreachable, or every audit timed out) the run exits 1 and blocks; a hung app can never false-pass',
+          'Per-route timeout + retry — a timed-out audit is recorded as a route error, never a silent zero-findings pass (ARGUS_ROUTE_TIMEOUT_MS / ARGUS_ROUTE_RETRIES)',
+          'Bounded-concurrency auditing — routes can run in parallel (ARGUS_CONCURRENCY) but results stay in route order, so the decision is identical to a sequential run',
+          'Deploy-preview auto-detection adopts only a live (success) GitHub-Deployment preview, degrading to the configured target otherwise',
+          'One resilient GitHub client retries rate-limit / 5xx / network with capped backoff and scrubs any token before it can reach a log or annotation',
+        ],
+      },
+      {
+        title: 'Reporting on the PR',
+        bullets: [
+          'One idempotent, marker-tagged comment — re-running updates it in place instead of spamming the thread',
+          'A GitHub Check Run whose conclusion maps to the block decision (failure iff blocked)',
+          'Inline file:line annotations anchored at real added lines from the diff hunks — never a fabricated location',
+        ],
+      },
+    ],
+  },
+  {
+    num: '11',
+    title: 'Intelligent Baselines & Noise Filtering',
+    tagline: 'Surface the new regression; silence the known and the flaky — without ever hiding a real bug',
+    sections: [
+      {
+        body: 'A QA tool that cries wolf gets muted. Argus post-processes every run so the signal stays high: known issues are remembered, findings that flip on and off across runs are demoted rather than alerted, and each genuinely new finding is linked back to the commits most likely to have caused it. Every post-processor is fail-safe — wrapped in try/catch so a post-processing error can never drop a finding or break a run.',
+      },
+      {
+        title: 'Per-Run Baselines',
+        bullets: [
+          'Each run is diffed against the stored baseline; only new findings are flagged isNew and trigger alerts',
+          'Resolved findings are tracked too, so trend history shows both regressions and fixes over time',
+          'Baselines are path-keyed, so a PR-head deploy on a different host (a Vercel/Netlify preview) still diffs correctly',
+        ],
+      },
+      {
+        title: 'Cross-Run Noise Classifier',
+        bullets: [
+          'Tracks the last 20 runs per branch and computes a presence-flip ratio for each finding',
+          'A finding that flips on/off across ≥ 4 runs with a flip ratio ≥ 0.4 is tagged noisy with a noiseScore and downgraded to info',
+          'Downgraded — never suppressed: the finding is still in the report, just not raised as a regression',
+          'Disable with ARGUS_NOISE_FILTER=0',
+        ],
+      },
+      {
+        title: 'Root-Cause Linking',
+        bullets: [
+          'For each NEW finding, scans the last 10 git commits (git log --name-only) and slug-matches changed files to the finding route',
+          'Annotates the finding with rootCause: { files, commits } — the suspect files and commits, no API call required',
+          'Pure local heuristic; disable with ARGUS_ROOT_CAUSE=0',
+        ],
+      },
+      {
+        title: 'Flakiness Detection',
+        body: 'Routes can be double-crawled and the two finding sets compared: a finding present in both passes is confirmed, one present in only one is classified flaky. This separates deterministic bugs from timing-sensitive noise before anything reaches your Slack channel or PR comment.',
       },
     ],
   },
@@ -2356,7 +2467,7 @@ function DocsSection() {
             How we built it.
           </h2>
           <p style={{ margin: 0, maxWidth: 520, fontSize: 'clamp(0.9rem, 1.3vw, 1.05rem)', color: 'rgba(255,255,255,0.38)', lineHeight: 1.7 }}>
-            From a single file to 149 test blocks — the engineering decisions, discoveries, and challenges behind Argus.
+            From a single file to 166 test blocks — the engineering decisions, discoveries, and challenges behind Argus.
           </p>
         </motion.div>
 

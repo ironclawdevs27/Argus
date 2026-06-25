@@ -122,7 +122,7 @@ All UI lives in `src/App.jsx` as a single-file app. Hero section is built inline
 | `@media` edge cases | ✅ Fixed | `100dvh` via `@supports` in `index.css`; stat row / detection grid / nav handle narrow viewports natively |
 | SEO — OG / Twitter / JSON-LD | ✅ Added | `index.html` has full OG tags, Twitter card, canonical, JSON-LD schema |
 | `robots.txt` + `sitemap.xml` | ✅ Added | Both in `landing/public/` |
-| OG social card | ✅ Done | `og-image-v3.jpg` — 1200×630 JPEG, branded overlay, purple stat numbers (67 / 149 / 846); regenerated via real-pixel bg reconstruction from the original art (old `og-image-v2.jpg` had stale 54/82/348 baked in — removed); `og-image.jpg` gitignored |
+| OG social card | ✅ Done | `og-image-v3.jpg` — 1200×630 JPEG, branded overlay, purple stat numbers (67 / 166 / 961); refreshed for v9.8.0 — the two changed numbers are re-rendered onto the original art via real-pixel background reconstruction (block-copy of the clean gradient + cap-height-matched native digits); `og-image.jpg` gitignored |
 | Mobile stats layout | ✅ Fixed | Stats row stacks vertically on mobile (`flex-col sm:flex-row`); slide widget reduced from 8 → 6 slides; `clamp()`-based fluid typography |
 | Deployment | ✅ Live | `npx wrangler pages deploy dist --project-name argus-qa`; custom domain `argus-qa.com` active |
 
@@ -426,3 +426,97 @@ The 4.3 headful-lane verification surfaced that `lighthouse_audit` was being cal
 | `index.html` SEO/OG/JSON-LD descriptions (meta, og:, twitter:, schema.org) | `54 detection types, 82 test blocks, 348 assertions` (long-stale — search/social text) | `67 detection types, 149 test blocks, 846 assertions` |
 
 > Heads-up: the OG card has stat numbers baked into the image (it's a static JPEG, not editable as text). Resolved 2026-06-17 — `og-image-v2.jpg` (stale 54/82/348) was regenerated as `og-image-v3.jpg` (67/149/846) via real-pixel background reconstruction + native-rendered numbers, and the orphaned v2 was removed.
+
+## Stats Update (2026-06-18 — PR Validator Phase A: GitHub reporting fidelity)
+
+PR Validator Phase A wired `github-reporter.js` into the GitHub-PR-driven audit path via one shared helper `reportPrValidation`: an idempotent PR comment (block [151]), a GitHub Check Run whose conclusion maps to the block decision (block [152]), file:line GitHub-Actions annotations from diff hunks ([137p–r]), `argus_pr_validate` (the MCP tool) reporting through the SAME helper + returning a `reporting` field (block [153]), and `fetchPrFiles` surfacing `{filename,status,patch}` (E1, [137l–o]). +23 hard assertions; unit suite 94→140. **Net: 149 → 152 blocks, 846 → 869 hard assertions, 869/869 gate** (fixtures unchanged at 63; detection categories unchanged at 67 — the PR Validator is a CI-reporting surface, not a new detector). Pending npm/Action release (src behavior changed in `github-reporter.js` / `mcp-server.js` / `pr-diff-analyzer.js` / `pr-validate.js`).
+
+| Field | Old | New |
+|---|---|---|
+| `stats[1].num` (TEST BLOCKS) | `149` | `152` |
+| `stats[2].num` (ASSERTIONS RUN) | `846` | `869` |
+| Docs § "Test Coverage" tagline | `149 blocks, 846 hard assertions` | `152 blocks, 869 hard assertions` |
+| Docs § "Running" code | `94 Vitest tests`, `846 hard assertions`, `846/846` | `140 Vitest tests`, `869 hard assertions`, `869/869` |
+| Docs § Breakdown bullets | `94 Vitest unit tests`, `All 846 hard assertions pass` + blocks end at [150] | `140 Vitest unit tests`, `All 869 hard assertions pass` + blocks [151]/[152]/[153] added |
+| `index.html` SEO/OG/JSON-LD descriptions | `67 detection types, 149 test blocks, 846 assertions` | `67 detection types, 152 test blocks, 869 assertions` |
+
+> Heads-up: the OG card (`og-image-v3.jpg`) still has the old **67 / 149 / 846** baked into the image (static JPEG). **Deferred** — regenerate to 67 / 154 / 881 when the landing page is next redeployed (mechanical image-reconstruction step, no code dependency).
+
+## Stats Update (2026-06-18 — PR Validator Phase B: baseline-aware blocking)
+
+PR Validator Phase B made the merge-block decision (and the PR comment) baseline-aware: `src/utils/pr-baseline.js` `decidePrBlock` gates on the findings a PR *introduces* vs a stored per-branch baseline (`reports/baselines/<base-branch>.json`, restored via actions/cache), fail-safe to absolute blocking when no baseline (block [154]); `tagFindingNovelty` tags each finding `isNew` and the PR comment + step summary surface NEW/PERSISTING/RESOLVED counts that reconcile with the decision (block [155]). +12 hard assertions; unit suite 140→162 (new `pr-baseline.test.js`). **Net: 152 → 154 blocks, 869 → 881 hard assertions, 881/881 gate** (fixtures unchanged at 63; detection categories unchanged at 67 — Phase B is a CI block-decision/reporting surface, not a new detector). Pending npm/Action release (src behavior changed in `pr-baseline.js` / `github-reporter.js` / `mcp-server.js` / `pr-validate.js`).
+
+| Field | Old | New |
+|---|---|---|
+| `stats[1].num` (TEST BLOCKS) | `152` | `154` |
+| `stats[2].num` (ASSERTIONS RUN) | `869` | `881` |
+| Docs § "Test Coverage" tagline | `152 blocks, 869 hard assertions` | `154 blocks, 881 hard assertions` |
+| Docs § "Running" code | `140 Vitest tests`, `869 hard assertions`, `869/869` | `162 Vitest tests`, `881 hard assertions`, `881/881` |
+| Docs § Breakdown bullets | `140 Vitest unit tests`, `All 869 hard assertions pass` + blocks end at [153] | `162 Vitest unit tests`, `All 881 hard assertions pass` + blocks [154]/[155] added |
+| `index.html` SEO/OG/JSON-LD descriptions | `67 detection types, 152 test blocks, 869 assertions` | `67 detection types, 154 test blocks, 881 assertions` |
+
+> Heads-up: the OG card (`og-image-v3.jpg`) still has the old **67 / 149 / 846** baked into the image (static JPEG). **Deferred** — regenerate to 67 / 154 / 881 when the landing page is next redeployed (mechanical image-reconstruction step, no code dependency).
+
+## Stats Update (2026-06-19 — PR Validator Phase C: route-mapping accuracy)
+
+PR Validator Phase C made the PR→route mapping framework-aware (opt-in via `ARGUS_SOURCE_DIR`, conservative-fallback on every ambiguity so a regression is never missed): **C1** new `src/utils/import-graph.js` (static import graph) + `mapFilesToRoutesDeep` maps a changed component to only the routes whose pages import it (block [156], 11); **C2** `packageRelativePath`/`stripWorkspacePrefix` re-base monorepo `apps/web/…` paths into the package graph (block [157], 8); **C3** `import-graph.js` tracks CSS/SCSS/Sass/Less leaves so a changed non-global stylesheet narrows to only its importing routes, while a global stylesheet stays conservative (block [158], 7). +26 hard assertions; unit suite 162→207 (new `import-graph.test.js`). **Net: 154 → 157 blocks, 881 → 907 hard assertions, 907/907 gate** (fixtures unchanged at 63 HTML pages + new filesystem fixtures `import-graph-fixture/`/`import-graph-monorepo-fixture/`; detection categories unchanged at 67 — Phase C is a CI route-mapping surface, not a new detector). Pending npm/Action release (src behavior changed in `pr-diff-analyzer.js` / new `import-graph.js` / `route-discoverer.js`).
+
+| Field | Old | New |
+|---|---|---|
+| `stats[1].num` (TEST BLOCKS) | `154` | `157` |
+| `stats[2].num` (ASSERTIONS RUN) | `881` | `907` |
+| Docs § "Test Coverage" tagline | `154 blocks, 881 hard assertions` | `157 blocks, 907 hard assertions` |
+| Docs § "Running" code | `162 Vitest tests`, `881 hard assertions`, `881/881` | `207 Vitest tests`, `907 hard assertions`, `907/907` |
+| Docs § Breakdown bullets | `162 Vitest unit tests`, `All 881 hard assertions pass` + blocks end at [155] | `207 Vitest unit tests`, `All 907 hard assertions pass` + blocks [156]/[157]/[158] added |
+| `index.html` SEO/OG/JSON-LD descriptions | `67 detection types, 154 test blocks, 881 assertions` | `67 detection types, 157 test blocks, 907 assertions` |
+| "How we built it" caption | `149 test blocks` | `157 test blocks` |
+
+> Heads-up: the OG card (`og-image-v3.jpg`) still has the old **67 / 149 / 846** baked into the image (static JPEG). **Deferred** — regenerate to 67 / 157 / 907 when the landing page is next redeployed (mechanical image-reconstruction step, no code dependency).
+
+## Stats Update (2026-06-21 — PR Validator Phase D: depth & performance)
+
+PR Validator Phase D added depth + performance to the PR-validate path — every item opt-in + default byte-identical, none touching the block-decision direction: **D1** `parallel-crawler.js` `mapWithConcurrency`/`auditRoutesConcurrently` audit routes with bounded concurrency in INPUT order, one Chrome client per lane (`ARGUS_CONCURRENCY`, block [159], 5); **D2** new `src/utils/audit-depth.js` selective analyzer depth (`ARGUS_PR_AUDIT_DEPTH`, default cheap, drift-guarded registry, block [160], 9); **D3** new `src/utils/deploy-preview.js` adopts only a live (SUCCESS) GitHub-Deployment preview, degrading to the configured target (block [161], 5); **D4** `parallel-crawler.js` `withTimeout`/`auditRouteWithRetry` bound each route audit — a hung audit times out and is recorded as a route error (never a false pass) feeding the exported `allRoutesFailed` guard (`ARGUS_ROUTE_TIMEOUT_MS`, block [162], 5). +24 hard assertions; unit suite 207→297 (new `parallel-crawler.test.js`/`audit-depth.test.js`/`deploy-preview.test.js`/`route-timeout.test.js`). **Net: 157 → 161 blocks, 907 → 931 hard assertions, 931/931 gate** (fixtures unchanged at 63 HTML pages — D blocks are Chrome-free; detection categories unchanged at 67 — Phase D is a CI performance/robustness surface, not a new detector). Pending npm/Action release (src behavior changed in `parallel-crawler.js` + new `audit-depth.js`/`deploy-preview.js` + `orchestrator.js`/`cli-pr-validate`/`mcp-server`/`action.yml`).
+
+| Field | Old | New |
+|---|---|---|
+| `stats[1].num` (TEST BLOCKS) | `157` | `161` |
+| `stats[2].num` (ASSERTIONS RUN) | `907` | `931` |
+| Docs § "Test Coverage" tagline | `157 blocks, 907 hard assertions` | `161 blocks, 931 hard assertions` |
+| Docs § "Running" code | `207 Vitest tests`, `907 hard assertions`, `907/907` | `297 Vitest tests`, `931 hard assertions`, `931/931` |
+| Docs § Breakdown bullets | `207 Vitest unit tests`, `All 907 hard assertions pass` + blocks end at [158] | `297 Vitest unit tests`, `All 931 hard assertions pass` + blocks [159]/[160]/[161]/[162] added |
+| `index.html` SEO/OG/JSON-LD descriptions | `67 detection types, 157 test blocks, 907 assertions` | `67 detection types, 161 test blocks, 931 assertions` |
+| "How we built it" caption | `157 test blocks` | `161 test blocks` |
+
+> Heads-up: the OG card (`og-image-v3.jpg`) still has the old **67 / 149 / 846** baked into the image (static JPEG). **Deferred** — regenerate to 67 / 161 / 931 when the landing page is next redeployed (mechanical image-reconstruction step, no code dependency).
+
+## Stats Update (2026-06-22 — PR Validator Phase E: robustness / contract armor)
+
+PR Validator Phase E hardened the PR-validate path's GitHub I/O + merge gate and locked CLI↔MCP parity: **E2** new `src/utils/github-api.js` — one shared resilient `githubFetch` both throw-path callers (`fetchPrFiles` + the reporter's `ghFetch`) route through, retrying rate-limit/5xx/network with capped backoff and never leaking the token in an error (block [163], 5); **E3** the merge gate exhaustively pinned — block-on × severity + all-routes-failed guard + base-unavailable fail-safe + decision→exit-code via the new exported `prExitCode` (block [164], 7); **E4** CLI↔MCP block-decision parity — the route-source divergence stays intentional + documented in both files, but the block decision is shared: both build the summary via one shared `severityTally` and delegate the gate to one shared `decidePrBlock`, so they reach the identical decision for the same findings (block [165], 4). +16 hard assertions; unit suite 297→340 (new `github-api.test.js`). **Net: 161 → 164 blocks, 931 → 947 hard assertions, 947/947 gate** (fixtures unchanged at 63 HTML pages — E blocks are Chrome-free; detection categories unchanged at 67 — Phase E is a CI robustness surface, not a new detector). Pending npm/Action release (src behavior changed in new `github-api.js` + `pr-diff-analyzer.js`/`github-reporter.js`/`cli-pr-validate`/`mcp-server`/`pr-baseline`).
+
+| Field | Old | New |
+|---|---|---|
+| `stats[1].num` (TEST BLOCKS) | `161` | `164` |
+| `stats[2].num` (ASSERTIONS RUN) | `931` | `947` |
+| Docs § "Test Coverage" tagline | `161 blocks, 931 hard assertions` | `164 blocks, 947 hard assertions` |
+| Docs § "Running" code | `297 Vitest tests`, `931 hard assertions`, `931/931` | `340 Vitest tests`, `947 hard assertions`, `947/947` |
+| Docs § Breakdown bullets | `297 Vitest unit tests`, `All 931 hard assertions pass` + blocks end at [162] | `340 Vitest unit tests`, `All 947 hard assertions pass` + blocks [163]/[164]/[165] added |
+| `index.html` SEO/OG/JSON-LD descriptions | `67 detection types, 161 test blocks, 931 assertions` | `67 detection types, 164 test blocks, 947 assertions` |
+| "How we built it" caption | `161 test blocks` | `164 test blocks` |
+
+> Heads-up: the OG card (`og-image-v3.jpg`) still has the old **67 / 149 / 846** baked into the image (static JPEG). **Deferred** — regenerate to 67 / 164 / 947 when the landing page is next redeployed (mechanical image-reconstruction step, no code dependency).
+
+## Stats Update (2026-06-25 — PR Validator Phase F: test maximization — PR_VALIDATOR_MAX_PLAN complete)
+
+PR Validator Phase F closed out the plan with hermetic, network-free test maximization for the whole PR-validate path: **F1** new fixture `test-harness/contracts/github-reporting-samples.js` (faithful documented-schema responses for all six reporting endpoints) — block [166] (4) proves Argus parses the documented comment/Check-Run *response* shape, idempotently updates one marker-tagged comment, and never leaks the token; **F2** the first block to drive the real CLI `src/cli/pr-validate.js` as a child process end-to-end (docs-only PR → exit 0; a `blank_page` critical → exit 1) — block [167] (8) pins exit codes, GitHub Action outputs, step-summary banners, annotations, and the JSON result, all tokenless; **F3** direct Chrome-free unit tests for the nine PR-Validator fns that were harness-only + re-verified B1/E3/D4 by mutation (unit suite 340→366, no harness block); **F4** the `argus_pr_validate` golden schema now explicitly pins the A4 `reporting` + B1/B2 `baseline` rider fields as `.optional()` shapes (non-vacuous negative controls [147o]/[147p]). +14 hard assertions. **Net: 164 → 166 blocks, 947 → 961 hard assertions, 961/961 gate** (fixtures unchanged at 63 HTML pages; detection categories unchanged at 67 — Phase F is a test surface, not a new detector). F1/F3/F4 are test-only; F2 adds one small `GITHUB_API_URL` seam in `pr-diff-analyzer.js` that joins the still-pending Phase A–E npm/Action release.
+
+| Field | Old | New |
+|---|---|---|
+| `stats[1].num` (TEST BLOCKS) | `164` | `166` |
+| `stats[2].num` (ASSERTIONS RUN) | `947` | `961` |
+| Docs § "Test Coverage" tagline | `164 blocks, 947 hard assertions` | `166 blocks, 961 hard assertions` |
+| Docs § "Running" code | `340 Vitest tests`, `947 hard assertions`, `947/947` | `366 Vitest tests`, `961 hard assertions`, `961/961` |
+| Docs § Breakdown bullets | `340 Vitest unit tests`, `All 947 hard assertions pass` + blocks end at [165] | `366 Vitest unit tests`, `All 961 hard assertions pass` + blocks [166]/[167] added |
+| `index.html` SEO/OG/JSON-LD descriptions | `67 detection types, 164 test blocks, 947 assertions` | `67 detection types, 166 test blocks, 961 assertions` |
+| "How we built it" caption | `164 test blocks` | `166 test blocks` |
+
+> OG card: **Resolved 2026-06-25** — `og-image-v3.jpg` regenerated to **67 / 166 / 961** for v9.8.0. Only the two changed numbers (166, 961) were re-rendered onto the original art: a clean slice of the gradient just above the stat row was block-copied down to erase the old digits, then cap-height-matched native digits were drawn in the brand purple (`rgb(101,44,200)`) so they sit flush with the untouched `67`. Still 1200×630, ~103 KB.

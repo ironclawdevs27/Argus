@@ -27,6 +27,8 @@
  */
 
 import { childLogger } from './logger.js';
+import { parsePrUrl } from './pr-diff-analyzer.js';
+import { githubFetch } from './github-api.js';
 
 const logger = childLogger('github-reporter');
 
@@ -42,6 +44,45 @@ function sevIcon(sev) { return SEV_ICON[sev] ?? '⚪'; }
 /** Escape pipe characters so they don't break Markdown tables. */
 function mdCell(text, maxLen = 100) {
   return String(text ?? '').slice(0, maxLen).replace(/\|/g, '\\|').replace(/\n/g, ' '); // lgtm[js/incomplete-string-escaping] — escaping pipe and newline is correct and sufficient for GitHub Markdown table cells
+}
+
+/**
+ * Build the PR-Validator banner lines (block verdict + reason + affected routes).
+ * Rendered at the top of the comment only when report.prValidation is present, so
+ * existing runCrawl()-sourced reports are unaffected.
+ */
+function prValidationBanner(pv) {
+  const bl = pv.baseline;
+  const baselineAware = !!(bl && bl.available);
+  const lines = [
+    pv.blocked
+      ? `> 🔴 **Merge blocked** — ${pv.reason} (block-on: \`${pv.blockOn}\`)`
+      : baselineAware
+        ? `> ✅ **Merge allowed** — this PR introduces no findings at or above the \`${pv.blockOn}\` threshold`
+        : `> ✅ **Merge allowed** — no findings at or above the \`${pv.blockOn}\` threshold`,
+  ];
+  // Baseline-aware surfacing (Phase B2): what this PR INTRODUCES vs what already existed on the
+  // affected routes, so a reviewer sees why the merge was (or wasn't) blocked. When no per-branch
+  // baseline was available the decision fell back to absolute counts — say so, never silently.
+  if (baselineAware) {
+    lines.push(
+      '',
+      'Blocking on findings this PR **introduces** (vs the base-branch baseline):  ',
+      `🔴 ${bl.newCritical} new critical · 🟡 ${bl.newWarning} new warning · 🔵 ${bl.newInfo} new info · ${bl.persisting} persisting · ${bl.resolved} resolved  `,
+    );
+  } else if (bl && bl.available === false) {
+    lines.push('', `> ⚠️ ${bl.note ?? 'Baseline unavailable — blocking on absolute finding counts.'}  `);
+  }
+  if (Array.isArray(pv.affectedRoutes) && pv.affectedRoutes.length > 0) {
+    const shown = pv.affectedRoutes.slice(0, 20).map(r => `\`${r}\``).join(', ');
+    const extra = pv.affectedRoutes.length > 20 ? ` _(+${pv.affectedRoutes.length - 20} more)_` : '';
+    lines.push('', `**Affected routes** (${pv.affectedRoutes.length}): ${shown}${extra}  `);
+  }
+  if (typeof pv.changedFileCount === 'number') {
+    lines.push(`**Files changed**: ${pv.changedFileCount}  `);
+  }
+  lines.push('');
+  return lines;
 }
 
 // ── C2.1: PR comment formatter (pure — no I/O) ───────────────────────────────
@@ -89,6 +130,7 @@ export function formatPrComment(report, diff) {
     `**Base URL**: ${baseUrl}  `,
     `**Run time**: ${runDate}  `,
     '',
+    ...(report.prValidation ? prValidationBanner(report.prValidation) : []),
     '| | 🔴 Critical | 🟡 Warning | 🔵 Info | Total |',
     '|---|---|---|---|---|',
     `| **Total** | ${summary.critical} | ${summary.warning} | ${summary.info} | ${summary.total} |`,
@@ -217,7 +259,7 @@ export function buildStatusPayload(report, diff) {
 
 // ── GitHub API helper ─────────────────────────────────────────────────────────
 
-async function ghFetch(urlPath, method, body, attempt = 1) {
+async function ghFetch(urlPath, method, body) {
   if (!process.env.GITHUB_TOKEN) {
     throw new Error('GITHUB_TOKEN environment variable is not set — GitHub reporting is disabled');
   }
@@ -228,33 +270,16 @@ async function ghFetch(urlPath, method, body, attempt = 1) {
   };
   if (body) headers['Content-Type'] = 'application/json';
 
-  let res;
-  try {
-    res = await fetch(`${GITHUB_API}${urlPath}`, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(15000),
-    });
-  } catch (err) {
-    // Network error or timeout — retry up to 3 times with exponential backoff
-    if (attempt < 3) {
-      await new Promise(r => setTimeout(r, attempt * 1000));
-      return ghFetch(urlPath, method, body, attempt + 1);
-    }
-    throw err;
-  }
-
-  // Retry on transient server errors (5xx) and rate-limit (429) with exponential backoff
-  if ((res.status >= 500 || res.status === 429) && attempt < 3) {
-    await new Promise(r => setTimeout(r, attempt * 1000));
-    return ghFetch(urlPath, method, body, attempt + 1);
-  }
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`GitHub API ${method} ${urlPath} → ${res.status}: ${text.slice(0, 200)}`);
-  }
+  // E2: shared resilient client — retries a rate-limit (403 primary / 429 secondary)
+  // + transient 5xx + network error with backoff (Retry-After / X-RateLimit-Reset
+  // aware), throws a structured, secret-free error on 401/404/422/plain-403. The token
+  // rides only in the request headers above, never in any thrown message.
+  const res = await githubFetch(`${GITHUB_API}${urlPath}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+    context: `${method} ${urlPath}`,
+  });
   return res.json();
 }
 
@@ -264,9 +289,9 @@ async function ghFetch(urlPath, method, body, attempt = 1) {
  * Create a PR comment, or update the existing Argus comment if one is already present.
  * Idempotent: re-running on the same PR updates in-place rather than spamming new comments.
  */
-export async function postPrComment(report, diff) {
-  const repo  = process.env.GITHUB_REPOSITORY;
-  const prNum = process.env.GITHUB_PR_NUMBER;
+export async function postPrComment(report, diff, opts = {}) {
+  const repo  = opts.repo     ?? process.env.GITHUB_REPOSITORY;
+  const prNum = opts.prNumber ?? process.env.GITHUB_PR_NUMBER;
   if (!repo || !prNum) throw new Error('[ARGUS] C2: GITHUB_REPOSITORY or GITHUB_PR_NUMBER not set');
 
   let body = formatPrComment(report, diff);
@@ -322,10 +347,14 @@ export async function setCommitStatus(report, diff) {
  *
  * @param {string} [name]   - Check run name (default: GITHUB_CHECK_NAME ?? 'argus-qa')
  * @param {string} [sha]    - Commit SHA (default: GITHUB_SHA env var)
+ * @param {object} [opts]
+ * @param {string} [opts.repo] - "owner/repo" override (default: GITHUB_REPOSITORY env var).
+ *                               Lets callers that resolved the repo from a PR URL (the PR
+ *                               Validator) drive the Check Run without relying on env.
  * @returns {Promise<number>} check run id
  */
-export async function createCheckRun(name, sha) {
-  const repo    = process.env.GITHUB_REPOSITORY;
+export async function createCheckRun(name, sha, opts = {}) {
+  const repo    = opts.repo ?? process.env.GITHUB_REPOSITORY;
   const headSha = sha ?? process.env.GITHUB_SHA;
   if (!repo || !headSha) throw new Error('[ARGUS] C2: GITHUB_REPOSITORY or GITHUB_SHA not set');
 
@@ -352,13 +381,30 @@ export async function createCheckRun(name, sha) {
  * @param {number} checkRunId - id from createCheckRun()
  * @param {object} report     - runCrawl() report
  * @param {object|null} diff  - baseline diff (null = first run)
+ * @param {object} [opts]
+ * @param {string} [opts.repo] - "owner/repo" override (default: GITHUB_REPOSITORY env var)
  */
-export async function completeCheckRun(checkRunId, report, diff) {
-  const repo = process.env.GITHUB_REPOSITORY;
+export async function completeCheckRun(checkRunId, report, diff, opts = {}) {
+  const repo = opts.repo ?? process.env.GITHUB_REPOSITORY;
   if (!repo) throw new Error('[ARGUS] C2: GITHUB_REPOSITORY not set');
 
-  const status = buildStatusPayload(report, diff);
-  const conclusion = status.state === 'success' ? 'success' : 'failure';
+  // The conclusion must reflect the merge gate. For a PR-Validator report the authoritative
+  // gate is the block-on decision (report.prValidation.blocked), NOT buildStatusPayload's
+  // new-criticals-vs-ARGUS_CRITICAL_THRESHOLD rule — the two diverge (e.g. block-on=warning
+  // with 0 criticals blocks the merge but has 0 new criticals). runCrawl reports carry no
+  // prValidation field, so they keep the existing threshold-based conclusion.
+  let conclusion, title;
+  const pv = report.prValidation;
+  if (pv) {
+    conclusion = pv.blocked ? 'failure' : 'success';
+    title      = pv.blocked
+      ? `Argus: merge blocked — ${pv.reason}`
+      : `Argus: merge allowed — no findings at or above block-on=${pv.blockOn}`;
+  } else {
+    const status = buildStatusPayload(report, diff);
+    conclusion   = status.state === 'success' ? 'success' : 'failure';
+    title        = status.description;
+  }
 
   // Build rich text output (full findings table, without the COMMENT_MARKER sentinel)
   const fullBody = formatPrComment(report, diff);
@@ -371,8 +417,8 @@ export async function completeCheckRun(checkRunId, report, diff) {
     conclusion,
     completed_at: new Date().toISOString(),
     output: {
-      title:   status.description,
-      summary: status.description,
+      title:   title.slice(0, 255),       // GitHub Check output.title limit
+      summary: title,
       text:    richText,
     },
   });
@@ -510,4 +556,170 @@ export async function reportToGitHub(report, diff) {
   }
 
   await Promise.all(tasks);
+}
+
+// ── PR Validator reporting (Phase A) ──────────────────────────────────────────
+
+/**
+ * Adapt a PR-Validator result (the src/cli/pr-validate.js + argus_pr_validate response
+ * shape) into the `report` object that formatPrComment / buildStatusPayload consume.
+ * Pure — no I/O.
+ *
+ * The PR Validator has no per-run baseline yet (Phase B introduces head-vs-base
+ * diffing), so every finding on an affected route is surfaced as-is; callers pair this
+ * with a NON-first `diff` (see reportPrValidation) so formatPrComment renders the
+ * findings table rather than treating the run as a baseline-establishing first run.
+ *
+ * @param {object} result
+ * @param {string} [result.targetUrl]
+ * @param {{ critical: number, warning: number, info: number }} [result.summary]
+ * @param {Array<{ severity: string, type: string, message: string, url: string }>} [result.findings]
+ * @param {string[]} [result.affectedRoutes]
+ * @param {string[]} [result.changedFiles]
+ * @param {boolean} [result.blocked]
+ * @param {string}  [result.blockOn]
+ * @returns {object} report consumable by formatPrComment
+ */
+export function prResultToReport(result = {}) {
+  const {
+    targetUrl,
+    summary = { critical: 0, warning: 0, info: 0 },
+    findings = [],
+    affectedRoutes = [],
+    changedFiles = [],
+    blocked = false,
+    blockOn = 'critical',
+    baseline,   // B2: { available, newCritical, newWarning, newInfo, persisting, resolved } | { available:false, note }
+  } = result;
+
+  const base = String(targetUrl ?? '').replace(/\/$/, '');
+
+  // Group findings by their route path (derived from each finding's url), so the
+  // comment's findings table is sourced per-route — formatPrComment uses
+  // report.routes[].route as the display source label for each finding.
+  const byRoute = new Map();
+  for (const f of findings) {
+    const url = String(f.url ?? '');
+    let label = url || '(unknown route)';
+    if (base && url.startsWith(base)) label = url.slice(base.length) || '/';
+    if (!byRoute.has(label)) byRoute.set(label, []);
+    byRoute.get(label).push(f);
+  }
+  const routes = [...byRoute.entries()].map(([route, errors]) => ({
+    route, errors, screenshot: null,
+  }));
+
+  const crit  = summary.critical ?? 0;
+  const warn  = summary.warning  ?? 0;
+  const info  = summary.info     ?? 0;
+
+  // The block reason must reflect what the decision actually counted, so the banner reconciles
+  // with `blocked` (Phase B2): the NEW (PR-introduced) counts when a baseline was available, the
+  // absolute counts otherwise. The scope word ("new"/"total") matches decidePrBlock's phrasing;
+  // it is omitted entirely for legacy callers that pass no baseline field (back-compat).
+  const blPresent = !!(baseline && typeof baseline === 'object');
+  const blAvail   = !!(blPresent && baseline.available);
+  const rCrit = blAvail ? (baseline.newCritical ?? 0) : crit;
+  const rWarn = blAvail ? (baseline.newWarning  ?? 0) : warn;
+  const scope = !blPresent ? '' : blAvail ? 'new ' : 'total ';
+  const reason = !blocked ? null
+    : blockOn === 'warning'
+      ? `${rCrit} critical + ${rWarn} warning ${scope}finding(s) at or above the block threshold`
+      : `${rCrit} critical ${scope}finding(s) found`;
+
+  return {
+    baseUrl: base || String(targetUrl ?? ''),
+    generatedAt: new Date().toISOString(),
+    summary: { critical: crit, warning: warn, info, total: crit + warn + info },
+    routes,
+    codebase: [],
+    flows: [],
+    prValidation: {
+      blocked,
+      blockOn,
+      reason,
+      affectedRoutes: affectedRoutes
+        .map(r => (typeof r === 'string' ? r : r?.path))
+        .filter(Boolean),
+      changedFileCount: Array.isArray(changedFiles) ? changedFiles.length : 0,
+      baseline: baseline ?? null,
+    },
+  };
+}
+
+/**
+ * Post (or idempotently update) the single Argus PR comment for a PR-Validator run.
+ *
+ * Gated on GITHUB_TOKEN plus a resolvable owner/repo + PR number — taken from the
+ * GITHUB_REPOSITORY / GITHUB_PR_NUMBER env vars (set by the GitHub runner) or, failing
+ * that, parsed from the PR URL. A missing token or unresolvable PR context SKIPS
+ * reporting (returns a status) rather than throwing: a reporting misconfiguration must
+ * never crash or block the validation step. The GitHub token is never echoed into the
+ * return value, logs, or thrown errors (it rides only in the Authorization header).
+ *
+ * Idempotent: postPrComment finds the existing Argus comment by its HTML marker and
+ * PATCHes it in place, so re-running on the same PR updates rather than duplicates.
+ *
+ * In addition to the comment (A1), a GitHub Check Run is created + completed (A2) when a
+ * PR head SHA is resolvable (ARGUS_PR_HEAD_SHA — set by action.yml to
+ * github.event.pull_request.head.sha — or GITHUB_SHA). Its conclusion maps to the block
+ * decision (failure iff blocked). The Check Run is best-effort and isolated: a failure
+ * there never discards an already-posted comment and never changes the merge decision.
+ *
+ * @param {object} result        - PR-validate result (see prResultToReport)
+ * @param {object} [opts]
+ * @param {string} [opts.prUrl]  - PR URL used to derive owner/repo/prNumber when env vars are absent
+ * @returns {Promise<{ posted: boolean, checked: boolean, skipped: boolean, reason?: string }>}
+ */
+export async function reportPrValidation(result, { prUrl } = {}) {
+  if (!process.env.GITHUB_TOKEN) {
+    return { posted: false, checked: false, skipped: true, reason: 'GITHUB_TOKEN not set — PR reporting skipped' };
+  }
+
+  let repo     = process.env.GITHUB_REPOSITORY;
+  let prNumber = process.env.GITHUB_PR_NUMBER;
+  const url    = prUrl ?? result?.prUrl;
+  if ((!repo || !prNumber) && url) {
+    try {
+      const { owner, repo: r, prNumber: n } = parsePrUrl(url);
+      repo     = repo     || `${owner}/${r}`;
+      prNumber = prNumber || n;
+    } catch { /* unparseable URL — fall through to the skip below */ }
+  }
+  if (!repo || !prNumber) {
+    return { posted: false, checked: false, skipped: true, reason: 'no resolvable repo / PR number — PR reporting skipped' };
+  }
+
+  const report = prResultToReport(result);
+  // Non-first diff so findings render (not treated as a baseline-establishing first run). The
+  // new/persisting split rides on each finding's `isNew` tag (set in the PR-validate paths via
+  // tagFindingNovelty); `resolvedCount` comes from the head-vs-base diff (Phase B2) so the
+  // comment's Resolved row reconciles with the block decision. 0 when no baseline was available.
+  const diff = {
+    isFirstRun: false,
+    resolvedCount: (result && result.baseline && result.baseline.available) ? (result.baseline.resolved ?? 0) : 0,
+    flowResolvedCount: 0,
+  };
+
+  // A1 — idempotent PR comment (the primary visible surface). A failure here propagates to
+  // the caller, which logs a ::warning:: and leaves the already-computed merge decision intact.
+  await postPrComment(report, diff, { repo, prNumber });
+
+  // A2 — Check Run whose conclusion maps to the block decision. Gated on a resolvable PR
+  // head SHA; isolated so a Check Run failure can't discard the posted comment.
+  let checked = false;
+  let checkError;
+  const headSha = process.env.ARGUS_PR_HEAD_SHA || process.env.GITHUB_SHA;
+  if (headSha) {
+    try {
+      const checkId = await createCheckRun(undefined, headSha, { repo });
+      await completeCheckRun(checkId, report, diff, { repo });
+      checked = true;
+    } catch (err) {
+      checkError = err.message;
+      logger.warn(`[ARGUS] C2: PR Check Run failed — ${err.message}`);
+    }
+  }
+
+  return { posted: true, checked, skipped: false, ...(checkError ? { reason: `check run failed: ${checkError}` } : {}) };
 }

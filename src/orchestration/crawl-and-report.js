@@ -11,6 +11,6 @@
  * continue to import from this file unchanged.
  */
 
-export { runCrawl, crawlRouteCheap, crawlRouteExpensive, checkHttpsRequired } from './orchestrator.js';
+export { runCrawl, crawlRouteCheap, crawlRouteExpensive, crawlRouteWithDepth, checkHttpsRequired } from './orchestrator.js';
 export { processReport, deduplicateFindings, rebuildSummary } from './report-processor.js';
 export { dispatchAll } from './dispatcher.js';

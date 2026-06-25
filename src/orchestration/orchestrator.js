@@ -28,6 +28,7 @@ import { parseConsoleMsgResponse }                                       from '.
 import { CdpBrowserAdapter }                                             from '../adapters/browser.js';
 import { getFigmaFrame }                                                 from '../adapters/figma.js';
 import { chunkArray }                                                    from '../utils/parallel-crawler.js';
+import { runDepthAnalyzers }                                             from '../utils/audit-depth.js';
 import { validateApiContracts }                                          from '../utils/contract-validator.js';
 import { checkLighthouse }                                               from '../utils/lighthouse-checker.js';
 import { parseIssues }                                                   from '../utils/issues-analyzer.js';
@@ -851,6 +852,39 @@ export async function crawlRouteExpensive(route, baseUrl, mcp) {
   }
 
   return errors;
+}
+
+// ── Selective-Depth Crawl (D2 — PR Validator) ──────────────────────────────────
+
+/**
+ * Crawl one route at a SELECTABLE depth for the PR Validator (D2).
+ *
+ * Runs the cheap pass (crawlRouteCheap) and then a SELECTED SUBSET of the registered
+ * expensive analyzers — the names chosen by the shared depth policy (audit-depth.js
+ * selectAnalyzers, off ARGUS_PR_AUDIT_DEPTH + the PR's changed file types). With an empty
+ * selection it returns the crawlRouteCheap result UNCHANGED, so the default ('cheap') tier
+ * is byte-identical to the prior PR-validate behaviour. Each expensive analyzer is isolated
+ * (runDepthAnalyzers try/catch), so deepening only ever ADDS findings — it can never turn a
+ * real failure into a PASS. Same shape as crawlRouteCheap ({ ...result, errors }).
+ *
+ * @param {object} route
+ * @param {string} baseUrl
+ * @param {object} mcp
+ * @param {string[]} [analyzerNames]  registry expensive-analyzer names to also run
+ */
+export async function crawlRouteWithDepth(route, baseUrl, mcp, analyzerNames = []) {
+  const result = await crawlRouteCheap(route, baseUrl, mcp);
+  const wanted = Array.isArray(analyzerNames) ? analyzerNames : [];
+  if (wanted.length === 0) return result;
+
+  const browser = new CdpBrowserAdapter(mcp);
+  const url     = `${baseUrl}${route.path}`;
+  const extra   = await runDepthAnalyzers(getExpensive(), browser, url, route, wanted);
+  if (extra.length > 0) {
+    result.errors.push(...extra);
+    result.errors = deduplicateErrors(result.errors);
+  }
+  return result;
 }
 
 // ── Per-Route Crawl Coordinator ────────────────────────────────────────────────

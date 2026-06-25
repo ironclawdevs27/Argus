@@ -25,8 +25,16 @@ import fs   from 'fs';
 import path from 'path';
 import { fileURLToPath }                              from 'url';
 import { createMcpClient }                            from '../utils/mcp-client.js';
-import { crawlRouteCheap }                            from '../orchestration/crawl-and-report.js';
-import { fetchPrFiles, mapFilesToRoutes } from '../utils/pr-diff-analyzer.js';
+import { crawlRouteWithDepth }                         from '../orchestration/crawl-and-report.js';
+import { resolveAuditDepth, selectAnalyzers }          from '../utils/audit-depth.js';
+import { auditRoutesConcurrently, auditRouteWithRetry, routeResilienceFromEnv } from '../utils/parallel-crawler.js';
+import { fetchPrFiles, mapFilesToRoutesDeep, resolveAnnotationTarget } from '../utils/pr-diff-analyzer.js';
+import { resolveTargetUrl }                           from '../utils/deploy-preview.js';
+import { reportPrValidation }                         from '../utils/github-reporter.js';
+import { getCurrentBranch }                            from '../utils/baseline-manager.js';
+import {
+  decidePrBlock, resolvePrBaselineFile, loadPrBaseline, savePrBaseline, tagFindingNovelty, severityTally,
+} from '../utils/pr-baseline.js';
 
 // ── Exported helpers (testable without Chrome) ────────────────────────────────
 
@@ -41,10 +49,13 @@ import { fetchPrFiles, mapFilesToRoutes } from '../utils/pr-diff-analyzer.js';
  * @param {Array<object>} opts.findings
  * @param {string[]} opts.changedFiles
  * @param {string} opts.blockOn   critical | warning | none
+ * @param {object} [opts.baseline] baseline-aware diff status (Phase B1). When available:
+ *   { available: true, newCritical, newWarning, newInfo, persisting, resolved }.
+ *   When not: { available: false, note }. Omit entirely for non-baseline callers.
  * @param {string} [opts.error]   top-level error message (startup / fetch failure)
  * @returns {string}
  */
-export function buildStepSummary({ blocked, summary, affectedRoutes, perRoute, findings, changedFiles, blockOn, error }) {
+export function buildStepSummary({ blocked, summary, affectedRoutes, perRoute, findings, changedFiles, blockOn, baseline, error }) {
   const icon   = blocked ? '🔴' : summary.critical + summary.warning === 0 ? '✅' : '⚠️';
   const status = blocked ? 'BLOCKED — merge prevented' : 'PASSED';
 
@@ -61,6 +72,20 @@ export function buildStepSummary({ blocked, summary, affectedRoutes, perRoute, f
   md += `| Info findings | ${summary.info} |\n`;
   md += `| Routes audited | ${affectedRoutes.length} |\n`;
   md += `| Files changed | ${changedFiles.length} |\n\n`;
+
+  // Baseline-aware blocking status (Phase B1). Either the head-vs-base diff counts, or the
+  // fail-safe note when no per-branch baseline was available to diff against.
+  if (baseline) {
+    if (baseline.available) {
+      md += `### Baseline diff\n\n`;
+      md += `Blocking on **new** findings this PR introduces (vs the base-branch baseline).\n\n`;
+      md += `| | 🔴 Critical | ⚠️ Warning | ℹ️ Info |\n|--|------------|-----------|--------|\n`;
+      md += `| New | ${baseline.newCritical} | ${baseline.newWarning} | ${baseline.newInfo} |\n\n`;
+      md += `_${baseline.persisting} persisting · ${baseline.resolved} resolved._\n\n`;
+    } else {
+      md += `> ⚠️ ${baseline.note ?? 'Baseline unavailable — blocking on absolute finding counts.'}\n\n`;
+    }
+  }
 
   if (perRoute.length > 0) {
     md += `### Route Breakdown\n\n`;
@@ -152,6 +177,37 @@ export function normalizeRoutePaths(routes) {
   });
 }
 
+/**
+ * All-routes-failed guard (safety-critical — must never false-PASS). True when at least one
+ * route was audited and EVERY audited route errored (the app was unreachable, or every audit
+ * timed out). The caller throws on this → exit 1 → merge blocked. A timed-out route audit is
+ * recorded as a route error (perRoute[i].error set, via auditRouteWithRetry, D4), so a hung
+ * audit feeds this guard and can never become a silent pass. A PARTIAL failure (some routes ok)
+ * does NOT trip the guard: those errors are surfaced in the summary/annotations and the normal
+ * finding-based block decision applies.
+ *
+ * @param {Array<{ error?: string }>} perRoute
+ * @returns {boolean}
+ */
+export function allRoutesFailed(perRoute) {
+  return Array.isArray(perRoute) && perRoute.length > 0 && perRoute.every(r => r && r.error);
+}
+
+/**
+ * The CLI's audit-decision → process exit-code mapping (the CI merge gate). SAFETY-CRITICAL:
+ * exit 1 blocks the merge, exit 0 allows it. Returns 1 when the PR is blocked (findings at or
+ * above the block-on threshold — the baseline-aware decidePrBlock decision) OR the audit failed
+ * (every route errored / a startup/fetch error — both surface via the catch as `failed`); 0 only
+ * when a completed audit passed. Extracted as a pure exported fn (like allRoutesFailed) so the
+ * full block-decision → exit matrix is unit- + mutation-testable without driving Chrome.
+ *
+ * @param {{ blocked?: boolean, failed?: boolean }} [d]
+ * @returns {0 | 1}
+ */
+export function prExitCode({ blocked = false, failed = false } = {}) {
+  return (blocked || failed) ? 1 : 0;
+}
+
 // ── Route loader ──────────────────────────────────────────────────────────────
 
 async function loadRoutes() {
@@ -204,7 +260,6 @@ if (process.argv[1] === _thisFile) {
 
 async function main() {
   const prUrl     = process.env.ARGUS_PR_URL;
-  const targetUrl = process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
   const blockOn   = (process.env.ARGUS_BLOCK_ON ?? 'critical').toLowerCase().trim();
   const token     = process.env.GITHUB_TOKEN;
 
@@ -218,16 +273,34 @@ async function main() {
     process.exit(1);
   }
 
+  // Resolve the audit target (D3 — deploy-preview auto-detection). Prefer a per-PR deploy
+  // preview over the static TARGET_DEV_URL, always degrading gracefully back to it. Default
+  // (no ARGUS_PREVIEW_URL / ARGUS_PREVIEW_DETECT) → TARGET_DEV_URL exactly, with NO extra
+  // network call — byte-identical to the prior behaviour. The head SHA (ARGUS_PR_HEAD_SHA,
+  // the PR head, not the runner's merge-commit GITHUB_SHA) keys the GitHub Deployments probe.
+  const headSha = process.env.ARGUS_PR_HEAD_SHA || process.env.GITHUB_SHA;
+  const { url: targetUrl, source: targetSource } = await resolveTargetUrl({
+    env: process.env, prUrl, headSha, token,
+  });
+  if (targetSource !== 'target-dev-url') {
+    console.log(`[argus] Audit target resolved via ${targetSource}: ${targetUrl}`);
+  }
+
   let mcp;
   const changedFiles   = [];
   const affectedRoutes = [];
   const allFindings    = [];
   const perRoute       = [];
+  const routeFindings  = [];   // [{ path, findings }] — feeds the baseline-aware diff (B1)
 
   try {
     // Step 1: Fetch the PR file list from GitHub
     console.log(`[argus] Fetching PR diff: ${prUrl}`);
-    const files = await fetchPrFiles(prUrl, token);
+    // prFiles carries { filename, status, patch } per file; `files` is the filename-only
+    // view used for slug mapping + the string[] output contract. prFiles.patch feeds the
+    // file:line annotations (Phase A3).
+    const prFiles = await fetchPrFiles(prUrl, token);
+    const files   = prFiles.map(f => f.filename);
     changedFiles.push(...files);
     console.log(`[argus] ${files.length} changed file(s)`);
     if (files.length >= 300) {
@@ -236,9 +309,14 @@ async function main() {
       console.log('::warning::PR has 300+ changed files — Argus analyzed the first 300. Routes affected by later files may be missed.');
     }
 
-    // Step 2: Map changed files to affected routes
+    // Step 2: Map changed files to affected routes. When ARGUS_SOURCE_DIR points at the
+    // checked-out app source, mapFilesToRoutesDeep (C1) maps a changed component to only the
+    // routes whose page files import it (static import graph + Next.js convention); without
+    // it — or on any resolution ambiguity — it falls back to the conservative slug heuristic
+    // (all routes on no-match), so a regression is never narrowed away. Opt-in: unset
+    // ARGUS_SOURCE_DIR keeps the prior slug-only behaviour exactly.
     const routes   = await loadRoutes();
-    const affected = mapFilesToRoutes(files, routes);
+    const affected = mapFilesToRoutesDeep(files, routes, { sourceDir: process.env.ARGUS_SOURCE_DIR });
     affectedRoutes.push(...affected);
 
     if (affected.length === 0) {
@@ -263,9 +341,33 @@ async function main() {
     mcp = await createMcpClient();
     console.log('[argus] Chrome connected.');
 
-    // Step 5: Audit each affected route via crawlRouteCheap
+    // INTENTIONAL DIVERGENCE from the MCP tool (src/mcp-server.js handlePrValidate): the CLI
+    // audits a routes-file (CI safety + speed); the MCP tool audits config/targets.js (dev
+    // convenience). That ROUTE-SOURCE divergence is by design (PR_VALIDATOR A4/E4). Everything
+    // downstream of the route list is SHARED so the two paths agree (E4 — CLI↔MCP parity):
+    //   • AUDIT DEPTH does NOT diverge — both run crawlRouteCheap by default and share ONE opt-in
+    //     depth policy (ARGUS_PR_AUDIT_DEPTH → selectAnalyzers, D2).
+    //   • The BLOCK DECISION is the shared decidePrBlock, fed a summary built by the shared
+    //     severityTally (Step 6 below) — for the same findings + baseline + blockOn the two paths
+    //     reach the IDENTICAL `blocked`/reason (decidePrBlock owns the none|warning|critical matrix
+    //     AND normalizes blockOn casing, so neither path re-implements or pre-normalizes the gate).
+    //   • Both paths REPORT through the SAME shared helper — reportPrValidation (Step 9 below).
+    //
+    // Step 5: Audit each affected route via crawlRouteWithDepth (cheap pass + the selected
+    // expensive analyzers, if any — see Step 5 depth resolution below).
     // Preserve path prefix (e.g. /project/ in GitHub Pages) — .origin would strip it
     const baseUrl = targetUrl.replace(/\/$/, '');
+
+    // Selective analyzer depth (D2). The shared policy maps ARGUS_PR_AUDIT_DEPTH + the PR's
+    // changed file types to the expensive analyzers to also run on each affected route.
+    // Default 'cheap' → empty list → crawlRouteWithDepth returns the crawlRouteCheap result
+    // unchanged (byte-identical to before). Computed once per PR (selection is per-PR, not
+    // per-route — every route gets the same depth).
+    const auditDepth     = resolveAuditDepth(process.env.ARGUS_PR_AUDIT_DEPTH);
+    const depthAnalyzers = selectAnalyzers({ depth: auditDepth, changedFiles: files });
+    if (depthAnalyzers.length > 0) {
+      console.log(`[argus] Audit depth: ${auditDepth} → also running expensive analyzers: ${depthAnalyzers.join(', ')}`);
+    }
 
     // Normalize route paths — crawlRouteCheap builds URLs via string concat (baseUrl + route.path)
     // so paths without a leading slash produce malformed URLs like https://example.comlogin
@@ -276,63 +378,161 @@ async function main() {
       return r;
     });
 
-    for (const route of normalizedAffected) {
-      const url = `${baseUrl}${route.path}`;
-      console.log(`[argus] → Auditing ${url}`);
+    // Audit each affected route. Bounded-concurrency by ARGUS_CONCURRENCY (default 1 = sequential,
+    // byte-identical to the prior loop). Each parallel lane gets its OWN Chrome client —
+    // crawlRouteCheap mutates page-navigation state, so concurrent crawls must never share a
+    // connection — and auditRoutesConcurrently returns the per-route results in ROUTE order, so the
+    // aggregate findings + the baseline-aware block decision are identical to a sequential run (only
+    // wall-clock changes). Mirrors the orchestrator's parallel route crawling (D7.3).
+    const rawConcurrency = parseInt(process.env.ARGUS_CONCURRENCY ?? '1', 10);
+    const concurrency    = Math.min(10, Math.max(1, Number.isNaN(rawConcurrency) ? 1 : rawConcurrency));
+    if (concurrency > 1) {
+      console.log(`[argus] Parallel mode: concurrency=${concurrency} over ${normalizedAffected.length} route(s)`);
+    }
 
-      try {
-        const raw      = await crawlRouteCheap(route, baseUrl, mcp);
-        const findings = Array.isArray(raw.errors) ? raw.errors : [];
-        allFindings.push(...findings);
+    // Per-route timeout + retry (D4). Each route audit is bounded by ARGUS_ROUTE_TIMEOUT_MS
+    // (default 120000 ms) and optionally retried ARGUS_ROUTE_RETRIES times. A timed-out audit
+    // throws → it is recorded as a route ERROR below (ok:false), feeding the all-routes-failed
+    // guard — a hung audit can never silently pass. The bound only ever BLOCKS, never PASSES.
+    const { timeoutMs: routeTimeoutMs, retries: routeRetries } = routeResilienceFromEnv();
+    if (routeTimeoutMs > 0 || routeRetries > 0) {
+      console.log(`[argus] Per-route audit: timeout ${routeTimeoutMs > 0 ? `${routeTimeoutMs}ms` : 'off'}, ${routeRetries} retr${routeRetries === 1 ? 'y' : 'ies'}`);
+    }
 
-        const critical = findings.filter(f => f.severity === 'critical').length;
-        const warning  = findings.filter(f => f.severity === 'warning').length;
-        const info     = findings.filter(f => f.severity === 'info').length;
-        perRoute.push({ route: route.path, critical, warning, info });
-
-        console.log(`[argus]   ${url}: ${critical} critical, ${warning} warning, ${info} info`);
-
-        // Emit inline GitHub Actions annotations for visible CI feedback
-        for (const f of findings.filter(g => g.severity === 'critical')) {
-          console.log(`::error::${String(f.message ?? '').replace(/\n/g, ' ')} [${f.type}] on ${url}`);
+    const routeResults = await auditRoutesConcurrently(normalizedAffected, {
+      concurrency,
+      primaryClient: mcp,
+      createClient:  createMcpClient,
+      crawlRoute: async (route, client) => {
+        const url = `${baseUrl}${route.path}`;
+        console.log(`[argus] → Auditing ${url}`);
+        try {
+          const raw = await auditRouteWithRetry(
+            () => crawlRouteWithDepth(route, baseUrl, client, depthAnalyzers),
+            {
+              timeoutMs: routeTimeoutMs,
+              retries:   routeRetries,
+              label:     `Route audit ${route.path}`,
+              onRetry:   (attempt, err) =>
+                console.log(`::warning::Route ${route.path} audit attempt ${attempt} failed (${String(err.message).replace(/\n/g, ' ')}) — retrying`),
+            },
+          );
+          return { route, ok: true, raw };
+        } catch (routeErr) {
+          return { route, ok: false, error: routeErr.message };
         }
-        for (const f of findings.filter(g => g.severity === 'warning')) {
-          console.log(`::warning::${String(f.message ?? '').replace(/\n/g, ' ')} [${f.type}] on ${url}`);
-        }
+      },
+    });
 
-      } catch (routeErr) {
-        console.error(`::warning::Audit failed for ${url}: ${routeErr.message}`);
-        perRoute.push({ route: route.path, critical: 0, warning: 0, info: 0, error: routeErr.message });
+    // Aggregate the ordered results sequentially — bookkeeping + annotations stay deterministic and
+    // identical to the prior sequential loop (results are in route order regardless of completion).
+    for (const item of routeResults) {
+      const route = item.route;
+      const url   = `${baseUrl}${route.path}`;
+
+      if (!item.ok) {
+        console.error(`::warning::Audit failed for ${url}: ${item.error}`);
+        perRoute.push({ route: route.path, critical: 0, warning: 0, info: 0, error: item.error });
+        continue;
+      }
+
+      const findings = Array.isArray(item.raw.errors) ? item.raw.errors : [];
+      allFindings.push(...findings);
+      routeFindings.push({ path: route.path, findings });
+
+      const critical = findings.filter(f => f.severity === 'critical').length;
+      const warning  = findings.filter(f => f.severity === 'warning').length;
+      const info     = findings.filter(f => f.severity === 'info').length;
+      perRoute.push({ route: route.path, critical, warning, info });
+
+      console.log(`[argus]   ${url}: ${critical} critical, ${warning} warning, ${info} info`);
+
+      // Emit inline GitHub Actions annotations for visible CI feedback (Phase A3).
+      // When a changed file SPECIFICALLY maps to this route and has a real added line in
+      // its patch, the annotation is anchored at file=path,line=N so it renders inline on
+      // the PR "Files changed" tab; otherwise it stays a route-level annotation. The line
+      // is never fabricated — resolveAnnotationTarget returns null unless the line is a
+      // genuine diff line (see pr-diff-analyzer.js).
+      const annTarget = resolveAnnotationTarget(route.path, prFiles);
+      const loc = annTarget ? ` file=${annTarget.path},line=${annTarget.line}` : '';
+      for (const f of findings.filter(g => g.severity === 'critical')) {
+        console.log(`::error${loc}::${String(f.message ?? '').replace(/\n/g, ' ')} [${f.type}] on ${url}`);
+      }
+      for (const f of findings.filter(g => g.severity === 'warning')) {
+        console.log(`::warning${loc}::${String(f.message ?? '').replace(/\n/g, ' ')} [${f.type}] on ${url}`);
       }
     }
 
-    // Guard: if every route failed with an exception, the app was unreachable after
-    // the preflight check (e.g. race condition where app died between check and crawl).
-    // Throwing here causes the step to exit 1, which correctly blocks the merge.
-    const routeFailCount = perRoute.filter(r => r.error).length;
-    if (routeFailCount > 0 && routeFailCount === perRoute.length) {
+    // Guard: if EVERY audited route errored, the app was unreachable after the preflight check
+    // (e.g. the app died between check and crawl) or every audit timed out (D4). Throwing here
+    // exits 1, which correctly blocks the merge — a hung/unreachable app never false-passes. The
+    // decision lives in the exported allRoutesFailed() so it is unit- + mutation-testable.
+    if (allRoutesFailed(perRoute)) {
       throw new Error(
-        `All ${perRoute.length} route audit(s) failed — Chrome could not reach the app. ` +
+        `All ${perRoute.length} route audit(s) failed — Chrome could not reach the app or every audit timed out. ` +
         `Ensure TARGET_DEV_URL is accessible throughout the job. ` +
         `First error: ${perRoute[0].error}`,
       );
     }
 
-    // Step 6: Compute aggregate summary and merge-block decision
-    const summary = {
-      critical: allFindings.filter(f => f.severity === 'critical').length,
-      warning:  allFindings.filter(f => f.severity === 'warning').length,
-      info:     allFindings.filter(f => f.severity === 'info').length,
-    };
+    // Step 6: Compute the aggregate (absolute) severity summary that feeds the block decision.
+    // Built via the shared severityTally so the CLI and the MCP tool (handlePrValidate) construct
+    // the decidePrBlock `summary` input IDENTICALLY — the two paths cannot diverge on the block
+    // decision for the same findings (PR_VALIDATOR plan E4 — CLI↔MCP parity).
+    const summary = severityTally(allFindings);
 
-    const blocked =
-      blockOn === 'critical' ? summary.critical > 0 :
-      blockOn === 'warning'  ? summary.critical + summary.warning > 0 :
-      false;
+    // Step 6a: Baseline-aware merge-block decision (Phase B1). Diff the PR-head findings
+    // against the stored base-branch baseline (restored via the actions/cache pattern, keyed
+    // on GITHUB_BASE_REF) and gate on the findings this PR INTRODUCES. Fail safe: when no
+    // baseline is resolvable the decision blocks on absolute counts (pre-B1 behaviour) and
+    // the step summary says so — it never silently passes a broken app. The block-on matrix
+    // (none|warning|critical) lives in the shared decidePrBlock, so the CLI and the MCP tool
+    // (handlePrValidate) cannot diverge on the block semantics.
+    const outputDir    = process.env.REPORT_OUTPUT_DIR || './reports';
+    const baselineFile = resolvePrBaselineFile({ outputDir });
+    const baseline     = baselineFile ? loadPrBaseline(baselineFile) : null;
+    const decision     = decidePrBlock({ routeFindings, summary, blockOn, baseline });
+    const blocked      = decision.blocked;
+
+    // B2: tag each finding new-vs-persisting off the same baseline, so the PR comment surfaces
+    // ONLY the findings this PR introduced (tags ride on the shared objects in result.findings).
+    tagFindingNovelty(routeFindings, baseline);
+
+    const baselineInfo = decision.baselineAvailable
+      ? {
+          available:   true,
+          newCritical: decision.newSummary.critical,
+          newWarning:  decision.newSummary.warning,
+          newInfo:     decision.newSummary.info,
+          persisting:  decision.persistingCount,
+          resolved:    decision.resolvedCount,
+        }
+      : { available: false, note: decision.note };
+
+    if (decision.baselineAvailable) {
+      console.log(`[argus] Baseline diff (${baselineFile}): ${baselineInfo.newCritical} critical / ${baselineInfo.newWarning} warning new, ${baselineInfo.persisting} persisting, ${baselineInfo.resolved} resolved`);
+    } else {
+      console.log(`[argus] ${decision.note}`);
+    }
+
+    // Step 6b: Optionally update this branch's baseline (ARGUS_UPDATE_BASELINE). A base-branch
+    // run uses this to populate the cache the PR runs diff against; default off → no write,
+    // no behaviour change.
+    if (/^(1|true|yes|on)$/i.test(process.env.ARGUS_UPDATE_BASELINE || '')) {
+      try {
+        const writeFile = resolvePrBaselineFile({ outputDir, baseRef: getCurrentBranch() });
+        if (writeFile) {
+          savePrBaseline(writeFile, routeFindings);
+          console.log(`[argus] Baseline updated: ${writeFile}`);
+        }
+      } catch (baseErr) {
+        console.error(`::warning::Argus baseline write failed: ${baseErr.message}`);
+      }
+    }
 
     // Step 7: Write GitHub Actions outputs and step summary
     writeGithubOutputs({ blocked, summary, affectedRoutes: normalizedAffected });
-    writeStepSummary(buildStepSummary({ blocked, summary, affectedRoutes: normalizedAffected, perRoute, findings: allFindings, changedFiles: files, blockOn }));
+    writeStepSummary(buildStepSummary({ blocked, summary, affectedRoutes: normalizedAffected, perRoute, findings: allFindings, changedFiles: files, blockOn, baseline: baselineInfo }));
 
     // Step 8: Emit JSON result to stdout for downstream pipeline steps
     const result = {
@@ -344,26 +544,45 @@ async function main() {
       summary,
       blocked,
       blockOn,
+      baseline: baselineInfo,
     };
     console.log(JSON.stringify(result, null, 2));
 
-    if (blocked) {
-      const blockReason = blockOn === 'warning'
-        ? `${summary.critical} critical + ${summary.warning} warning finding(s) found`
-        : `${summary.critical} critical finding(s) found`;
-      console.error(`::error::Argus PR Validator: ${blockReason}. Merge blocked (block-on=${blockOn}).`);
-      process.exit(1);
+    // Step 9: Post/update the Argus PR comment + Check Run (Phase A). Idempotent — updates
+    // the single marker-tagged comment in place; the Check Run conclusion maps to the block
+    // decision. Reporting is best-effort: a missing token or a GitHub API failure must never
+    // crash the run or change the merge decision (the exit code below is the real gate).
+    try {
+      const reported = await reportPrValidation(result, { prUrl });
+      if (reported.posted) {
+        console.log(`[argus] PR comment posted/updated.${reported.checked ? ' Check Run completed.' : ''}`);
+      } else {
+        console.log(`[argus] PR reporting skipped: ${reported.reason}`);
+      }
+    } catch (reportErr) {
+      console.error(`::warning::Argus PR reporting failed: ${reportErr.message}`);
     }
 
-    console.log(`[argus] ✓ Audit passed — ${summary.critical} critical, ${summary.warning} warning, ${summary.info} info.`);
-    process.exit(0);
+    // The block decision → exit code (the merge gate) goes through the single prExitCode
+    // mapping so the CLI and its tests can never disagree on what a decision exits with.
+    const exitCode = prExitCode({ blocked });
+    if (blocked) {
+      // decision.reason is non-null when blocked and reflects NEW counts when a baseline was
+      // available, ABSOLUTE counts otherwise (see decidePrBlock — "new" vs "total").
+      console.error(`::error::Argus PR Validator: ${decision.reason}. Merge blocked (block-on=${blockOn}).`);
+    } else {
+      console.log(`[argus] ✓ Audit passed — ${summary.critical} critical, ${summary.warning} warning, ${summary.info} info.`);
+    }
+    process.exit(exitCode);
 
   } catch (err) {
     const summary = { critical: 0, warning: 0, info: 0 };
     console.error(`::error::Argus PR validation failed: ${err.message}`);
     writeGithubOutputs({ blocked: false, summary, affectedRoutes: [] });
     writeStepSummary(buildStepSummary({ blocked: false, summary, affectedRoutes: [], perRoute: [], findings: [], changedFiles, blockOn, error: err.message }));
-    process.exit(1);
+    // A failed audit (all routes errored, or a startup/fetch error) is conservative: exit 1 =
+    // merge blocked, never a false PASS. Routed through prExitCode for one exit-code source.
+    process.exit(prExitCode({ failed: true }));
 
   } finally {
     if (mcp) {

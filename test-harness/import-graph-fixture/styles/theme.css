@@ -1,0 +1,6 @@
+/* C3 fixture: a stylesheet on disk imported by NO page — exercises the conservative-fallback
+   guard. A changed file no route renders must still audit ALL routes (never miss a regression),
+   exactly like lib/orphan.js does for JS. */
+body {
+  margin: 0;
+}

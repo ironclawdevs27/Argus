@@ -221,6 +221,41 @@ export const designAuditResponseSchema = z.object({
 
 // ── 9. argus_pr_validate ──────────────────────────────────────────────────────
 
+/**
+ * The `baseline` field (PR_VALIDATOR plan B1/B2 — handlePrValidate src/mcp-server.js:516).
+ * A discriminated pair on `available`:
+ *   - available:true  → numeric new/persisting/resolved counts (the head-vs-base diff)
+ *   - available:false → the fail-safe `note` (baseline unavailable → absolute blocking)
+ * Pinned so a rename inside baselineInfo (e.g. newCritical → newCrit) is caught, while
+ * the discriminator keeps the two variants from cross-validating.
+ */
+export const prBaselineSchema = z.discriminatedUnion('available', [
+  z.object({
+    available:   z.literal(true),
+    newCritical: z.number(),
+    newWarning:  z.number(),
+    newInfo:     z.number(),
+    persisting:  z.number(),
+    resolved:    z.number(),
+  }).passthrough(),
+  z.object({
+    available: z.literal(false),
+    note:      z.string(),
+  }).passthrough(),
+]);
+
+/**
+ * The `reporting` field (PR_VALIDATOR plan A4 — reportPrValidation github-reporter.js:672).
+ * The PR-reporting side-effect summary appended via `{ ...result, reporting }`. Always three
+ * booleans + an optional `reason` across every return path of reportPrValidation.
+ */
+export const prReportingSchema = z.object({
+  posted:  z.boolean(),
+  checked: z.boolean(),
+  skipped: z.boolean(),
+  reason:  z.string().optional(),
+}).passthrough();
+
 export const prValidateResponseSchema = z.object({
   prUrl:          z.string(),
   targetUrl:      z.string(),
@@ -231,6 +266,16 @@ export const prValidateResponseSchema = z.object({
   summary:        auditSummarySchema,   // { critical, warning, info } — NO total
   blocked:        z.boolean(),
   blockOn:        z.string(),
+  // baseline (B1/B2) + reporting (A4) are ALWAYS present on the live handlePrValidate
+  // response, but pinned `.optional()` here for two reasons: (1) [147] can't live-validate
+  // this tool (it needs Chrome + a live PR + GitHub), so the schema can't enforce presence
+  // anyway — the source cross-check [147i] guards the always-present core keys; (2) the
+  // A1-era result shape (pre-baseline/pre-reporting) + the [153c] back-compat fixture must
+  // still parse. When PRESENT, each inner shape IS pinned ([147o]/[147p] prove non-vacuous).
+  // [147i] filters optional keys so it never demands `reporting` (spread-appended, not in
+  // the `const result` literal) inside the handler's result object.
+  baseline:       prBaselineSchema.optional(),
+  reporting:      prReportingSchema.optional(),
 }).passthrough();
 
 // ── Tool → schema map (the contract index) ────────────────────────────────────
