@@ -31,6 +31,7 @@ HARNESS_MAX_PLAN.md
 harness_max_prompt.md
 PR_VALIDATOR_MAX_PLAN.md
 pr_validator_max_prompt.md
+REDACTION_BOUNDARY_MAX_PLAN.md
 
 # Harness output log — written by npm run test:harness:log
 harness-results.txt

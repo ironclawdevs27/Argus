@@ -1,6 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { motion, AnimatePresence, MotionConfig } from 'framer-motion'
 import { supabase } from './supabase'
+import { useNpmDownloads } from './useNpmDownloads'
+import { DownloadBadge } from './DownloadBadge'
+import {
+  ACCENT, SURFACE_TINT, DANGER,
+  accent, accentLight, warning, success,
+} from './theme'
+
+// Charts pull in Recharts (d3 internals) — lazy-load so the heavy chart bundle stays
+// out of the initial payload; the section is below the fold.
+const DownloadsSection = lazy(() => import('./DownloadsSection').then(m => ({ default: m.DownloadsSection })))
 import {
   ArrowUpRight, X, ChevronDown, ChevronRight, CheckCircle,
   Code2, Sparkles, Globe,
@@ -19,16 +29,16 @@ function Github({ size = 16 }) {
   )
 }
 
-const ACCENT = '#5E0ED7'
 const VIDEO_URL = 'https://pub-4a48bc28d90e4425a6fb87b164225d13.r2.dev/argus-video.mp4'
 const GITHUB_URL = 'https://github.com/ironclawdevs27/Argus'
 const SLIDE_INTERVAL = 5000
 const SCROLL_SHOW_DELAY = 1500
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-const navLinks = ['Features', 'How It Works', 'Setup', 'Pricing', 'Docs']
+const navLinks = ['Growth', 'Features', 'How It Works', 'Setup', 'Pricing', 'Docs']
 
 const navHrefs = {
+  Growth: '#growth',
   Features: '#features',
   'How It Works': '#detection',
   Setup: '#setup',
@@ -1250,7 +1260,7 @@ function DetectionSection() {
   return (
     <section
       id="detection"
-      style={{ background: '#F7F5FF', padding: 'clamp(5rem, 10vw, 9rem) clamp(1.25rem, 6vw, 5rem)' }}
+      style={{ background: SURFACE_TINT, padding: 'clamp(5rem, 10vw, 9rem) clamp(1.25rem, 6vw, 5rem)' }}
     >
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
         <div
@@ -1440,7 +1450,7 @@ function SetupSection() {
                   padding: '0.15rem 0.45rem', borderRadius: '2rem',
                   background: activeMethod === m.id ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.08)',
                   color: activeMethod === m.id ? '#fff' : 'rgba(255,255,255,0.4)',
-                  ...(m.comingSoon ? { background: 'rgba(255,200,0,0.15)', color: 'rgba(255,200,0,0.8)' } : {}),
+                  ...(m.comingSoon ? { background: warning(0.15), color: warning(0.8) } : {}),
                 }}
               >
                 {m.comingSoon ? 'SOON' : m.badge}
@@ -1469,11 +1479,11 @@ function SetupSection() {
                   style={{
                     display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
                     padding: '0.3rem 0.875rem', borderRadius: '2rem',
-                    background: 'rgba(255,200,0,0.1)', border: '1px solid rgba(255,200,0,0.2)',
+                    background: warning(0.1), border: `1px solid ${warning(0.2)}`,
                     marginBottom: '1.5rem',
                   }}
                 >
-                  <span style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'rgba(255,200,0,0.8)' }}>
+                  <span style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: warning(0.8) }}>
                     Coming Soon
                   </span>
                 </div>
@@ -1848,7 +1858,7 @@ function EnterpriseModal({ onClose }) {
                 {loading ? 'Sending…' : (<>Send Enquiry <ArrowUpRight size={16} /></>)}
               </button>
               {error && (
-                <p style={{ margin: 0, fontSize: '0.78rem', color: '#f87171', textAlign: 'center' }}>{error}</p>
+                <p style={{ margin: 0, fontSize: '0.78rem', color: DANGER, textAlign: 'center' }}>{error}</p>
               )}
               <p style={{ margin: 0, fontSize: '0.72rem', color: 'rgba(255,255,255,0.28)', textAlign: 'center' }}>
                 Fields marked * are required. We'll respond within 2 business days.
@@ -2035,7 +2045,7 @@ function WaitlistModal({ planName, onClose }) {
                 {loading ? 'Saving…' : 'Notify Me'}
               </button>
               {error && (
-                <p style={{ margin: 0, fontSize: '0.78rem', color: '#ef4444', textAlign: 'center' }}>{error}</p>
+                <p style={{ margin: 0, fontSize: '0.78rem', color: DANGER, textAlign: 'center' }}>{error}</p>
               )}
             </div>
           </>
@@ -2263,7 +2273,7 @@ function PricingSection() {
               viewport={{ once: true, margin: '-80px' }}
               transition={{ delay: i * 0.1, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
               style={{
-                background: plan.dark ? '#080808' : plan.popular ? `linear-gradient(145deg, #f8f6ff 0%, rgba(94,14,215,0.06) 100%)` : '#fff',
+                background: plan.dark ? '#080808' : plan.popular ? `linear-gradient(145deg, ${SURFACE_TINT} 0%, ${accent(0.06)} 100%)` : '#fff',
                 border: plan.popular
                   ? `1.5px solid rgba(94,14,215,0.35)`
                   : plan.dark
@@ -2292,8 +2302,8 @@ function PricingSection() {
                     <span
                       style={{
                         fontSize: '0.58rem', fontWeight: 700, letterSpacing: '0.1em',
-                        textTransform: 'uppercase', color: 'rgba(255,180,0,0.8)',
-                        background: 'rgba(255,180,0,0.1)', padding: '0.2rem 0.5rem', borderRadius: '2rem',
+                        textTransform: 'uppercase', color: warning(0.8),
+                        background: warning(0.1), padding: '0.2rem 0.5rem', borderRadius: '2rem',
                       }}
                     >
                       Coming Soon
@@ -2703,7 +2713,7 @@ function Footer() {
             <img
               src="/IRONCLAW.png"
               alt="Ironclaw"
-              style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', border: '1.5px solid rgba(255,255,255,0.4)', boxShadow: '0 0 8px rgba(100,255,100,0.25)', flexShrink: 0 }}
+              style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', border: '1.5px solid rgba(255,255,255,0.4)', boxShadow: `0 0 8px ${success(0.25)}`, flexShrink: 0 }}
             />
             <p style={{ margin: 0, fontSize: '0.75rem', color: 'rgba(255,255,255,0.32)', letterSpacing: '0.04em' }}>
               Built by{' '}
@@ -2755,11 +2765,11 @@ function Footer() {
 // ── Root ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const [menuOpen, setMenuOpen] = useState(false)
-  const [navHovered, setNavHovered] = useState(false)
   const [hoveredLink, setHoveredLink] = useState(null)
   const [slideIndex, setSlideIndex] = useState(0)
   const [showScroll, setShowScroll] = useState(false)
   const [gsHovered, setGsHovered] = useState(false)
+  const npm = useNpmDownloads()
 
   useEffect(() => {
     const t = setInterval(() => setSlideIndex(i => (i + 1) % slides.length), SLIDE_INTERVAL)
@@ -2787,6 +2797,9 @@ export default function App() {
           preload="metadata"
           aria-hidden="true"
         />
+
+        {/* Live npm download badge — centre count-up intro → docks bottom-right */}
+        <DownloadBadge total={npm.total} error={npm.error} firstPublish={npm.firstPublish} />
 
         {/* Mobile menu overlay */}
         {menuOpen && (
@@ -2833,24 +2846,20 @@ export default function App() {
             <BetaBadge />
           </motion.div>
 
-          {/* Nav links with glassmorphism on hover */}
+          {/* Nav links — permanent purple glassmorphism */}
           <div
             className="hidden md:flex items-center relative"
             style={{ padding: '0.375rem 0.5rem', borderRadius: '2rem' }}
-            onMouseEnter={() => setNavHovered(true)}
-            onMouseLeave={() => { setNavHovered(false); setHoveredLink(null) }}
+            onMouseLeave={() => setHoveredLink(null)}
           >
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: navHovered ? 1 : 0 }}
-              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            <div
               style={{
                 position: 'absolute', inset: 0,
-                background: 'linear-gradient(135deg, rgba(255,255,255,0.45) 0%, rgba(94,14,215,0.18) 55%, rgba(94,14,215,0.12) 100%)',
+                background: `linear-gradient(135deg, rgba(255,255,255,0.34) 0%, ${accent(0.34)} 50%, ${accent(0.32)} 100%)`,
                 backdropFilter: 'blur(40px) saturate(200%) brightness(1.08)',
                 WebkitBackdropFilter: 'blur(40px) saturate(200%) brightness(1.08)',
-                border: '1px solid rgba(255,255,255,0.72)', borderRadius: '2rem',
-                boxShadow: '0 8px 40px rgba(94,14,215,0.18), 0 2px 8px rgba(0,0,0,0.06), inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -1px 0 rgba(94,14,215,0.08), inset 1px 0 0 rgba(255,255,255,0.55)',
+                border: `1px solid ${accentLight(0.6)}`, borderRadius: '2rem',
+                boxShadow: `0 8px 40px ${accent(0.28)}, 0 2px 8px rgba(0,0,0,0.06), inset 0 1.5px 0 rgba(255,255,255,0.85), inset 0 -1px 0 ${accent(0.12)}, inset 1px 0 0 rgba(255,255,255,0.45)`,
                 pointerEvents: 'none',
               }}
             />
@@ -3052,12 +3061,15 @@ export default function App() {
       {/* ═══════════════════════════════════════════════════════════════════════
           BELOW-FOLD SECTIONS
       ═══════════════════════════════════════════════════════════════════════ */}
+      <Suspense fallback={null}>
+        <DownloadsSection daily={npm.daily} total={npm.total} firstPublish={npm.firstPublish} loading={npm.loading} error={npm.error} />
+      </Suspense>
+      <ListedOnSection />
       <FeaturesSection />
       <DetectionSection />
       <SetupSection />
       <PricingSection />
       <DocsSection />
-      <ListedOnSection />
       <Footer />
     </div>
     </MotionConfig>
