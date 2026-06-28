@@ -366,8 +366,6 @@ export function mapFilesToRoutesDeep(changedFiles, routes, { sourceDir } = {}) {
       if (!routeFileToPaths.has(file)) routeFileToPaths.set(file, new Set());
       routeFileToPaths.get(file).add(rp);
     }
-    const routeFileSet = new Set(routeFileToPaths.keys());
-
     // Resolve every changed app file to the route paths it can affect.
     const resolvedPaths = new Set();
     for (const f of appFiles) {

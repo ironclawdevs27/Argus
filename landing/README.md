@@ -10,6 +10,7 @@ Product marketing site for Argus. Runs independently from the main Argus QA harn
 | Build tool | Vite 8 |
 | Styling | Tailwind CSS + inline styles |
 | Animations | Framer Motion 12 |
+| Charts | Recharts (lazy-loaded — Growth section) |
 | Forms backend | Supabase Postgres (REST via `@supabase/supabase-js`) |
 
 ## Local Development
@@ -91,7 +92,7 @@ npx wrangler pages deploy dist --project-name argus-qa
 
 ## Component Structure
 
-All UI lives in `src/App.jsx` as a single-file app. Hero section is built inline inside `App()`:
+Most UI lives in `src/App.jsx`; the Growth section and the hero download badge are split into their own modules. Hero section is built inline inside `App()`:
 
 | Component | Purpose |
 |---|---|
@@ -104,11 +105,13 @@ All UI lives in `src/App.jsx` as a single-file app. Hero section is built inline
 | `ComparisonTable` | Pricing comparison table (3-column) |
 | `PricingSection` | Pricing cards + comparison table |
 | `DocsSection` | Collapsible docs accordion |
+| `DownloadsSection` (`DownloadsSection.jsx`) | Growth section — npm (live) / GitHub Traffic / Security source tabs, Recharts drag-to-zoom + Socket scorecard |
+| `DownloadBadge` (`DownloadBadge.jsx`) | Hero count-up badge — centre purple band → docks bottom-right |
 | `Footer` | Nav links + copyright |
 | `WaitlistModal` | Email + plan selector → inserts into `waitlist` table |
 | `EnterpriseModal` | name, email, company, team_size, region, use_case, workflow, message → inserts into `enterprise_contacts` table |
 
-`src/supabase.js` exports the singleton Supabase client (or `null` if env vars are absent).
+`src/supabase.js` exports the singleton Supabase client (or `null` if env vars are absent). `src/theme.js` is the single palette source (ACCENT + rgba helpers); `src/useNpmDownloads.js` fetches live npm download stats (sessionStorage-cached, with `aggregate()` for day/week/month/year); `src/growthData.js` holds the static GitHub-traffic / Socket-score / Pulse snapshots (sources with no public live API).
 
 ## Mobile & SEO Status (2026-05-26)
 

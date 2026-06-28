@@ -288,7 +288,9 @@ async function main() {
     const targetsContent = generateTargetsJs(finalRoutes, { framework, sourceDir, envFile: envFilePath });
 
     try {
-      fs.writeFileSync('.env', envContent, { flag: 'wx', encoding: 'utf8' });
+      // .env holds Slack / GitHub / Figma tokens + the auth password — create it owner-only
+      // (0600) so credentials are never world-readable on shared / POSIX / CI hosts.
+      fs.writeFileSync('.env', envContent, { flag: 'wx', encoding: 'utf8', mode: 0o600 });
       tick('Wrote .env');
     } catch (err) {
       if (err.code === 'EEXIST') {

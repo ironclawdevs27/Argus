@@ -112,8 +112,13 @@ export async function saveSession(browser, sessionFile) {
 
   const tmpFile = `${sessionFile}.tmp`;
   try {
-    fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), 'utf8');
+    // Session state holds cookies + Web Storage (auth material), so write it owner-only
+    // (0600) — never world-readable on shared / POSIX / CI hosts. Hardening for the Socket
+    // supply-chain note on this module. chmod after rename is best-effort (no-op on Windows,
+    // where file access is ACL-based rather than POSIX mode bits).
+    fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: 0o600 });
     fs.renameSync(tmpFile, sessionFile);
+    try { fs.chmodSync(sessionFile, 0o600); } catch { /* mode bits unsupported on this platform */ }
   } catch (err) {
     throw new Error(`[ARGUS] saveSession: failed to write session file "${sessionFile}": ${err.message}`);
   }

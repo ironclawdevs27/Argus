@@ -326,9 +326,22 @@ export function DownloadsSection({ daily, total, firstPublish, loading, error })
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'clamp(1.5rem, 4vw, 2.75rem)', justifyContent: 'center', padding: '1rem 0 1.75rem' }}>
                 {socketScores.scores.map(s => <ScoreRing key={s.label} label={s.label} value={s.value} />)}
               </div>
-              <p style={{ margin: 0, textAlign: 'center', fontSize: '0.85rem', color: 'rgba(255,255,255,0.45)', lineHeight: 1.6 }}>
-                Overall Socket score <strong style={{ color: '#fff' }}>{socketScores.overall}/100</strong> — independent supply-chain analysis (vulnerabilities, quality, maintenance, license).
+              <p style={{ margin: '0 0 1.5rem', textAlign: 'center', fontSize: '0.85rem', color: 'rgba(255,255,255,0.45)', lineHeight: 1.6 }}>
+                Overall Socket score <strong style={{ color: '#fff' }}>{socketScores.overall}/100</strong> — independent supply-chain analysis.
               </p>
+              <div style={{ background: accent(0.05), border: `1px solid ${accent(0.18)}`, borderRadius: '1rem', padding: 'clamp(1.1rem, 2.5vw, 1.6rem)' }}>
+                <p style={{ margin: '0 0 0.6rem', fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.03em', color: '#fff' }}>
+                  {socketScores.debunk.title}
+                </p>
+                <p style={{ margin: '0 0 0.85rem', fontSize: '0.82rem', color: 'rgba(255,255,255,0.55)', lineHeight: 1.65 }}>
+                  {socketScores.debunk.intro}
+                </p>
+                <ul style={{ margin: 0, padding: '0 0 0 1.1rem', display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
+                  {socketScores.debunk.points.map((pt, i) => (
+                    <li key={i} style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', lineHeight: 1.6 }}>{pt}</li>
+                  ))}
+                </ul>
+              </div>
             </div>
           )}
         </motion.div>

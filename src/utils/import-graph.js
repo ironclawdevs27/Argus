@@ -31,7 +31,6 @@ const logger = childLogger('import-graph');
 
 // Source extensions we parse + resolve, in resolution-preference order.
 export const SOURCE_EXTS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
-const SOURCE_EXT_SET     = new Set(SOURCE_EXTS);
 const INDEX_BASENAMES    = SOURCE_EXTS.map(e => `index${e}`);
 
 // Stylesheet (asset) extensions tracked as LEAF nodes in the graph (PR_VALIDATOR C3): a changed
@@ -243,8 +242,15 @@ export function buildImportGraph(rootDir) {
 
     let src;
     try {
-      if (fs.statSync(file).size > MAX_FILE_BYTES) continue; // skip giant files
-      src = fs.readFileSync(file, 'utf8');
+      // Open once and stat/read the SAME descriptor — avoids a stat→read TOCTOU on `file`
+      // (CodeQL js/file-system-race). The size guard still skips pathologically large files.
+      const fd = fs.openSync(file, 'r');
+      try {
+        if (fs.fstatSync(fd).size > MAX_FILE_BYTES) continue; // skip giant files
+        src = fs.readFileSync(fd, 'utf8');
+      } finally {
+        fs.closeSync(fd);
+      }
     } catch { continue; }
 
     for (const spec of parseImports(src)) {

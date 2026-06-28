@@ -62,7 +62,7 @@ Argus scans your app and either posts findings to Slack or opens a local `report
 
 ## What Argus Catches
 
-32 analysis engines, 140 distinct issue types, zero test-file maintenance:
+32 analysis engines, 149 distinct issue types, zero test-file maintenance:
 
 | Category | What it detects |
 |---|---|

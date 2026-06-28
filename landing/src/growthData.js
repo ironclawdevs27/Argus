@@ -34,13 +34,21 @@ export const socketScores = {
     { label: 'License', value: 100 },
   ],
   url: 'https://socket.dev/npm/package/argusqa-os',
+  debunk: {
+    title: 'Why 79, not 100?',
+    intro: `Socket's supply-chain score is heuristic — it flags patterns, not confirmed weaknesses. Vulnerability, Quality and License all score 100, with zero known CVEs.`,
+    points: [
+      `The one medium flag is an AI heuristic on Argus's own session-persistence module — it saves and restores your auth session so the harness can audit logged-in pages, all locally against your own app. Socket's own analysis found "no obvious covert exfiltration or malware behaviour," and the session file is written owner-only (0600) per its hardening note.`,
+      `The rest are generic traits of trusted transitive dependencies — protobuf / gRPC code generation (eval), OpenTelemetry's machine-id lookup (child_process) and axe-core's MPL license — all widely-audited libraries, none an actual vulnerability.`,
+    ],
+  },
 }
 
 // ── Pulse MCP ecosystem estimate ─────────────────────────────────────────────────
 export const pulseStats = {
   estVisitors: '5.8k',
   estVisitorsWeek: '351',
-  rank: '#2,526',
-  peakRank: '#356',
+  rank: '#356',
+  peakRank: '#2,526',
   url: 'https://www.pulsemcp.com/servers/ironclawdevs27-argus',
 }

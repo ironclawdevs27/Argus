@@ -43,5 +43,6 @@ Once a fix is released, a CVE will be requested if the vulnerability is signific
 
 - Argus connects to Chrome only on `127.0.0.1:9222` — it never exposes a public endpoint
 - Report files are written to `./reports/` with the file permissions of the running user
+- Auth session files (`.argus-*.json`) and the `argus init`-generated `.env` are written owner-only (`0600`), so captured cookies / Web Storage and API tokens are never world-readable on shared or CI hosts
 - Supabase credentials (landing page only) are stored in `landing/.env.local` which is gitignored
 - The MCP server communicates over stdio — no network port is opened

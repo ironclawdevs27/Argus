@@ -58,7 +58,7 @@ This document contains the complete technical reference for Argus: all detection
 
 ## Detection Reference
 
-Argus runs **32 analysis engines** per run and detects **140 distinct issue types**. Every finding carries a `severity` (`critical` / `warning` / `info`), the affected `url`, and a human-readable `message`.
+Argus runs **32 analysis engines** per run and detects **149 distinct issue types**. Every finding carries a `severity` (`critical` / `warning` / `info`), the affected `url`, and a human-readable `message`.
 
 ### JavaScript Runtime
 
@@ -868,7 +868,7 @@ argus/
 │   ├── public/
 │   │   ├── favicon.svg
 │   │   ├── argus-poster.png          — Video poster fallback (1918×1078)
-│   │   ├── og-image-v3.jpg           — OG social card (1200×630; 67/149/846)
+│   │   ├── og-image-v3.jpg           — OG social card (1200×630; 67/166/961)
 │   │   ├── robots.txt
 │   │   └── sitemap.xml
 │   ├── index.html                    — Vite entry; OG/Twitter/JSON-LD SEO tags
