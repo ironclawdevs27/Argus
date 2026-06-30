@@ -138,7 +138,7 @@ test-harness/
   import-graph-fixture/       — Next.js pages/ app (components + stylesheets) for PR-Validator C1/C3 import-graph mapping (blocks [156]/[158])
   import-graph-monorepo-fixture/ — monorepo (apps/web) variant for PR-Validator C2 path awareness (block [157])
 test/
-  unit/                       — 13 Vitest unit test files (207 tests); run with npm run test:unit
+  unit/                       — 24 Vitest unit test files (495 tests); run with npm run test:unit
 scripts/
   dispatch-report.js          — standalone Slack re-dispatch for an existing JSON report
   coverage-gate.mjs           — merges unit (vitest-v8) + harness (c8) coverage; gates --min-lines + --allow-uncovered
@@ -158,7 +158,7 @@ Chrome must be running with remote debugging before starting the harness:
 & "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --headless=new --no-sandbox --disable-gpu --user-data-dir="$env:TEMP\chrome-argus"
 
 # Then run the harness:
-npm run test:unit          # 477 Vitest unit tests — no Chrome required
+npm run test:unit          # 495 Vitest unit tests — no Chrome required
 npm run test:harness       # Expected: 978/978 (no permanent failures); INFO logs suppressed via .env.harness
 npm run test:harness:log   # Same as above, but tees full output to harness-results.txt at repo root
 npm run test:coverage      # merged unit+harness coverage gate (requires Chrome): coverage:harness → coverage:unit → coverage:gate

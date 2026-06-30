@@ -850,7 +850,7 @@ argus/
 │       ├── route-timeout.test.js     — withTimeout/auditRouteWithRetry/routeResilienceFromEnv/allRoutesFailed (D4) — 25 tests
 │       └── github-api.test.js        — githubFetch resilience (rate-limit/5xx/network retry) + scrubSecrets (E2) — 24 tests
 ├── test-harness/
-│   ├── validate.js                   — 166-block correctness harness (961/961 gate)
+│   ├── validate.js                   — 168-block correctness harness (978/978 gate)
 │   ├── contracts/                    — golden Zod response schemas for the 9 MCP tools (block [147]) + chrome-devtools-mcp inputSchema canary snapshot (block [148])
 │   ├── harness-config.js             — Route definitions + expected findings
 │   ├── server.js                     — Fixture HTTP server (ports 3100 dev / 3101 staging)
@@ -917,7 +917,7 @@ argus/
 
 ## Known MCP Tool Limitations
 
-**None** — the harness passes `961/961` and `KNOWN_PERMANENT` in `validate.js` is empty (since v9.7.2). All three historical "permanent failures" were Argus bugs:
+**None** — the harness passes `978/978` and `KNOWN_PERMANENT` in `validate.js` is empty (since v9.7.2). All three historical "permanent failures" were Argus bugs:
 
 > **`type_text` clarification:** `type_text` fires DOM `input` events when the element is properly focused first via `mcp.click({ uid })`. Always use uid-based focus — passing `{ selector }` to `mcp.click` silently does nothing.
 

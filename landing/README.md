@@ -125,7 +125,7 @@ Most UI lives in `src/App.jsx`; the Growth section and the hero download badge a
 | `@media` edge cases | ✅ Fixed | `100dvh` via `@supports` in `index.css`; stat row / detection grid / nav handle narrow viewports natively |
 | SEO — OG / Twitter / JSON-LD | ✅ Added | `index.html` has full OG tags, Twitter card, canonical, JSON-LD schema |
 | `robots.txt` + `sitemap.xml` | ✅ Added | Both in `landing/public/` |
-| OG social card | ✅ Done | `og-image-v3.jpg` — 1200×630 JPEG, branded overlay, purple stat numbers (67 / 166 / 961); refreshed for v9.8.0 — the two changed numbers are re-rendered onto the original art via real-pixel background reconstruction (block-copy of the clean gradient + cap-height-matched native digits); `og-image.jpg` gitignored |
+| OG social card | ✅ Done | `og-image-v3.jpg` — 1200×630 JPEG, branded overlay, purple stat numbers (67 / 168 / 978); regenerated for v9.9.0 by rendering an HTML reconstruction of the card over the clean `argus-poster.png` via headless Chrome (real Inter digits) → PNG → JPEG (jimp); `og-image.jpg` gitignored |
 | Mobile stats layout | ✅ Fixed | Stats row stacks vertically on mobile (`flex-col sm:flex-row`); slide widget reduced from 8 → 6 slides; `clamp()`-based fluid typography |
 | Deployment | ✅ Live | `npx wrangler pages deploy dist --project-name argus-qa`; custom domain `argus-qa.com` active |
 

@@ -156,11 +156,11 @@ function assert(condition, message) {
  * Strict-soft mode (HARNESS_MAX_PLAN 4.3 \u2014 strict-soft CI lane).
  * The default per-PR run ships the environment-sensitive checks (perf-trace, heap-growth;
  * historically Lighthouse too, before the lighthouse_audit fix) as soft() so they cannot
- * fail the 961-gate. The weekly strict-soft lane (.github/workflows/harness-strict.yml,
+ * fail the 978-gate. The weekly strict-soft lane (.github/workflows/harness-strict.yml,
  * headless) sets ARGUS_HARNESS_STRICT_SOFT=1, which promotes EVERY soft() to a counted
  * hard assert(). Those ~23 checks then become real, verified-weekly assertions in that
- * lane only (clean run = 984/984). Leaving the flag unset (the default) keeps soft() a
- * non-counting log, so the 961-gate and every doc stat are unchanged.
+ * lane only (clean run = 1001/1001). Leaving the flag unset (the default) keeps soft() a
+ * non-counting log, so the 978-gate and every doc stat are unchanged.
  * (The lane was first built with Xvfb + non-headless Chrome, but that broke page rendering
  * on the GitHub runner and the lighthouse_audit fix made Lighthouse work headless \u2014 so the
  * lane is headless.) */
@@ -10020,7 +10020,7 @@ async function main() {
     console.log(`Results: ${passed}/${total} hard assertions passed, ${failed} failed`);
     if (STRICT_SOFT) {
       console.log('  (strict-soft lane: count includes ~23 promoted soft() checks; ' +
-        'the documented per-PR gate is 961 with soft() un-promoted.)');
+        'the documented per-PR gate is 978 with soft() un-promoted.)');
     }
     if (failLog.length > 0) {
       console.log('\nFailed assertions:');

@@ -11,7 +11,7 @@ env:
 
 jobs:
   harness:
-    name: Test Harness (166 blocks · 961 assertions)
+    name: Test Harness (168 blocks · 978 assertions)
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
