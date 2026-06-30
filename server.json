@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.ironclawdevs27/argus",
-  "description": "Automated web QA via Chrome DevTools MCP — JS, a11y, security, visual, env diff, CI reporting. Default-on Aegis egress redaction keeps secrets/PII out of tool responses.",
+  "description": "Automated web QA via Chrome DevTools MCP — a11y, security, visual, env diff, CI; Aegis redaction.",
   "repository": {
     "url": "https://github.com/ironclawdevs27/Argus",
     "source": "github"
