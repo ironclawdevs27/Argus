@@ -21,8 +21,26 @@ import fs   from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { childLogger } from './logger.js';
+import { redactReport } from './sensitivity-classifier.js';
 
 const logger = childLogger('html-reporter');
+
+/**
+ * Aegis (Step 7): decide whether an HTML report crosses the trust boundary and must be
+ * redacted. The default LOCALLY-opened report keeps 100% fidelity; a hosted/shared report
+ * (CI artifact, shared link) is projected through redactForEgress. Precedence:
+ *   ARGUS_REDACT_SENSITIVE=0 → never (global opt-out) · opts.external → always ·
+ *   ARGUS_REDACT_HTML=1 → always · ARGUS_REDACT_HTML=0 → never · else default ON under CI.
+ * @param {{ external?: boolean }} [opts]
+ * @returns {boolean}
+ */
+function shouldRedactHtml(opts = {}) {
+  if (process.env.ARGUS_REDACT_SENSITIVE === '0') return false;
+  if (opts.external === true) return true;
+  if (process.env.ARGUS_REDACT_HTML === '1') return true;
+  if (process.env.ARGUS_REDACT_HTML === '0') return false;
+  return process.env.CI === 'true' || process.env.CI === '1';
+}
 
 const __dirname   = path.dirname(fileURLToPath(import.meta.url));
 const REPORTS_DIR = path.resolve(__dirname, '../../reports');
@@ -441,15 +459,22 @@ function buildHtml(report) {
  * Called automatically by crawl-and-report.js when Slack is not configured (D7.7).
  *
  * @param {string} reportPath - Absolute or relative path to the JSON report file
+ * @param {{ external?: boolean }} [opts] - external:true forces egress redaction (hosted/shared
+ *        report); default keeps full local fidelity unless ARGUS_REDACT_HTML/CI apply (shouldRedactHtml)
  * @returns {string} Absolute path to the written report.html
  */
-export function generateHtmlReport(reportPath) {
+export function generateHtmlReport(reportPath, opts = {}) {
   let report;
   try {
     report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
   } catch (err) {
     throw new Error(`[ARGUS] Failed to parse report JSON at ${reportPath}: ${err.message}`);
   }
+  // Aegis egress guard (Step 7): a hosted/shared HTML report is a third-party sink (A2). When this
+  // render is external, project the parsed report through redactReport BEFORE buildHtml — the
+  // on-disk JSON at reportPath is left untouched (full local fidelity). The locally-opened default
+  // render stays raw. fail-CLOSED is honoured via report._aegisFailClosed inside redactReport.
+  if (shouldRedactHtml(opts)) report = redactReport(report, { localReportPath: reportPath });
   const html    = buildHtml(report);
   const outPath = path.join(path.dirname(path.resolve(reportPath)), 'report.html');
 

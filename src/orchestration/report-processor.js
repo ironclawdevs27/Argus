@@ -15,6 +15,7 @@ import { applyOverrides }                                                  from 
 import { loadBaseline, saveBaseline, applyBaseline, appendTrend, getCurrentBranch } from '../utils/baseline-manager.js';
 import { loadRunHistory, recordRunHistory, applyNoiseFilter }              from '../utils/noise-filter.js';
 import { getRecentChanges, linkRootCauses }                                from '../utils/root-cause-linker.js';
+import { classifySensitivity }                                            from '../utils/sensitivity-classifier.js';
 
 const logger = childLogger('report-processor');
 
@@ -129,9 +130,29 @@ export async function processReport(report, { outputDir, severityOverrides }) {
     }
   }
 
-  // 4. Write JSON report
+  // reportPath is computed here (ahead of the write) so step 3c can point each
+  // finding's localRef at the on-disk report file it will be written to.
   const timestamp  = new Date().toISOString().replace(/[:.]/g, '-');
   const reportPath = path.join(outputDir, `error-report-${timestamp}.json`);
+
+  // 3c. Aegis sensitivity classification — tag findings for the egress guards
+  //     (REDACTION_BOUNDARY_MAX_PLAN.md §6 Step 3). Tagging happens on shallow
+  //     CLONES, so the LOCAL report below keeps 100% fidelity — Aegis only ever
+  //     removes detail at an external sink, never on disk.
+  //     SECURITY-CRITICAL: this is the ONE post-processor that fails CLOSED. On
+  //     any error the egress guards must redact everything, so we set the
+  //     _aegisFailClosed flag rather than swallowing-and-continuing.
+  if (process.env.ARGUS_REDACT_SENSITIVE !== '0') {
+    try {
+      const { sensitiveCount } = classifySensitivity(report, { reportRef: path.basename(reportPath) });
+      if (sensitiveCount > 0) logger.info(`[ARGUS] Aegis: ${sensitiveCount} finding(s) tagged sensitive`);
+    } catch (err) {
+      logger.error(`[ARGUS] Aegis classify failed — egress guards will fail closed: ${err.message}`);
+      report._aegisFailClosed = true; // sinks read this and redact everything
+    }
+  }
+
+  // 4. Write JSON report
   try {
     fs.writeFileSync(reportPath, JSON.stringify(report, null, 2)); // lgtm[js/network-data-to-file] — intentional: Argus persists crawl findings to a local JSON report file by design
   } catch (err) {

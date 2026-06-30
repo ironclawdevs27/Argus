@@ -13,6 +13,7 @@ import { postBugReport }                          from './slack-notifier.js';
 import { isSlackConfigured }                      from '../utils/slack-guard.js';
 import { isGitHubConfigured, reportToGitHub }     from '../utils/github-reporter.js';
 import { generateHtmlReport }                     from '../utils/html-reporter.js';
+import { redactForEgress, summarizeRedaction }    from '../utils/sensitivity-classifier.js';
 
 const logger = childLogger('dispatcher');
 
@@ -57,6 +58,30 @@ function errorText(e) {
  * Info       → single digest message summarising all routes
  */
 async function dispatchToSlack(report, diff) {
+  // ── Aegis egress guard (Step 5) ───────────────────────────────────────────
+  // Slack is a third-party sink outside the trust boundary (a shared channel, A2).
+  // Project EVERY finding through redactForEgress before any description / details
+  // line is built, so no secret / PII / exploit detail crosses: a sensitive finding's
+  // line collapses to the 🔒 marker (its message becomes REDACT_MARKER), a benign
+  // finding keeps its mandatory-scrubbed message. The LOCAL on-disk report is untouched
+  // (this rebinds the local `report` param to a redacted CLONE). ARGUS_REDACT_SENSITIVE=0
+  // ⇒ byte-identical passthrough (redactForEgress returns the same objects).
+  let redactedCount = 0;
+  if (process.env.ARGUS_REDACT_SENSITIVE !== '0') {
+    const rawFindings = [
+      ...report.routes.flatMap(r => r.errors ?? []),
+      ...(report.flows ?? []).flatMap(f => f.findings ?? []),
+      ...(report.codebase ?? []),
+    ];
+    redactedCount = summarizeRedaction(rawFindings).redacted;
+    report = {
+      ...report,
+      routes:   report.routes.map(r => ({ ...r, errors: redactForEgress(r.errors ?? []) })),
+      flows:    (report.flows ?? []).map(f => ({ ...f, findings: redactForEgress(f.findings ?? []) })),
+      codebase: redactForEgress(report.codebase ?? []),
+    };
+  }
+
   const { summary } = report;
 
   // ── Criticals: one message per affected route ─────────────────────────────
@@ -218,6 +243,9 @@ async function dispatchToSlack(report, diff) {
       description:
         `Summary: ${summary.total} findings across ${report.routes.length} routes\n` +
         `:red_circle: ${summary.critical} critical  :large_yellow_circle: ${summary.warning} warnings  :large_blue_circle: ${summary.info} info\n` +
+        (redactedCount > 0
+          ? `:lock: ${redactedCount} sensitive finding(s) redacted at the boundary — full detail in the local report\n`
+          : '') +
         (trendLine ? trendLine + '\n' : '') + '\n' +
         (digestLines.length > 0 ? digestLines.join('\n') : '_No info-level findings._'),
       url: report.baseUrl,

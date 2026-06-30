@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Argus Aegis fixture — sensitive findings</title>
+  <!--
+    Aegis harness fixture (REDACTION_BOUNDARY_MAX_PLAN.md §9.1, block [168]).
+    Deliberately seeds findings that carry secrets / PII / internal topology so the
+    real crawl pipeline produces sensitive findings the egress projector must redact:
+      • localStorage 'authToken' holding a JWT  → security_token_in_storage (critical)
+      • a request with ?token=<JWT>             → security_token_in_url    (critical)
+      • console output with a Bearer sk-ant key → security_sensitive_console
+      • console output with an email + Luhn card → security_sensitive_console / console
+      • a login form posting over http://…internal (internal topology)
+    It intentionally OMITS <meta name="description"> so a BENIGN seo_missing_description
+    finding (the negative control) is also produced. No real credentials — all values
+    are synthetic, Luhn-valid card is the standard 4111-test number.
+  -->
+</head>
+<body>
+  <main>
+    <h1>Account dashboard</h1>
+    <p>
+      This page exists only for the Argus Aegis test harness. It renders enough body
+      text to clear the blank-page heuristic and then seeds a handful of findings whose
+      detail must never cross an external trust boundary in raw form.
+    </p>
+
+    <!-- Internal-topology login form: posts credentials to a private host over HTTP. -->
+    <form id="login" action="http://auth.internal:8080/login" method="post">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="username" value="jane.doe@billing-corp.com">
+      <label for="pw">Password</label>
+      <input id="pw" name="password" type="password" autocomplete="current-password">
+      <button type="submit">Sign in</button>
+    </form>
+
+    <!-- A request whose query string hides a JWT → security_token_in_url. -->
+    <img alt="" width="1" height="1"
+         src="/api/user-data?token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJyb290In0.s3cretSIGNATUREvalueABCdef1234567890">
+  </main>
+
+  <script>
+    // Auth token parked in localStorage (XSS-readable) → security_token_in_storage.
+    localStorage.setItem('authToken', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJyb290In0.s3cretSIGNATUREvalueABCdef1234567890');
+
+    // Secrets leaked to the console → security_sensitive_console + console findings.
+    console.error('Auth refresh failed; Authorization: Bearer sk-ant-api03-Aa1Bb2Cc3Dd4Ee5Ff6Gg7Hh8Ii9Jj0Kk');
+    console.error('Payment for jane.doe@billing-corp.com on card 4111 1111 1111 1111 was declined');
+  </script>
+</body>
+</html>

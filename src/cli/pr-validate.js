@@ -31,12 +31,32 @@ import { auditRoutesConcurrently, auditRouteWithRetry, routeResilienceFromEnv } 
 import { fetchPrFiles, mapFilesToRoutesDeep, resolveAnnotationTarget } from '../utils/pr-diff-analyzer.js';
 import { resolveTargetUrl }                           from '../utils/deploy-preview.js';
 import { reportPrValidation }                         from '../utils/github-reporter.js';
+import { redactForEgress }                             from '../utils/sensitivity-classifier.js';
+import { scrubText }                                   from '../utils/secret-patterns.js';
 import { getCurrentBranch }                            from '../utils/baseline-manager.js';
 import {
   decidePrBlock, resolvePrBaselineFile, loadPrBaseline, savePrBaseline, tagFindingNovelty, severityTally,
 } from '../utils/pr-baseline.js';
 
 // ── Exported helpers (testable without Chrome) ────────────────────────────────
+
+/**
+ * Aegis egress guard (Step 7): the $GITHUB_STEP_SUMMARY is a CI artifact readable by anyone
+ * with repo access (A4), so a finding's free-text must never cross raw. Project the finding
+ * through redactForEgress and return its egress-safe `message` + `url`: a sensitive finding's
+ * message collapses to the 🔒 marker, a benign one keeps its scrubbed message; the url is
+ * stripped of query/userinfo. ARGUS_REDACT_SENSITIVE=0 ⇒ raw (byte-identical to pre-Aegis).
+ *
+ * @param {object} f
+ * @returns {{ message: string, url: string }}
+ */
+export function safeFindingLine(f) {
+  if (process.env.ARGUS_REDACT_SENSITIVE === '0') {
+    return { message: String(f?.message ?? ''), url: String(f?.url ?? '') };
+  }
+  const [p] = redactForEgress([f]);
+  return { message: String(p?.message ?? ''), url: String(p?.url ?? '') };
+}
 
 /**
  * Build a GitHub-flavoured markdown step summary.
@@ -105,8 +125,9 @@ export function buildStepSummary({ blocked, summary, affectedRoutes, perRoute, f
       const sev = f.severity === 'critical' ? '🔴 critical'
                : f.severity === 'warning'  ? '⚠️ warning'
                : 'ℹ️ info';
-      const msg = String(f.message ?? '').replace(/\|/g, '\\|').slice(0, 100);
-      const url = String(f.url     ?? '').replace(/\|/g, '\\|').slice(0, 80);
+      const safe = safeFindingLine(f);   // Aegis: scrub message + strip url query before egress
+      const msg = safe.message.replace(/\|/g, '\\|').slice(0, 100);
+      const url = safe.url.replace(/\|/g, '\\|').slice(0, 80);
       md += `| ${sev} | \`${f.type ?? ''}\` | ${msg} | ${url} |\n`;
     }
     if (findings.length > 50) {
@@ -455,11 +476,18 @@ async function main() {
       // genuine diff line (see pr-diff-analyzer.js).
       const annTarget = resolveAnnotationTarget(route.path, prFiles);
       const loc = annTarget ? ` file=${annTarget.path},line=${annTarget.line}` : '';
+      // Aegis (Step 7): a GitHub Actions ::error/::warning annotation is rendered on the PR and
+      // captured in the CI log (A4). scrubText the message so a secret/PII captured from the page
+      // never lands in an annotation; the type + audit-target url stay (structural, non-secret).
+      const annMsg = (m) => {
+        const s = String(m ?? '');
+        return (process.env.ARGUS_REDACT_SENSITIVE === '0' ? s : scrubText(s)).replace(/\n/g, ' ');
+      };
       for (const f of findings.filter(g => g.severity === 'critical')) {
-        console.log(`::error${loc}::${String(f.message ?? '').replace(/\n/g, ' ')} [${f.type}] on ${url}`);
+        console.log(`::error${loc}::${annMsg(f.message)} [${f.type}] on ${url}`);
       }
       for (const f of findings.filter(g => g.severity === 'warning')) {
-        console.log(`::warning${loc}::${String(f.message ?? '').replace(/\n/g, ' ')} [${f.type}] on ${url}`);
+        console.log(`::warning${loc}::${annMsg(f.message)} [${f.type}] on ${url}`);
       }
     }
 
@@ -546,7 +574,14 @@ async function main() {
       blockOn,
       baseline: baselineInfo,
     };
-    console.log(JSON.stringify(result, null, 2));
+    // Aegis (Step 7): the CLI prints this result to stdout, which lands in the GitHub Actions log
+    // (world-readable for public repos, A4). Project the findings through redactForEgress for the
+    // printed view (type/severity/route/scrubbed-message survive — the downstream contract holds);
+    // reportPrValidation below receives the RAW `result` and redacts independently. Opt-out ⇒ raw.
+    const printResult = process.env.ARGUS_REDACT_SENSITIVE === '0'
+      ? result
+      : { ...result, findings: redactForEgress(allFindings) };
+    console.log(JSON.stringify(printResult, null, 2));
 
     // Step 9: Post/update the Argus PR comment + Check Run (Phase A). Idempotent — updates
     // the single marker-tagged comment in place; the Check Run conclusion maps to the block

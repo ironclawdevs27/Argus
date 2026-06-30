@@ -29,6 +29,7 @@
 import { childLogger } from './logger.js';
 import { parsePrUrl } from './pr-diff-analyzer.js';
 import { githubFetch } from './github-api.js';
+import { redactForEgress, redactReport, buildRedactionRider } from './sensitivity-classifier.js';
 
 const logger = childLogger('github-reporter');
 
@@ -130,6 +131,12 @@ export function formatPrComment(report, diff) {
     `**Base URL**: ${baseUrl}  `,
     `**Run time**: ${runDate}  `,
     '',
+    // Aegis (Step 6): when findings were redacted at the egress boundary, say so — the
+    // reader sees titles/types, never the raw exploit detail. Additive + gated, so a report
+    // that carries no `redaction` rider (every pre-Aegis caller / opt-out) renders unchanged.
+    ...(report.redaction && report.redaction.redacted > 0
+      ? [`> 🔒 ${report.redaction.redacted} finding(s) redacted at the boundary — full detail in the local report`, '']
+      : []),
     ...(report.prValidation ? prValidationBanner(report.prValidation) : []),
     '| | 🔴 Critical | 🟡 Warning | 🔵 Info | Total |',
     '|---|---|---|---|---|',
@@ -524,9 +531,20 @@ export function isGitHubConfigured() {
 export async function reportToGitHub(report, diff) {
   const tasks = [];
 
+  // Aegis egress guard (Step 6): GitHub (PR comment, Check Run, commit status) is a
+  // third-party sink read by anyone with repo access (A2). Project the WHOLE report once
+  // through redactReport — every finding array reduced to the deny-by-default allowlist, a
+  // `redaction` rider attached (drives the comment's 🔒 notice), metadata + severity counts
+  // preserved (so buildStatusPayload's merge gate is unchanged). The findings are already
+  // step-3c-tagged in the runCrawl path, so redactReport honours each finding's `sensitive`
+  // flag + the report-level `_aegisFailClosed`. ARGUS_REDACT_SENSITIVE=0 ⇒ raw passthrough.
+  const guarded = process.env.ARGUS_REDACT_SENSITIVE === '0'
+    ? report
+    : redactReport(report, { localReportPath: process.env.ARGUS_REPORT_URL || null });
+
   if (process.env.GITHUB_PR_NUMBER) {
     tasks.push(
-      postPrComment(report, diff).catch(err =>
+      postPrComment(guarded, diff).catch(err =>
         logger.warn(`[ARGUS] C2: PR comment failed — ${err.message}`)
       )
     );
@@ -535,7 +553,7 @@ export async function reportToGitHub(report, diff) {
   if (process.env.GITHUB_SHA) {
     // Commit status (fast, minimal)
     tasks.push(
-      setCommitStatus(report, diff).catch(err =>
+      setCommitStatus(guarded, diff).catch(err =>
         logger.warn(`[ARGUS] C2: Commit status failed — ${err.message}`)
       )
     );
@@ -543,7 +561,7 @@ export async function reportToGitHub(report, diff) {
     // Check Run (rich output — created and completed in sequence)
     tasks.push(
       createCheckRun(undefined, process.env.GITHUB_SHA)
-        .then(id => completeCheckRun(id, report, diff))
+        .then(id => completeCheckRun(id, guarded, diff))
         .catch(err =>
           logger.warn(`[ARGUS] C2: Check run failed — ${err.message}`)
         )
@@ -690,7 +708,18 @@ export async function reportPrValidation(result, { prUrl } = {}) {
     return { posted: false, checked: false, skipped: true, reason: 'no resolvable repo / PR number — PR reporting skipped' };
   }
 
-  const report = prResultToReport(result);
+  // Aegis egress guard (Step 6): the PR-Validator path reaches here with RAW findings (it does
+  // not run report-processor step 3c). Project them through redactForEgress BEFORE prResultToReport
+  // builds the comment, so the posted PR comment / Check Run carry titles + scrubbed messages, never
+  // exploit detail (A1/A2). The block decision was already computed upstream on the RAW findings.
+  // Attach a `redaction` rider so formatPrComment renders the 🔒 notice. Opt-out ⇒ raw passthrough.
+  const guardedResult = process.env.ARGUS_REDACT_SENSITIVE === '0'
+    ? result
+    : { ...result, findings: redactForEgress(result?.findings ?? []) };
+  const report = prResultToReport(guardedResult);
+  if (process.env.ARGUS_REDACT_SENSITIVE !== '0') {
+    report.redaction = buildRedactionRider(result?.findings ?? [], { localReportPath: null });
+  }
   // Non-first diff so findings render (not treated as a baseline-establishing first run). The
   // new/persisting split rides on each finding's `isNew` tag (set in the PR-validate paths via
   // tagFindingNovelty); `resolvedCount` comes from the head-vs-base diff (Phase B2) so the

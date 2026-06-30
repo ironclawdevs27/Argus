@@ -69,6 +69,8 @@ import {
 // not a hand-rolled duplicate. The Slack init side-effect concern was resolved by lazy
 // WebClient init, so importing crawl-and-report.js is now safe in test context.
 import { crawlRouteCheap, checkHttpsRequired } from '../src/orchestration/crawl-and-report.js';
+import { classifyFinding, classifySensitivity, redactForEgress, summarizeRedaction, buildRedactionRider } from '../src/utils/sensitivity-classifier.js';
+import { scrubText, findSensitiveSpans } from '../src/utils/secret-patterns.js';
 import { analyzeIssues } from '../src/utils/issues-analyzer.js';
 import { parseNetworkTiming } from '../src/utils/network-timing-analyzer.js';
 import { analyzeKeyboard } from '../src/utils/keyboard-analyzer.js';
@@ -90,7 +92,7 @@ import { withRetry } from '../src/utils/retry.js';
 import { diffNetworkRequests, diffConsoleMessages } from '../src/utils/diff.js';
 import { parsePrUrl, mapFilesToRoutes, mapFilesToRoutesDeep, fetchPrFiles, firstAddedLine, resolveAnnotationTarget, stripWorkspacePrefix, packageRelativePath } from '../src/utils/pr-diff-analyzer.js';
 import { prFilesResponse } from './contracts/github-pr-files-sample.js';
-import { buildStepSummary, writeGithubOutputs, writeStepSummary, checkTargetReachable, normalizeRoutePaths, allRoutesFailed, prExitCode } from '../src/cli/pr-validate.js';
+import { buildStepSummary, writeGithubOutputs, writeStepSummary, checkTargetReachable, normalizeRoutePaths, allRoutesFailed, prExitCode, safeFindingLine } from '../src/cli/pr-validate.js';
 import { diffRoutesAgainstBaseline, decidePrBlock, resolvePrBaselineFile, loadPrBaseline, savePrBaseline, tagFindingNovelty, severityTally } from '../src/utils/pr-baseline.js';
 import { AUDIT_DEPTHS, ALL_EXPENSIVE_ANALYZERS, resolveAuditDepth, selectAnalyzers, runDepthAnalyzers } from '../src/utils/audit-depth.js';
 import { resolveTargetUrl, pickPreviewDeployment, previewUrlFromStatuses } from '../src/utils/deploy-preview.js';
@@ -104,6 +106,7 @@ import { getRecentChanges, matchFilesToRoutePath, linkRootCauses } from '../src/
 import {
   TOOL_RESPONSE_SCHEMAS, TOOL_NAMES, formatZodError,
   auditResponseSchema, getContextResponseSchema, reportSummarySchema, prValidateResponseSchema,
+  redactionRiderSchema,
 } from './contracts/mcp-tool-schemas.js';
 // Recorded-shape GitHub reporting-endpoint fixtures (block [166] — Phase F1).
 import {
@@ -9630,6 +9633,335 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
       Array.isArray(resultB167.findings) && resultB167.findings.some(f => f.type === 'blank_page') &&
       mockBReqs167.length === 1 && /\/pulls\/8\/files/.test(mockBReqs167[0].url) && mockBReqs167[0].hadAuth === false,
       `[167h] block run JSON result: audited /blank-page.html, critical≥1, blank_page present, mock tokenless (affected: ${JSON.stringify(resultB167?.affectedRoutes)}, crit: ${resultB167?.summary?.critical}, types: ${JSON.stringify((resultB167?.findings ?? []).map(f => f.type).slice(0, 5))}, reqs: ${JSON.stringify(mockBReqs167)})`
+    );
+  }
+
+  // ── [168] AEGIS — CONFIDENTIALITY EGRESS BOUNDARY ───────────────────────────────
+  // Drives the REAL production cheap pipeline (crawlRouteCheap + processReport, the
+  // step-3c wiring) against test-harness/pages/sensitive-findings.html, then proves the
+  // ONE Aegis invariant at the boundary: no secret / PII / internal-topology substring
+  // survives redactForEgress, while the LOCAL on-disk report keeps full fidelity.
+  //
+  // NON-VACUOUS by construction: [168d]'s `rawHadSecrets` precondition asserts the raw
+  // findings genuinely carry the secrets (so the "absent from projection" check has
+  // something to strip); [168f] reads the secret back off DISK (fidelity) AND asserts the
+  // step-3c tag (wiring). Step 4 (MCP egress guards, all 9 tools) adds [168i] (the `redaction`
+  // rider safeParses + a malformed rider is rejected) and the END-TO-END boundary proofs
+  // [168k] (a LIVE argus_audit on the fixture via the spawned server leaks no secret + carries
+  // the rider) / [168l] (the SAME audit with ARGUS_REDACT_SENSITIVE=0 returns the secret RAW —
+  // proving [168k] is non-vacuous AND the opt-out is honoured at the boundary).
+  {
+    console.log('\n[168] Aegis — sensitive findings are redacted at the egress boundary (real pipeline)');
+
+    const JWT168   = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJyb290In0.s3cretSIGNATUREvalueABCdef1234567890';
+    const ANTH168  = 'sk-ant-api03-Aa1Bb2Cc3Dd4Ee5Ff6Gg7Hh8Ii9Jj0Kk';
+    const EMAIL168 = 'jane.doe@billing-corp.com';
+    const CARD168  = '4111 1111 1111 1111';   // Luhn-valid, as embedded (with spaces)
+    const CARDD168 = '4111111111111111';        // normalised (no spaces) — must also never leak
+    const SECRETS_RAW168    = [JWT168, ANTH168, EMAIL168, CARD168];
+    const SECRETS_ABSENT168 = [JWT168, ANTH168, EMAIL168, CARD168, CARDD168];
+
+    const route168 = { name: 'sensitive-findings', path: '/sensitive-findings.html', critical: false, waitFor: null };
+    const url168   = `${B}/sensitive-findings.html`;
+
+    // ── Drive the REAL production cheap pipeline against the fixture ──────────────
+    let crawl168 = { errors: [] };
+    let crawlErr168 = null;
+    try {
+      crawl168 = await crawlRouteCheap(route168, B, mcp);
+    } catch (e) { crawlErr168 = e; }
+    const crawled168 = Array.isArray(crawl168.errors) ? crawl168.errors : [];
+
+    // [168a] a security_* finding from the real crawl is tagged sensitive:true (Layer 1).
+    const report168a = { routes: [{ route: route168.name, url: url168, errors: crawled168.map(f => ({ ...f })) }] };
+    classifySensitivity(report168a, { reportRef: 'error-report-168a.json' });
+    const secTagged168 = report168a.routes[0].errors.find(f => typeof f.type === 'string' && f.type.startsWith('security_'));
+    assert(
+      crawlErr168 === null && !!secTagged168 && secTagged168.sensitive === true &&
+        typeof secTagged168.localRef === 'string' && secTagged168.localRef.length > 0,
+      `[168a] a security_* finding from the real crawl is tagged sensitive:true with a localRef (crawlErr: ${crawlErr168?.message ?? 'none'}, type: ${secTagged168?.type ?? 'NONE'}, sensitive: ${secTagged168?.sensitive}, localRef: ${secTagged168?.localRef ?? 'none'})`
+    );
+
+    // [168b] a BENIGN-category finding whose message embeds a key is sensitive by CONTENT (Layer 2).
+    const benignKey168 = { type: 'seo_missing_description', severity: 'warning', url: url168,
+      message: `Analytics misconfigured — left ${ANTH168} in the page <head>` };
+    const bk168 = classifyFinding(benignKey168);
+    assert(
+      bk168.sensitive === true && bk168.sensitivityReasons.includes('secret:anthropic_key'),
+      `[168b] a benign-type finding carrying an injected sk-ant key is tagged sensitive via the content layer, not the category (sensitive: ${bk168.sensitive}, reasons: ${JSON.stringify(bk168.sensitivityReasons)})`
+    );
+
+    // [168c] negative control — an ordinary SEO finding is NOT sensitive and its message crosses egress intact.
+    const seoClean168 = { type: 'seo_missing_description', severity: 'warning', url: url168,
+      message: 'Missing meta description — add a <meta name="description"> tag for SEO' };
+    const seoClass168 = classifyFinding(seoClean168);
+    const seoProj168  = redactForEgress([seoClean168])[0];
+    assert(
+      seoClass168.sensitive === false && seoProj168.message === seoClean168.message,
+      `[168c] the negative-control SEO finding is not sensitive and its message crosses egress intact (sensitive: ${seoClass168.sensitive}, message preserved: ${seoProj168.message === seoClean168.message})`
+    );
+
+    // Faithful sensitive finding shapes (exactly what the analyzers emit — verified vs
+    // security-analyzer.js) so the redaction invariants are deterministic + non-vacuous.
+    const samples168 = [
+      { type: 'security_token_in_url', severity: 'critical', url: url168,
+        requestUrl: `http://auth.internal:8080/api/x?token=${JWT168}#frag`,
+        message: `Sensitive parameter in request URL: http://auth.internal:8080/api/x?token=${JWT168}` },
+      { type: 'security_sensitive_console', severity: 'warning', url: url168,
+        message: `Sensitive data in console output: Authorization: Bearer ${ANTH168}` },
+      { type: 'console', level: 'error', severity: 'warning', url: url168,
+        message: `Payment for ${EMAIL168} on card ${CARD168} declined` },
+      seoClean168,
+    ];
+    const proj168    = redactForEgress(samples168);
+    const projStr168 = JSON.stringify(proj168);
+    const rawStr168  = JSON.stringify(samples168);
+
+    // [168d] the projection drops every secret/PII substring but keeps type+route+severity.
+    const rawHadSecrets168 = SECRETS_RAW168.every(s => rawStr168.includes(s)); // non-vacuous precondition
+    const projLeak168      = SECRETS_ABSENT168.filter(s => projStr168.includes(s));
+    const sensProj168      = proj168.find(p => p.type === 'security_token_in_url');
+    assert(
+      rawHadSecrets168 && projLeak168.length === 0 &&
+        sensProj168 && sensProj168.severity === 'critical' && sensProj168.route === '/sensitive-findings.html',
+      `[168d] egress projection keeps type/route/severity but contains NONE of the JWT/key/email/card substrings (rawHadSecrets: ${rawHadSecrets168}, leaked: ${JSON.stringify(projLeak168)}, route: ${sensProj168?.route})`
+    );
+
+    // [168e] a url with ?token=eyJ… is projected with the query string + fragment stripped.
+    assert(
+      typeof sensProj168?.requestUrl === 'string' &&
+        !sensProj168.requestUrl.includes('?') && !sensProj168.requestUrl.includes('#') &&
+        !sensProj168.requestUrl.includes(JWT168) && sensProj168.requestUrl.includes('/api/x'),
+      `[168e] requestUrl is projected with the query string + fragment (and the embedded JWT) stripped (got: ${sensProj168?.requestUrl})`
+    );
+
+    // [168f] LOCAL FIDELITY via the REAL pipeline — processReport (step 3c) tags but never strips on disk.
+    const tmp168 = path.join(os.tmpdir(), `argus-harness-168-${Date.now()}`);
+    fs.mkdirSync(path.join(tmp168, 'baselines'), { recursive: true });
+    const fidReport168 = {
+      generatedAt: new Date().toISOString(), baseUrl: B,
+      routes: [{ route: 'sensitive-findings', url: url168, errors: [
+        { type: 'security_sensitive_console', severity: 'warning', url: url168,
+          message: `Bearer ${ANTH168} and token ${JWT168}`,
+          evidence: `<script>fetch('/x?token=${JWT168}')</script>` },
+      ] }],
+      flows: [], codebase: [], summary: { total: 0, critical: 0, warning: 0, info: 0 },
+    };
+    const { reportPath: rp168 } = await processReport(fidReport168, { outputDir: tmp168, severityOverrides: {} });
+    const onDisk168 = fs.readFileSync(rp168, 'utf8');
+    const diskFinding168 = JSON.parse(onDisk168).routes[0].errors[0];
+    assert(
+      onDisk168.includes(JWT168) && onDisk168.includes(ANTH168) &&
+        onDisk168.includes(`/x?token=${JWT168}`) && diskFinding168.sensitive === true,
+      `[168f] the on-disk report retains the full secret-bearing message + evidence AND step-3c tagged it sensitive (JWT on disk: ${onDisk168.includes(JWT168)}, evidence on disk: ${onDisk168.includes('/x?token=' + JWT168)}, tagged: ${diskFinding168.sensitive})`
+    );
+
+    // [168g] FAIL-CLOSED — failClosed projection emits zero secrets; a throwing-getter finding → stub.
+    const failClosedStr168 = JSON.stringify(redactForEgress(samples168, { failClosed: true }));
+    const boom168 = { type: 'console', severity: 'warning', url: url168 };
+    Object.defineProperty(boom168, 'message', { enumerable: true, get() { throw new Error('classifier boom'); } });
+    const stub168 = redactForEgress([boom168])[0];
+    assert(
+      SECRETS_ABSENT168.every(s => !failClosedStr168.includes(s)) &&
+        typeof stub168.detail === 'string' && stub168.detail.includes('redacted') && !('message' in stub168),
+      `[168g] fail-closed redacts MORE — failClosed projection leaks no secret AND a finding whose getter throws becomes a redacted stub (failClosed clean: ${SECRETS_ABSENT168.every(s => !failClosedStr168.includes(s))}, stub detail: ${stub168.detail}, stub has message: ${'message' in stub168})`
+    );
+
+    // [168h] summarizeRedaction reconciles with the number of sensitive findings.
+    const expectedRedacted168 = samples168.filter(f => classifyFinding(f).sensitive).length;
+    const sum168 = summarizeRedaction(samples168);
+    assert(
+      sum168.total === samples168.length && sum168.redacted === expectedRedacted168 && expectedRedacted168 === 3,
+      `[168h] summarizeRedaction reconciles with the sensitive count (total: ${sum168.total}/${samples168.length}, redacted: ${sum168.redacted}, expected: ${expectedRedacted168})`
+    );
+
+    // [168j] scrubText is idempotent and (mask mode) never lengthens the input.
+    const blob168  = `tok ${ANTH168} jwt ${JWT168} mail ${EMAIL168} card ${CARD168}`;
+    const once168  = scrubText(blob168, { mode: 'mask' });
+    const twice168 = scrubText(once168, { mode: 'mask' });
+    assert(
+      findSensitiveSpans(blob168).length > 0 && once168 === twice168 &&
+        once168.length <= blob168.length && !once168.includes(JWT168) && !once168.includes(ANTH168),
+      `[168j] scrubText is idempotent + never lengthens (spans: ${findSensitiveSpans(blob168).length}, idempotent: ${once168 === twice168}, no-lengthen: ${once168.length <= blob168.length})`
+    );
+
+    // [168i] Step 4 — the optional `redaction` rider that EVERY guarded MCP tool response now
+    // carries safeParses in the golden-schema contract, and a malformed (retyped) rider is
+    // REJECTED (non-vacuous). Closes the item deferred by the Step-3 session.
+    const rider168    = buildRedactionRider(samples168, { localReportPath: rp168 });
+    const riderOk168  = redactionRiderSchema.safeParse(rider168);
+    const riderBad168 = redactionRiderSchema.safeParse({ redacted: 'three', total: 4 }); // redacted retyped → reject
+    assert(
+      riderOk168.success === true && riderBad168.success === false &&
+        rider168.redacted === 3 && rider168.total === samples168.length &&
+        rider168.localReportPath === rp168,
+      `[168i] the redaction rider safeParses (good) + a retyped rider is rejected (non-vacuous) (good: ${riderOk168.success}, badRejected: ${!riderBad168.success}, redacted: ${rider168.redacted}/${rider168.total})`
+    );
+
+    // [168k] END-TO-END MCP boundary — a LIVE argus_audit on the sensitive fixture (via the
+    // spawned server, default redaction ON) returns findings carrying NONE of the secret
+    // substrings AND a `redaction` rider that safeParses. The Step-4 acceptance proof (§12.1).
+    let srv168k = null, auditText168 = '', auditObj168 = null, err168k = null;
+    try {
+      srv168k = await spawnArgusServer(path.resolve(__dirname, '..'), { TARGET_DEV_URL: B });
+      const resp = await mcpToolCall(srv168k.proc, 'argus_audit', { url: url168 }, 90000);
+      auditText168 = resp?.result?.content?.[0]?.text ?? '';
+      try { auditObj168 = JSON.parse(auditText168); } catch { /* non-JSON */ }
+    } catch (e) { err168k = e; } finally { try { srv168k?.proc?.kill(); } catch {} }
+    const leakedLive168 = SECRETS_ABSENT168.filter(s => auditText168.includes(s));
+    const riderLive168  = auditObj168?.redaction ? redactionRiderSchema.safeParse(auditObj168.redaction) : { success: false };
+    assert(
+      err168k === null && auditObj168 !== null && Array.isArray(auditObj168.findings) &&
+        leakedLive168.length === 0 && riderLive168.success === true,
+      `[168k] a LIVE argus_audit on the sensitive fixture leaks no JWT/key/email/card substring + carries a redaction rider (err: ${err168k?.message ?? 'none'}, findings: ${auditObj168?.findings?.length}, leaked: ${JSON.stringify(leakedLive168)}, rider: ${riderLive168.success})`
+    );
+
+    // [168l] NON-VACUITY + opt-out — the SAME live audit with ARGUS_REDACT_SENSITIVE=0 returns
+    // the secret-bearing findings RAW (≥1 secret substring present). Proves [168k]'s redaction
+    // does real work (without it the secret WOULD cross) AND the opt-out is byte-passthrough.
+    let srvOff168 = null, offText168 = '', errOff168 = null;
+    try {
+      srvOff168 = await spawnArgusServer(path.resolve(__dirname, '..'), { TARGET_DEV_URL: B, ARGUS_REDACT_SENSITIVE: '0' });
+      const resp = await mcpToolCall(srvOff168.proc, 'argus_audit', { url: url168 }, 90000);
+      offText168 = resp?.result?.content?.[0]?.text ?? '';
+    } catch (e) { errOff168 = e; } finally { try { srvOff168?.proc?.kill(); } catch {} }
+    const leakedOff168 = SECRETS_ABSENT168.filter(s => offText168.includes(s));
+    assert(
+      errOff168 === null && leakedOff168.length > 0,
+      `[168l] with the opt-out (ARGUS_REDACT_SENSITIVE=0) the same audit returns ≥1 secret RAW — proving [168k] redaction is non-vacuous (err: ${errOff168?.message ?? 'none'}, leakedRaw: ${JSON.stringify(leakedOff168)})`
+    );
+  }
+
+  // ── [169] AEGIS — egress-sink guards (Slack / GitHub / HTML / CI, plan Steps 5–7) ──
+  // Network-free + Chrome-free: drives the REAL non-MCP sinks with a SENSITIVE finding
+  // (a JWT in the url query + an Anthropic key in the message) and pins the ONE invariant —
+  // no secret substring crosses — while the opt-out (ARGUS_REDACT_SENSITIVE=0) lets it
+  // through (the non-vacuity guard, proving the redaction is load-bearing, never a tautology).
+  //   GitHub: reportPrValidation → the PR comment body via makeReportingFetchStub.
+  //   HTML:   generateHtmlReport({external:true}) vs the RAW on-disk JSON (local fidelity).
+  //   CI:     buildStepSummary + safeFindingLine (cli/pr-validate.js).
+  {
+    console.log('\n[169] Aegis — egress-sink guards (Slack/GitHub/HTML/CI step summary)');
+
+    const JWT169 = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
+    const KEY169 = 'sk-ant-api03-AbCdEf0123456789AbCdEf0123456789AbCdEf01_xyz';
+    const SECRETS169 = [JWT169, KEY169];
+    const leaks169 = (t) => SECRETS169.filter(s => String(t).includes(s));
+
+    const sensitive169 = {
+      type: 'security_no_https', severity: 'critical', isNew: true,
+      url: `https://staging.example.com/login?session=${JWT169}`,
+      message: `Login posts over HTTP; captured Authorization: Bearer ${KEY169}`,
+      evidence: '<form action="http://app.internal/login">',
+    };
+    const benign169 = {
+      type: 'seo_title_missing', severity: 'warning', isNew: true,
+      url: 'https://staging.example.com/about', message: 'Page is missing a descriptive <title> element',
+    };
+    const prResult169 = {
+      prUrl: 'https://github.com/acme/shop/pull/7', targetUrl: 'https://staging.example.com',
+      affectedRoutes: ['/login'], changedFiles: ['src/pages/login.tsx'],
+      summary: { critical: 1, warning: 1, info: 0 }, blocked: true, blockOn: 'critical',
+      perRoute: [{ route: '/login', critical: 1, warning: 1, info: 0 }],
+      findings: [sensitive169, benign169],
+    };
+
+    // ── GitHub PR comment sink (Step 6) ─────────────────────────────────────────
+    const _origFetch169 = globalThis.fetch;
+    const _saved169 = {
+      tok: process.env.GITHUB_TOKEN, repo: process.env.GITHUB_REPOSITORY, pr: process.env.GITHUB_PR_NUMBER,
+      sha: process.env.GITHUB_SHA, head: process.env.ARGUS_PR_HEAD_SHA, redact: process.env.ARGUS_REDACT_SENSITIVE,
+    };
+    const SECRETTOK169 = 'ghp_aegis_sink_token_do_not_leak_169';
+    delete process.env.GITHUB_REPOSITORY; delete process.env.GITHUB_PR_NUMBER;
+    delete process.env.GITHUB_SHA; delete process.env.ARGUS_PR_HEAD_SHA;   // no Check Run noise
+    delete process.env.ARGUS_REDACT_SENSITIVE;                              // default ON
+    let postOn169 = '', postOff169 = '';
+    try {
+      process.env.GITHUB_TOKEN = SECRETTOK169;
+
+      // [169a] default ON: the posted comment body carries NEITHER the finding's JWT/key NOR the
+      // GITHUB_TOKEN, shows the 🔒 redaction notice, and keeps the benign finding's message.
+      const reqsOn169 = [];
+      globalThis.fetch = makeReportingFetchStub({ comments: issueCommentsListNoArgus, onRequest: r => reqsOn169.push(r) });
+      const outOn169 = await reportPrValidation(prResult169, { prUrl: prResult169.prUrl });
+      postOn169 = String((reqsOn169.find(r => r.method === 'POST') || {}).body ?? '');
+      assert(
+        outOn169.posted === true && leaks169(postOn169).length === 0 &&
+        !postOn169.includes(SECRETTOK169) && postOn169.includes('🔒') && postOn169.includes('missing a descriptive'),
+        `[169a] PR comment redacts findings — no JWT/key/token, shows 🔒, keeps the benign message (leaked: ${JSON.stringify(leaks169(postOn169))}, tokenLeak: ${postOn169.includes(SECRETTOK169)}, lock: ${postOn169.includes('🔒')})`
+      );
+
+      // [169b] opt-out non-vacuity: the SAME comment with ARGUS_REDACT_SENSITIVE=0 carries the raw
+      // secret (the route label /login?session=<JWT> + the raw message) — [169a] is load-bearing.
+      process.env.ARGUS_REDACT_SENSITIVE = '0';
+      const reqsOff169 = [];
+      globalThis.fetch = makeReportingFetchStub({ comments: issueCommentsListNoArgus, onRequest: r => reqsOff169.push(r) });
+      await reportPrValidation(prResult169, { prUrl: prResult169.prUrl });
+      postOff169 = String((reqsOff169.find(r => r.method === 'POST') || {}).body ?? '');
+      assert(
+        leaks169(postOff169).length > 0,
+        `[169b] opt-out (ARGUS_REDACT_SENSITIVE=0) lets ≥1 raw secret reach the PR comment body — [169a] is non-vacuous (leakedRaw: ${JSON.stringify(leaks169(postOff169))})`
+      );
+      delete process.env.ARGUS_REDACT_SENSITIVE;
+    } finally {
+      globalThis.fetch = _origFetch169;
+      if (_saved169.tok    === undefined) delete process.env.GITHUB_TOKEN;          else process.env.GITHUB_TOKEN          = _saved169.tok;
+      if (_saved169.repo   === undefined) delete process.env.GITHUB_REPOSITORY;     else process.env.GITHUB_REPOSITORY     = _saved169.repo;
+      if (_saved169.pr     === undefined) delete process.env.GITHUB_PR_NUMBER;      else process.env.GITHUB_PR_NUMBER      = _saved169.pr;
+      if (_saved169.sha    === undefined) delete process.env.GITHUB_SHA;            else process.env.GITHUB_SHA            = _saved169.sha;
+      if (_saved169.head   === undefined) delete process.env.ARGUS_PR_HEAD_SHA;     else process.env.ARGUS_PR_HEAD_SHA     = _saved169.head;
+      if (_saved169.redact === undefined) delete process.env.ARGUS_REDACT_SENSITIVE; else process.env.ARGUS_REDACT_SENSITIVE = _saved169.redact;
+    }
+
+    // ── HTML sink (Step 7) ──────────────────────────────────────────────────────
+    const tmpDir169 = fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-169-'));
+    const rp169 = path.join(tmpDir169, 'error-report-169.json');
+    fs.writeFileSync(rp169, JSON.stringify({
+      generatedAt: new Date().toISOString(), baseUrl: 'https://staging.example.com',
+      summary: { total: 2, critical: 1, warning: 1, info: 0 },
+      routes: [{ route: '/login', url: 'https://staging.example.com/login', errors: [sensitive169, benign169] }],
+      flows: [], codebase: [],
+    }, null, 2));
+
+    // [169c] external:true strips the secret + keeps the benign message; the on-disk JSON it reads
+    // from is left RAW (local fidelity preserved — Aegis only removes detail on the way OUT).
+    let htmlExt169 = '', diskAfter169 = '';
+    try {
+      htmlExt169   = fs.readFileSync(generateHtmlReport(rp169, { external: true }), 'utf8');
+      diskAfter169 = fs.readFileSync(rp169, 'utf8');
+    } catch { /* asserted via empty strings below */ }
+    assert(
+      leaks169(htmlExt169).length === 0 && htmlExt169.includes('missing a descriptive') && leaks169(diskAfter169).length > 0,
+      `[169c] external HTML strips secrets + keeps the benign message; the on-disk JSON stays RAW (htmlLeak: ${JSON.stringify(leaks169(htmlExt169))}, diskRaw: ${leaks169(diskAfter169).length > 0})`
+    );
+
+    // [169d] HTML non-vacuity: the local render with ARGUS_REDACT_HTML=0 keeps the raw secret,
+    // proving [169c]'s external redaction is load-bearing (independent of the runner's CI flag).
+    const _savedHtml169 = process.env.ARGUS_REDACT_HTML;
+    process.env.ARGUS_REDACT_HTML = '0';
+    let htmlRaw169 = '';
+    try { htmlRaw169 = fs.readFileSync(generateHtmlReport(rp169), 'utf8'); } catch { /* asserted below */ }
+    if (_savedHtml169 === undefined) delete process.env.ARGUS_REDACT_HTML; else process.env.ARGUS_REDACT_HTML = _savedHtml169;
+    assert(
+      leaks169(htmlRaw169).length > 0,
+      `[169d] the local HTML render (ARGUS_REDACT_HTML=0) keeps the raw secret — [169c] external redaction is non-vacuous (leakedRaw: ${JSON.stringify(leaks169(htmlRaw169))})`
+    );
+    try { fs.rmSync(tmpDir169, { recursive: true, force: true }); } catch { /* best-effort */ }
+
+    // ── CI step summary + annotation sink (Step 7) ──────────────────────────────
+    // [169e] buildStepSummary carries no secret + keeps the finding TYPE column; safeFindingLine
+    // (no truncation) strips both the message secret and the url query token — the strong proof.
+    const md169 = buildStepSummary({
+      blocked: true, summary: { critical: 1, warning: 1, info: 0 },
+      affectedRoutes: [{ path: '/login' }], perRoute: [{ route: '/login', critical: 1, warning: 1, info: 0 }],
+      findings: [sensitive169, benign169], changedFiles: ['src/pages/login.tsx'], blockOn: 'critical',
+    });
+    const safe169 = safeFindingLine(sensitive169);
+    assert(
+      leaks169(md169).length === 0 && md169.includes('seo_title_missing') &&
+      leaks169(safe169.message).length === 0 && !safe169.url.includes('session='),
+      `[169e] step summary + safeFindingLine redact the secret + strip the url query, keep the type (mdLeak: ${JSON.stringify(leaks169(md169))}, msgLeak: ${JSON.stringify(leaks169(safe169.message))}, urlHasQuery: ${safe169.url.includes('session=')})`
     );
   }
 }

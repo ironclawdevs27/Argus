@@ -45,6 +45,9 @@ import { getCurrentBranch }                    from './utils/baseline-manager.js
 import {
   decidePrBlock, resolvePrBaselineFile, loadPrBaseline, savePrBaseline, tagFindingNovelty, severityTally,
 } from './utils/pr-baseline.js';
+import {
+  redactForEgress, buildRedactionRider, redactReport, deepScrub,
+} from './utils/sensitivity-classifier.js';
 
 const logger = childLogger('mcp-server');
 
@@ -75,6 +78,85 @@ function cacheAudit(url, result) {
   auditCache.set(url, { result, ts: Date.now() });
   if (auditCache.size > MAX_AUDIT_CACHE) {
     auditCache.delete(auditCache.keys().next().value);
+  }
+}
+
+// ── Aegis egress projection (REDACTION_BOUNDARY_MAX_PLAN.md Step 4) ─────────────
+// The MCP boundary is the PRIMARY agent trust boundary: every tool response transits to
+// the calling agent's provider (OWASP LLM02). These helpers project findings to the
+// deny-by-default allowlist + attach a `redaction` rider BEFORE the response crosses, so
+// no secret / PII / exploit-detail substring ever leaves in raw form. The LOCAL on-disk
+// report keeps full fidelity (the JSON write in report-processor is untouched). FAIL
+// CLOSED: any projection error yields an empty-findings, redacted response — never the raw
+// payload. ARGUS_REDACT_SENSITIVE=0 = byte-identical passthrough (the documented opt-out).
+const redactOff = () => process.env.ARGUS_REDACT_SENSITIVE === '0';
+
+/**
+ * Project a findings-bearing result object ({ findings, ...rest }) for egress: `findings`
+ * is run through redactForEgress, every other field (summary computed PRE-redaction, urls,
+ * etc.) is preserved, and a `redaction` rider is appended. Used by the findings-array tools
+ * (argus_audit / argus_visual_diff / argus_design_audit / argus_pr_validate).
+ */
+function egressResult(obj, opts = {}) {
+  if (redactOff() || !obj || typeof obj !== 'object') return obj;
+  try {
+    const findings = Array.isArray(obj.findings) ? obj.findings : [];
+    return { ...obj, findings: redactForEgress(findings), redaction: buildRedactionRider(findings, opts) };
+  } catch (err) {
+    logger.error('[ARGUS] Aegis MCP egress failed — failing closed:', err.message);
+    const { findings: _drop, ...rest } = obj;
+    return { ...rest, findings: [],
+      redaction: { redacted: 0, total: 0, localReportPath: opts.localReportPath ?? null,
+        failClosed: true, note: 'Redaction error — findings withheld (fail closed).' } };
+  }
+}
+
+/** Project an argus_watch_snapshot result ({ findings, newConsole, newNetwork }). */
+function egressWatch(r) {
+  if (redactOff() || !r || typeof r !== 'object') return r;
+  try {
+    const findings = Array.isArray(r.findings) ? r.findings : [];
+    return {
+      findings:   redactForEgress(findings),
+      newConsole: (Array.isArray(r.newConsole) ? r.newConsole : []).map((m) => deepScrub(m)),
+      newNetwork: (Array.isArray(r.newNetwork) ? r.newNetwork : []).map((n) => deepScrub(n)),
+      redaction:  buildRedactionRider(findings),
+    };
+  } catch (err) {
+    logger.error('[ARGUS] Aegis watch egress failed — failing closed:', err.message);
+    return { findings: [], newConsole: [], newNetwork: [], redaction: { redacted: 0, total: 0, failClosed: true } };
+  }
+}
+
+/**
+ * Project an argus_get_context result: each finding array is redacted, the raw
+ * console/network arrays are deepScrub'd, open_tabs urls are sanitised, and a rider is
+ * appended. `allFindings` (the full pre-split findings list) feeds the rider count.
+ */
+function egressContext(ctx, allFindings) {
+  if (redactOff() || !ctx || typeof ctx !== 'object') return ctx;
+  try {
+    const out = { ...ctx };
+    for (const k of ['critical_issues', 'warnings', 'js_errors', 'network_failures', 'resolved', 'new_issues', 'persisting']) {
+      if (Array.isArray(ctx[k])) out[k] = redactForEgress(ctx[k]);
+    }
+    if (Array.isArray(ctx.console_errors))  out.console_errors  = ctx.console_errors.map((m) => deepScrub(m));
+    if (Array.isArray(ctx.recent_requests)) out.recent_requests = ctx.recent_requests.map((n) => deepScrub(n));
+    if (Array.isArray(ctx.open_tabs)) {
+      // open_tabs is the user's own diagnostic tab list (not a finding). deepScrub the url —
+      // masks a DETECTED secret (JWT / basic-auth / high-entropy token) while preserving benign
+      // query structure (a sanitizeUrl query-strip would destroy diagnostic context + tab identity).
+      out.open_tabs = ctx.open_tabs.map((t) =>
+        (t && typeof t === 'object' && typeof t.url === 'string') ? { ...t, url: deepScrub(t.url) } : t);
+    }
+    out.redaction = buildRedactionRider(Array.isArray(allFindings) ? allFindings : []);
+    return out;
+  } catch (err) {
+    logger.error('[ARGUS] Aegis get_context egress failed — failing closed:', err.message);
+    return { snapshot_id: ctx.snapshot_id, summary: 'redacted', url: ctx.url, timestamp: ctx.timestamp,
+      critical_issues: [], warnings: [], js_errors: [], network_failures: [],
+      console_errors: [], recent_requests: [], open_tabs: ctx.open_tabs ?? [],
+      redaction: { redacted: 0, total: 0, failClosed: true } };
   }
 }
 
@@ -200,13 +282,21 @@ async function withMcp(fn) {
 // PR-validate path (handlePrValidate) passes the depth-policy-selected expensive analyzer
 // names (D2) so the same handler runs them on the affected route. The public tool is always
 // called with no `analyzers` → [] → crawlRouteWithDepth returns the cheap pass unchanged.
-async function handleAudit({ url, critical = false, cache = false, analyzers = [] }) {
+// `ctx.internal` is set ONLY by handlePrValidate (an in-process call, NOT through the MCP
+// dispatcher) so the PR-validate block/baseline/novelty/reporting logic operates on RAW
+// findings. It is a SECOND positional argument — the dispatcher calls handleAudit(args) with
+// no ctx, so a client cannot inject internal:true via req.params.arguments to bypass redaction.
+async function handleAudit({ url, critical = false, cache = false, analyzers = [] }, ctx = {}) {
+  const internal = ctx.internal === true;
+  const finalize = (payload) =>
+    ({ content: [{ type: 'text', text: JSON.stringify(internal ? payload : egressResult(payload), null, 2) }] });
+
   if (cache && auditCache.has(url)) {
     const { result, ts } = auditCache.get(url);
     // Refresh recency on read so eviction is true LRU, not insertion-order FIFO.
     auditCache.delete(url);
     auditCache.set(url, { result, ts });
-    return { content: [{ type: 'text', text: JSON.stringify({ ...result, _cached: true, _cachedAt: new Date(ts).toISOString() }, null, 2) }] };
+    return finalize({ ...result, _cached: true, _cachedAt: new Date(ts).toISOString() });
   }
   return withMcp(async (mcp) => {
     const parsed = new URL(url);
@@ -224,8 +314,8 @@ async function handleAudit({ url, critical = false, cache = false, analyzers = [
       pageTitle:  raw.pageTitle,
       screenshot: raw.screenshot,
     };
-    if (cache) cacheAudit(url, result);
-    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    if (cache) cacheAudit(url, result);   // cache stores RAW; redaction happens in finalize
+    return finalize(result);
   });
 }
 
@@ -237,14 +327,18 @@ async function handleAuditFull({ url, critical = false }) {
       [{ path: parsed.pathname + parsed.search + parsed.hash, name: 'audit', critical }],
       parsed.origin,
     );
-    return { content: [{ type: 'text', text: JSON.stringify(report, null, 2) }] };
+    // Report-shaped egress: redact every finding array (routes[].errors / flows[].findings /
+    // codebase[]) + attach the rider; report metadata stays so the golden schema holds.
+    return { content: [{ type: 'text', text: JSON.stringify(redactReport(report), null, 2) }] };
   });
 }
 
 async function handleCompare() {
   return withMcp(async (mcp) => {
     const report = await runComparison(mcp);
-    return { content: [{ type: 'text', text: JSON.stringify(report, null, 2) }] };
+    // Handles BOTH compare modes: css-analysis routes[].findings via redactForEgress and
+    // env-comparison routes[].diffs via deepScrub (descriptions/urls scrubbed, paths stripped).
+    return { content: [{ type: 'text', text: JSON.stringify(redactReport(report), null, 2) }] };
   });
 }
 
@@ -255,7 +349,9 @@ async function handleWatchSnapshot({ url, tabId } = {}) {
     const baseUrl = url ?? process.env.TARGET_DEV_URL ?? 'http://localhost:3000';
     const session = new WatchSession(browser, baseUrl);
     const result  = await session.poll();
-    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    // Redact findings + scrub the RAW newConsole/newNetwork arrays (a Bearer token in a
+    // console.error or a ?token= query in a request URL would otherwise cross raw).
+    return { content: [{ type: 'text', text: JSON.stringify(egressWatch(result), null, 2) }] };
   });
 }
 
@@ -333,7 +429,10 @@ async function handleGetContext({ url, snapshot_id: prevId, tabId } = {}) {
       ...(isDiff ? { resolved, new_issues, persisting } : {}),
     };
 
-    return { content: [{ type: 'text', text: JSON.stringify(context, null, 2) }] };
+    // Egress projection at the boundary — AFTER all internal logic (diff keys, summary) ran on
+    // raw findings: redact every finding array + scrub console_errors/recent_requests + sanitise
+    // open_tabs urls + append the rider (counted over the full `findings` set).
+    return { content: [{ type: 'text', text: JSON.stringify(egressContext(context, findings), null, 2) }] };
   });
 }
 
@@ -360,7 +459,10 @@ async function handleVisualDiff({ url, updateBaseline = false, baselineDir }) {
     const baseline   = findings.find(f => f.type === 'visual_baseline_created');
     const summary    = findings.find(f => f.type === 'visual_diff_summary');
 
-    return { content: [{ type: 'text', text: JSON.stringify({
+    // The structured summary is computed from the RAW findings ABOVE, then egressResult
+    // redacts the findings array (cosmetic visual_* findings keep a scrubbed message; any
+    // accidental embedded secret is caught) and appends the rider.
+    return { content: [{ type: 'text', text: JSON.stringify(egressResult({
       findings,
       summary: {
         status:      regression ? 'regression' : baseline ? 'baseline_created' : 'no_change',
@@ -369,7 +471,7 @@ async function handleVisualDiff({ url, updateBaseline = false, baselineDir }) {
         totalPixels: summary?.totalPixels ?? 0,
         severity:    regression?.severity ?? 'info',
       },
-    }, null, 2) }] };
+    }), null, 2) }] };
   });
 }
 
@@ -379,11 +481,11 @@ async function handleDesignAudit({ url, figmaFrameUrl }) {
 
   const figmaData = await getFigmaFrame(figmaFrameUrl);
   if (!figmaData) {
-    return { content: [{ type: 'text', text: JSON.stringify({
+    return { content: [{ type: 'text', text: JSON.stringify(egressResult({
       error: 'Could not fetch Figma data. Ensure FIGMA_API_TOKEN is set and the figmaFrameUrl is valid.',
       findings: [],
       summary: { tokenMismatches: 0, missingComponents: 0, colorMismatches: 0, typographyMismatches: 0, spacingMismatches: 0, radiusMismatches: 0, boundsOverflows: 0, positionDrifts: 0, strokeMismatches: 0, shadowMismatches: 0, opacityMismatches: 0, gapMismatches: 0, textMismatches: 0 },
-    }) }] };
+    })) }] };
   }
 
   return withMcp(async (mcp) => {
@@ -405,7 +507,9 @@ async function handleDesignAudit({ url, figmaFrameUrl }) {
       gapMismatches:        count('design_gap_mismatch'),
       textMismatches:       count('design_text_mismatch'),
     };
-    return { content: [{ type: 'text', text: JSON.stringify({ findings, summary }, null, 2) }] };
+    // Summary counts are computed from the RAW findings above; egressResult then redacts the
+    // findings array (cosmetic design_* findings keep a scrubbed message) + appends the rider.
+    return { content: [{ type: 'text', text: JSON.stringify(egressResult({ findings, summary }), null, 2) }] };
   });
 }
 
@@ -481,7 +585,9 @@ async function handlePrValidate({ prUrl, targetUrl, githubToken, blockOn } = {})
     const routePath = String(route.path ?? '/').startsWith('/') ? route.path : `/${route.path}`;
     const url  = `${baseUrl}${routePath}`;
     const res  = await auditRouteWithRetry(
-      () => handleAudit({ url, critical: route.critical ?? false, analyzers: depthAnalyzers }),
+      // internal:true ⇒ handleAudit returns RAW findings so the block/baseline/novelty/
+      // reporting logic below sees full detail; the MCP RESPONSE is redacted at the return.
+      () => handleAudit({ url, critical: route.critical ?? false, analyzers: depthAnalyzers }, { internal: true }),
       { timeoutMs: routeTimeoutMs, retries: routeRetries, label: `Route audit ${routePath}` },
     );
     const data = JSON.parse(res.content[0].text);
@@ -560,7 +666,10 @@ async function handlePrValidate({ prUrl, targetUrl, githubToken, blockOn } = {})
     reporting = { posted: false, checked: false, skipped: true, reason: `reporting failed: ${err.message}` };
   }
 
-  return { content: [{ type: 'text', text: JSON.stringify({ ...result, reporting }, null, 2) }] };
+  // Egress projection of the MCP response — redacts `result.findings` + appends the rider.
+  // reportPrValidation above already ran on the RAW `result` (the GitHub sink is guarded
+  // separately in Step 6); the block decision / baseline used raw findings too.
+  return { content: [{ type: 'text', text: JSON.stringify(egressResult({ ...result, reporting }), null, 2) }] };
 }
 
 async function handleLastReport() {
@@ -575,7 +684,12 @@ async function handleLastReport() {
     .map(f => ({ f, mt: fs.statSync(path.join(REPORTS_DIR, f)).mtimeMs }))
     .sort((a, b) => b.mt - a.mt)[0].f;
   const json = fs.readFileSync(path.join(REPORTS_DIR, latest), 'utf8');
-  return { content: [{ type: 'text', text: json }] };
+  // The on-disk report keeps full fidelity (raw secrets); when it crosses the MCP boundary
+  // it MUST be redacted (this tool is a direct local-report → agent-context egress path).
+  if (redactOff()) return { content: [{ type: 'text', text: json }] };
+  let parsed;
+  try { parsed = JSON.parse(json); } catch { return { content: [{ type: 'text', text: json }] }; }
+  return { content: [{ type: 'text', text: JSON.stringify(redactReport(parsed), null, 2) }] };
 }
 
 // ── Server bootstrap ──────────────────────────────────────────────────────────

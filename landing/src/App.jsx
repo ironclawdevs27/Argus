@@ -11,6 +11,8 @@ import {
 // Charts pull in Recharts (d3 internals) — lazy-load so the heavy chart bundle stays
 // out of the initial payload; the section is below the fold.
 const DownloadsSection = lazy(() => import('./DownloadsSection').then(m => ({ default: m.DownloadsSection })))
+// Security & Compliance (Aegis) — animated SVG diagrams; lazy-loaded, below the fold.
+const SecuritySection = lazy(() => import('./SecuritySection').then(m => ({ default: m.SecuritySection })))
 import {
   ArrowUpRight, X, ChevronDown, ChevronRight, CheckCircle,
   Code2, Sparkles, Globe,
@@ -35,12 +37,13 @@ const SLIDE_INTERVAL = 5000
 const SCROLL_SHOW_DELAY = 1500
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-const navLinks = ['Growth', 'Features', 'How It Works', 'Setup', 'Pricing', 'Docs']
+const navLinks = ['Growth', 'Features', 'How It Works', 'Security', 'Setup', 'Pricing', 'Docs']
 
 const navHrefs = {
   Growth: '#growth',
   Features: '#features',
   'How It Works': '#detection',
+  Security: '#security',
   Setup: '#setup',
   Pricing: '#pricing',
   Docs: '#docs',
@@ -48,8 +51,8 @@ const navHrefs = {
 
 const stats = [
   { num: '67', label: 'DETECTION\nTYPES' },
-  { num: '166', label: 'TEST\nBLOCKS' },
-  { num: '961', label: 'ASSERTIONS\nRUN' },
+  { num: '168', label: 'TEST\nBLOCKS' },
+  { num: '978', label: 'ASSERTIONS\nRUN' },
 ]
 
 const headingWords = ['Every', 'Bug', 'Caught']
@@ -786,7 +789,7 @@ const docChapters = [
   {
     num: '05',
     title: 'Test Coverage',
-    tagline: '166 blocks, 961 hard assertions, fixture-driven with zero ambiguity',
+    tagline: '168 blocks, 978 hard assertions, fixture-driven with zero ambiguity',
     sections: [
       {
         body: 'Every detection category has a corresponding fixture HTML page that reliably triggers exactly that bug. Fixtures are served via HTTP — never file:// — so CORS, ES modules, and fetch APIs work correctly. Each block has at minimum 3 hard assertions and passes consistently across environments without flakiness.',
@@ -840,8 +843,10 @@ const docChapters = [
           'Block 165: PR Validator — CLI↔MCP block-decision parity; both paths build the summary via one shared tally and delegate to one shared gate, so they reach the identical decision for the same findings, 4 assertions',
           'Block 166: PR Validator — recorded GitHub reporting fixtures; proves Argus parses the documented comment/Check-Run response shape, idempotently updates one marker-tagged comment, and never leaks the token, 4 assertions',
           'Block 167: PR Validator — CLI end-to-end; drives the real CLI as a child process (docs-only PR → exit 0; a critical → exit 1), pinning exit codes, GitHub Action outputs, annotations, and the JSON result, 8 assertions',
-          '366 Vitest unit tests covering core logic — zero Chrome dependency',
-          'All 961 hard assertions pass — zero permanent failures',
+          'Block 168: Aegis — confidentiality egress boundary; drives the real pipeline plus a live MCP audit against a secret-bearing fixture, proving the redacted projection leaks no JWT/key/email/card and fails closed, 12 assertions',
+          'Block 169: Aegis — egress-sink guards; Slack / GitHub / hosted-HTML / CI-log sinks each redact secrets while keeping benign messages, with opt-out non-vacuity controls, 5 assertions',
+          '495 Vitest unit tests covering core logic — zero Chrome dependency',
+          'All 978 hard assertions pass — zero permanent failures',
         ],
       },
       {
@@ -853,9 +858,9 @@ const docChapters = [
       },
       {
         title: 'Running',
-        code: `npm run test:unit     # 366 Vitest tests — no Chrome required
-npm run test:harness  # 961 hard assertions — Chrome required (headless)
-# Expected: 961/961 — no permanent failures
+        code: `npm run test:unit     # 495 Vitest tests — no Chrome required
+npm run test:harness  # 978 hard assertions — Chrome required (headless)
+# Expected: 978/978 — no permanent failures
 # Weekly strict-soft lane promotes ~23 soft checks to hard via ARGUS_HARNESS_STRICT_SOFT`,
       },
     ],
@@ -3067,6 +3072,9 @@ export default function App() {
       <ListedOnSection />
       <FeaturesSection />
       <DetectionSection />
+      <Suspense fallback={null}>
+        <SecuritySection />
+      </Suspense>
       <SetupSection />
       <PricingSection />
       <DocsSection />

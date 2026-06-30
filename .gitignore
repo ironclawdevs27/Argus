@@ -32,6 +32,7 @@ harness_max_prompt.md
 PR_VALIDATOR_MAX_PLAN.md
 pr_validator_max_prompt.md
 REDACTION_BOUNDARY_MAX_PLAN.md
+redaction_boundary_max_prompt.md
 
 # Harness output log — written by npm run test:harness:log
 harness-results.txt
@@ -42,6 +43,13 @@ coverage-harness-run.txt
 
 # Argus auth session files — contain live cookies/localStorage tokens, never commit
 .argus-*.json
+
+# Aegis re-hydration vault + provenance audit (Step 8) — token→secret mappings,
+# per-machine key, and the secret-free audit trail. 0600, LOCAL-ONLY, never commit.
+reports/.aegis-vault/
+reports/.aegis-audit/
+# Operator rehydrate output (re-inflated reports may contain raw secrets)
+*.rehydrated.json
 
 # Claude Code local config — never commit
 .claude/

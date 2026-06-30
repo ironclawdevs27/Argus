@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/argusqa-os?color=7C3AED)](https://www.npmjs.com/package/argusqa-os)
 [![MCP Server](https://glama.ai/mcp/servers/ironclawdevs27/Argus/badges/card.svg)](https://glama.ai/mcp/servers/ironclawdevs27/Argus)
-[![Harness](https://img.shields.io/badge/harness-961%2F961-4ADE80)](test-harness/)
+[![Harness](https://img.shields.io/badge/harness-978%2F978-4ADE80)](test-harness/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Argus catches the bugs your test suite misses — visual regressions, API loops, CSS drift, console noise, accessibility failures, and more — and delivers rich reports to Slack (or a local HTML dashboard).**
@@ -95,6 +95,24 @@ And every finding is post-processed with:
 
 ---
 
+## Confidentiality — Aegis Egress Boundary
+
+> **Default ON.** Argus audits your app for *secrets and vulnerabilities* — so its findings are exactly the data you least want leaving your machine. **Aegis** redacts them at every external boundary before they cross.
+
+A finding sent to an external sink — an **MCP tool response** (which lands in the calling agent's context window and transits to that agent's model provider), a **Slack** message, a **GitHub** PR comment + its `::error` annotations, the **hosted/CI HTML report**, or **CI logs** — is reduced to a need-to-know projection: a **sensitive** finding crosses as its `type` + `route` + `severity` + a `🔒` marker, and **never** its raw payload (`message`, `evidence`, request/response bodies, headers, cookies, stack). URLs are projected with the query string stripped (tokens hide there). A **benign** finding keeps its message — but that message is still scrubbed for any accidentally-embedded secret or PII.
+
+| Principle | Behavior |
+|---|---|
+| **Local fidelity preserved** | The on-disk JSON report and the locally-opened HTML keep **100%** detail — redaction only removes detail on the way *out* |
+| **Fail-closed** | On any classifier error or unknown finding shape, Aegis redacts *more*, never less |
+| **Deny-by-default** | Only an explicit allowlist of safe fields ever crosses; a new field leaks nothing until deliberately allowlisted |
+| **5-layer detection** | Category rules ∪ 13 secret regexes ∪ statistical rarity (entropy / token-efficiency) ∪ 7 Luhn-validated PII rules ∪ context boosting |
+| **Opt-out** | `ARGUS_REDACT_SENSITIVE=0` → output is byte-identical to pre-Aegis |
+
+This implements the **OWASP LLM02:2025 — Sensitive Information Disclosure** mitigations (data minimization, redaction, deny-by-default egress filtering) at Argus's own boundaries. An optional, local-only re-hydration vault (`ARGUS_REDACT_VAULT=1`) can mint reversible, information-free tokens for diff-stable artifacts — re-inflate locally with `npm run report:rehydrate`. Full behavior change is documented in [CHANGELOG.md](CHANGELOG.md).
+
+---
+
 ## MCP Tools
 
 Ask Claude (or any MCP client) — no terminal required:
@@ -110,6 +128,8 @@ Ask Claude (or any MCP client) — no terminal required:
 | `argus_design_audit` | Figma URL → 13 design-token finding types (color, spacing, typography, shadows, etc.) |
 | `argus_visual_diff` | Screenshot baseline comparison. Pass `updateBaseline: true` to reset. |
 | `argus_pr_validate` | Fetch GitHub PR diff → map changed files to affected routes → targeted audit → baseline-aware block decision (blocks on findings the PR *introduces*) + idempotent PR comment + Check Run → `{ blocked, findings, baseline, reporting }` |
+
+> Every tool response is projected through the [Aegis egress boundary](#confidentiality--aegis-egress-boundary) before it reaches the agent, and carries an optional `redaction` rider (`{ redacted, total }`) when sensitive detail was withheld.
 
 **Example prompts:**
 
@@ -217,8 +237,8 @@ npm run report:html    # Generate reports/report.html from last JSON audit
 npm run report:pdf     # Export HTML report to A4 PDF (requires: npm install puppeteer)
 npm run server         # Start Slack slash-command server (port 3001)
 npm run init           # Interactive setup wizard
-npm run test:unit          # 366 unit tests — no Chrome required
-npm run test:harness       # 166-block correctness harness — requires Chrome
+npm run test:unit          # 495 unit tests — no Chrome required
+npm run test:harness       # 168-block correctness harness — requires Chrome
 npm run test:harness:log   # same, but tees full output to harness-results.txt
 npm run test:coverage      # merged unit + harness coverage gate (requires Chrome)
 ```
@@ -295,6 +315,10 @@ The included [workflow](.github/workflows/argus.yml) runs on push to `main`, dai
 | `FIGMA_API_TOKEN` | — | Required for `argus_design_audit` |
 | `FONT_SLOW_MS` | `1000` | Slow web font load threshold (ms) |
 | `A11Y_CONTRAST_AA` | `4.5` | WCAG AA min contrast ratio for CVD simulation |
+| `ARGUS_REDACT_SENSITIVE` | `ON` | **Aegis** egress redaction. `0` disables (byte-identical pre-Aegis output) |
+| `ARGUS_REDACT_MODE` | `mask` | Matched-span style: `mask` / `label` / `hash` / `token` / `drop` |
+| `ARGUS_REDACT_HTML` | off local / ON in CI | `1` redacts the hosted HTML report too |
+| `ARGUS_REDACT_VAULT` | `OFF` | `1` (with `ARGUS_REDACT_MODE=token`) mints reversible `AEGIS_<hmac16>` tokens into a local `0600` vault; re-inflate with `npm run report:rehydrate` |
 
 </details>
 
@@ -343,7 +367,7 @@ Argus is a **complementary layer**, not a replacement for unit or E2E tests:
 
 ## Known Limitations
 
-All 961 harness assertions pass (`961/961`) — there are currently no known MCP- or Chrome-layer restrictions. Lighthouse now runs in headless (after the `lighthouse_audit` argument fix); the remaining soft assertions (perf traces, GC-dependent heap-growth) are promoted to counted hard assertions only in the weekly strict-soft lane (`harness-strict.yml`) via `ARGUS_HARNESS_STRICT_SOFT`.
+All 978 harness assertions pass (`978/978`) — there are currently no known MCP- or Chrome-layer restrictions. Lighthouse now runs in headless (after the `lighthouse_audit` argument fix); the remaining soft assertions (perf traces, GC-dependent heap-growth) are promoted to counted hard assertions only in the weekly strict-soft lane (`harness-strict.yml`) via `ARGUS_HARNESS_STRICT_SOFT`.
 
 ---
 
@@ -362,8 +386,8 @@ src/
     chrome-launcher.js  — npm run chrome / argus-chrome — launches Chrome with correct flags
     doctor.js           — npm run doctor / argus-doctor — pre-flight checks
     pr-validate.js      — headless CI entry point for GitHub Actions
-test-harness/           — 166-block correctness harness, 961 hard assertions, 63 fixture pages
-test/unit/              — 366 Vitest unit tests (no Chrome required)
+test-harness/           — 168-block correctness harness, 978 hard assertions, 64 fixture pages
+test/unit/              — 495 Vitest unit tests (no Chrome required)
 landing/                — Product landing page (React 19 + Vite + Tailwind)
 ```
 
@@ -374,7 +398,7 @@ Full source map → [CLAUDE.md](CLAUDE.md) · MCP/DSL reference → [SKILL.md](S
 ## Contributing
 
 1. Fork the repo and create a branch
-2. `npm run test:unit` — verify without Chrome (366 tests)
+2. `npm run test:unit` — verify without Chrome (495 tests)
 3. `npm run test:harness` — full integration coverage (requires Chrome on port 9222)
 4. Open a PR — Argus audits itself via the CI workflow
 

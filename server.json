@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.ironclawdevs27/argus",
-  "description": "Automated web QA via Chrome DevTools MCP — JS, a11y, security, visual, env diff, CI reporting.",
+  "description": "Automated web QA via Chrome DevTools MCP — JS, a11y, security, visual, env diff, CI reporting. Default-on Aegis egress redaction keeps secrets/PII out of tool responses.",
   "repository": {
     "url": "https://github.com/ironclawdevs27/Argus",
     "source": "github"
   },
-  "version": "9.8.1",
+  "version": "9.9.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "argusqa-os",
-      "version": "9.8.1",
+      "version": "9.9.0",
       "transport": {
         "type": "stdio"
       },
@@ -43,6 +43,13 @@
           "isRequired": false,
           "format": "string",
           "isSecret": true
+        },
+        {
+          "name": "ARGUS_REDACT_SENSITIVE",
+          "description": "Aegis confidentiality egress boundary. Default ON: every tool response is redacted so secrets, PII, and exploit detail never cross into the calling agent's context (the local on-disk report keeps full fidelity). Set to 0 for byte-identical pre-Aegis output.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
         }
       ]
     }

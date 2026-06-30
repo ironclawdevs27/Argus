@@ -1,6 +1,6 @@
 {
   "name": "argusqa-os",
-  "version": "9.8.1",
+  "version": "9.9.0",
   "mcpName": "io.github.ironclawdevs27/argus",
   "description": "Argus — AI-powered automated dev-testing platform using Chrome DevTools MCP and Claude Code",
   "keywords": [
@@ -23,6 +23,7 @@
   },
   "files": [
     "src/",
+    "scripts/rehydrate-report.mjs",
     ".mcp.json",
     "glama.json"
   ],
@@ -59,6 +60,7 @@
     "test:coverage": "npm run coverage:harness && npm run coverage:unit && npm run coverage:gate",
     "report:html": "node src/utils/html-reporter.js",
     "report:pdf": "node src/utils/pdf-exporter.js",
+    "report:rehydrate": "node scripts/rehydrate-report.mjs",
     "mcp-server": "node src/mcp-server.js"
   },
   "dependencies": {
