@@ -533,6 +533,14 @@ jobs:
   },
 ]
 
+// Stripe Payment Links — set in landing/.env.local (build-time, VITE_*) then rebuild + redeploy.
+// Empty string → the CTA falls back to the waitlist, so the site is byte-identical to today until
+// a link is configured. Create the link in the Stripe dashboard → Payment Links (no keys in code).
+const STRIPE_LINKS = {
+  pro:  import.meta.env.VITE_STRIPE_PRO_LINK  || '',
+  team: import.meta.env.VITE_STRIPE_TEAM_LINK || '',
+}
+
 // ── Pricing plans ──────────────────────────────────────────────────────────────
 const pricingPlans = [
   {
@@ -565,6 +573,14 @@ const pricingPlans = [
     popular: true,
     dark: false,
     comingSoon: true,
+    // Founding-member pre-sale — rendered ONLY when STRIPE_LINKS.pro is set. All copy/price
+    // in one place; adjust freely. Honest framing: early access, not a finished dashboard.
+    founding: {
+      tag: 'FOUNDING MEMBER',
+      price: '$19', origPrice: '$29', period: '/month',
+      cta: 'Become a Founding Member',
+      note: 'Price locked forever · first access to the hosted dashboard the moment it ships · direct founder support.',
+    },
     description: 'Hosted QA with zero infrastructure. No Chrome, no npm, no config.',
     benefits: [
       'Everything in Open Source',
@@ -586,6 +602,13 @@ const pricingPlans = [
     tag: 'FOR TEAMS',
     dark: false,
     comingSoon: true,
+    // Founding-member pre-sale for Team — rendered ONLY when STRIPE_LINKS.team is set.
+    founding: {
+      tag: 'FOUNDING TEAM',
+      price: '$79', origPrice: '$99', period: '/month',
+      cta: 'Become a Founding Team',
+      note: 'Price locked forever · first access to team features + shared baselines · direct founder support.',
+    },
     description: 'For engineering teams that need unlimited scale and collaboration.',
     benefits: [
       'Everything in Pro',
@@ -2232,6 +2255,8 @@ function PricingSection() {
   const [waitlistPlan, setWaitlistPlan] = useState(null)
 
   const handleCta = (plan) => {
+    const checkoutUrl = STRIPE_LINKS[plan.id]
+    if (checkoutUrl) { window.location.assign(checkoutUrl); return }   // Stripe Payment Link
     if (plan.ctaAction === 'enterprise') setEnterpriseOpen(true)
     else if (plan.ctaAction === 'waitlist') setWaitlistPlan(plan)
   }
@@ -2271,7 +2296,9 @@ function PricingSection() {
             gap: '1.25rem', alignItems: 'start',
           }}
         >
-          {pricingPlans.map((plan, i) => (
+          {pricingPlans.map((plan, i) => {
+            const founding = STRIPE_LINKS[plan.id] && plan.founding ? plan.founding : null
+            return (
             <motion.div
               key={plan.id}
               initial={{ opacity: 0, y: 28 }} whileInView={{ opacity: 1, y: 0 }}
@@ -2303,7 +2330,17 @@ function PricingSection() {
                   >
                     {plan.tag}
                   </span>
-                  {plan.comingSoon && (
+                  {founding ? (
+                    <span
+                      style={{
+                        fontSize: '0.58rem', fontWeight: 700, letterSpacing: '0.1em',
+                        textTransform: 'uppercase', color: '#0a7d3c',
+                        background: success(0.22), padding: '0.2rem 0.5rem', borderRadius: '2rem',
+                      }}
+                    >
+                      {founding.tag}
+                    </span>
+                  ) : plan.comingSoon && (
                     <span
                       style={{
                         fontSize: '0.58rem', fontWeight: 700, letterSpacing: '0.1em',
@@ -2329,7 +2366,12 @@ function PricingSection() {
                 </p>
 
                 {/* Price */}
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.25rem' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.25rem', flexWrap: 'wrap' }}>
+                  {founding && (
+                    <span style={{ fontSize: '1.15rem', fontWeight: 600, color: 'rgba(10,10,10,0.35)', textDecoration: 'line-through', marginRight: '0.1rem' }}>
+                      {founding.origPrice}
+                    </span>
+                  )}
                   <span
                     style={{
                       fontSize: plan.price === 'Custom' ? '1.75rem' : 'clamp(2rem, 5vw, 2.75rem)',
@@ -2337,14 +2379,19 @@ function PricingSection() {
                       letterSpacing: '-0.03em',
                     }}
                   >
-                    {plan.price}
+                    {founding ? founding.price : plan.price}
                   </span>
-                  {plan.period && (
+                  {(founding ? founding.period : plan.period) && (
                     <span style={{ fontSize: '0.85rem', color: plan.dark ? 'rgba(255,255,255,0.38)' : 'rgba(10,10,10,0.4)', fontWeight: 500 }}>
-                      {plan.period}
+                      {founding ? founding.period : plan.period}
                     </span>
                   )}
                 </div>
+                {founding && (
+                  <p style={{ margin: '0.7rem 0 0', fontSize: '0.72rem', lineHeight: 1.5, color: '#0a7d3c', fontWeight: 500 }}>
+                    {founding.note}
+                  </p>
+                )}
               </div>
 
               {/* Benefits */}
@@ -2396,12 +2443,13 @@ function PricingSection() {
                     onMouseEnter={e => (e.currentTarget.style.opacity = '0.82')}
                     onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
                   >
-                    {plan.cta} <ArrowUpRight size={14} />
+                    {founding ? founding.cta : plan.cta} <ArrowUpRight size={14} />
                   </button>
                 )}
               </div>
             </motion.div>
-          ))}
+            )
+          })}
         </div>
 
         {/* Feature comparison table */}
@@ -2767,6 +2815,51 @@ function Footer() {
   )
 }
 
+// Thank-you toast shown when a Stripe Payment Link redirects back to ?checkout=success.
+// (In Stripe, set the Payment Link's "after payment" redirect to https://argus-qa.com/?checkout=success.)
+function CheckoutSuccessToast() {
+  const [show, setShow] = useState(false)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('checkout') !== 'success') return
+    setShow(true)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('checkout')
+    window.history.replaceState({}, '', url.pathname + url.search + url.hash)
+    const t = setTimeout(() => setShow(false), 9000)
+    return () => clearTimeout(t)
+  }, [])
+  return (
+    <AnimatePresence>
+      {show && (
+        <motion.div
+          initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 24 }}
+          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+          role="status"
+          style={{
+            position: 'fixed', bottom: 'clamp(16px, 4vw, 32px)', left: '50%', transform: 'translateX(-50%)',
+            zIndex: 70, maxWidth: 'calc(100vw - 32px)',
+            display: 'flex', alignItems: 'center', gap: '0.75rem',
+            padding: '0.9rem 1.1rem', borderRadius: '1rem',
+            background: '#0a0a0a', color: '#fff', boxShadow: '0 16px 50px rgba(0,0,0,0.4)',
+            border: `1px solid ${accent(0.4)}`,
+          }}
+        >
+          <span style={{ fontSize: '1.1rem' }}>🎉</span>
+          <span style={{ fontSize: '0.86rem', fontWeight: 500, lineHeight: 1.45 }}>
+            You're a <strong style={{ fontWeight: 700 }}>Founding Member</strong> — welcome aboard. Check your email for next steps.
+          </span>
+          <button
+            onClick={() => setShow(false)}
+            aria-label="Dismiss"
+            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1, padding: 0, flexShrink: 0 }}
+          >×</button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
 // ── Root ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -2789,6 +2882,7 @@ export default function App() {
   return (
     <MotionConfig reducedMotion="user">
     <div style={{ fontFamily: "'Inter', sans-serif" }}>
+      <CheckoutSuccessToast />
       {/* ═══════════════════════════════════════════════════════════════════════
           HERO SECTION
       ═══════════════════════════════════════════════════════════════════════ */}
