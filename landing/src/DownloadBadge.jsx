@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { motion, useReducedMotion } from 'framer-motion'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { ArrowUpRight } from 'lucide-react'
 import { FALLBACK_TOTAL } from './useNpmDownloads'
 import { accent, accentDark, SUCCESS } from './theme'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const PURPLE_GRADIENT = `linear-gradient(135deg, ${accent(0.96)} 0%, ${accentDark(0.96)} 100%)`
+const EASE = [0.22, 1, 0.36, 1]
 
 function fmtSince(day) {
   if (!day) return ''
@@ -34,9 +35,15 @@ function useCountUp(target, duration = 1700, run = true) {
 
 /**
  * Hero download badge. On load it reveals a full-width purple band at screen centre
- * with a count-up, then flies to a rounded purple square at the bottom-right of the
- * hero. Hides once the user scrolls past the first screen. Respects reduced-motion
- * (skips straight to the docked square with the final number).
+ * with a count-up, then crossfades to a rounded purple square at the bottom-right of
+ * the viewport. Hides once the user scrolls past the first screen. Respects
+ * reduced-motion (skips straight to the docked square with the final number).
+ *
+ * Positioning: a single `position: fixed; inset: 0` frame holds both phases, which are
+ * positioned ABSOLUTELY inside it. This guarantees the docked square is placed relative
+ * to the viewport on EVERY screen size — the previous version morphed the two phases with
+ * framer-motion's `layout` on a `position: fixed` element, whose layout projection is
+ * unreliable for fixed elements and left the square clipped off-screen on narrow viewports.
  */
 export function DownloadBadge({ total, error, firstPublish }) {
   const reduce = useReducedMotion()
@@ -73,71 +80,102 @@ export function DownloadBadge({ total, error, firstPublish }) {
   const intro = phase === 'intro'
   const shown = intro ? count : displayTotal
 
+  // Both phases are positioned ABSOLUTELY inside the fixed viewport frame below.
   const bandStyle = {
-    position: 'fixed', left: 0, right: 0, top: 'calc(50% - 72px)', height: 144,
+    position: 'absolute', left: 0, right: 0, top: 'calc(50% - 72px)', height: 144,
     background: PURPLE_GRADIENT,
     borderTop: '1px solid rgba(255,255,255,0.25)', borderBottom: '1px solid rgba(255,255,255,0.18)',
     boxShadow: `0 20px 80px ${accent(0.45)}`,
     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    zIndex: 45, pointerEvents: 'none', borderRadius: 0,
+    pointerEvents: 'none', borderRadius: 0,
   }
   const squareStyle = {
-    position: 'fixed', right: 'clamp(16px, 4vw, 40px)', bottom: 'clamp(16px, 4vw, 40px)',
-    width: 'clamp(160px, 21vw, 200px)', padding: '1.05rem 1.2rem',
+    position: 'absolute', right: 'clamp(16px, 4vw, 40px)', bottom: 'clamp(16px, 4vw, 40px)',
+    width: 'clamp(150px, 21vw, 200px)', maxWidth: 'calc(100vw - 32px)', padding: '1.05rem 1.2rem',
     background: PURPLE_GRADIENT,
     border: '1px solid rgba(255,255,255,0.18)',
     boxShadow: `0 12px 44px ${accent(0.4)}`,
     display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center',
-    zIndex: 45, pointerEvents: 'auto', cursor: 'pointer', borderRadius: '1.4rem',
+    pointerEvents: 'auto', cursor: 'pointer', borderRadius: '1.4rem',
   }
 
   return (
-    <motion.div
-      layout
-      initial={false}
-      animate={{ opacity: hidden ? 0 : 1, scale: hidden ? 0.85 : 1 }}
-      transition={{ layout: { duration: 0.75, ease: [0.22, 1, 0.36, 1] }, opacity: { duration: 0.35 }, scale: { duration: 0.35 } }}
-      onClick={intro ? undefined : () => document.getElementById('growth')?.scrollIntoView({ behavior: 'smooth' })}
-      role={intro ? undefined : 'button'}
-      aria-label={intro ? undefined : `${displayTotal.toLocaleString()} npm downloads — view growth charts`}
-      style={{ ...(intro ? bandStyle : squareStyle), visibility: hidden ? 'hidden' : 'visible' }}
-    >
-      {!intro && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.35rem' }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: SUCCESS, boxShadow: `0 0 8px ${SUCCESS}`, flexShrink: 0 }} />
-          <span style={{ fontSize: '0.5rem', fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)' }}>
-            Live · npm
+    <div style={{ position: 'fixed', inset: 0, zIndex: 45, pointerEvents: 'none', overflow: 'hidden' }}>
+      {/* Phase 1 — centre count-up band (crossfades out on dock). */}
+      <AnimatePresence>
+        {intro && (
+          <motion.div
+            key="band"
+            initial={{ opacity: 0, scaleY: 0.7 }}
+            animate={{ opacity: 1, scaleY: 1 }}
+            exit={{ opacity: 0, scale: 0.94 }}
+            transition={{ duration: 0.5, ease: EASE }}
+            style={bandStyle}
+          >
+            <motion.span
+              style={{
+                fontWeight: 700, color: '#fff', lineHeight: 1, letterSpacing: '-0.02em',
+                fontSize: 'clamp(2.5rem, 9vw, 5.5rem)',
+              }}
+            >
+              {shown.toLocaleString()}
+            </motion.span>
+            <span
+              style={{
+                fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.82)',
+                marginTop: '0.6rem', fontSize: 'clamp(0.65rem, 1.4vw, 0.85rem)',
+              }}
+            >
+              npm downloads and counting
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Phase 2 — docked corner square (fades in; scroll-hide via opacity, not unmount). */}
+      {phase === 'docked' && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.85, y: 14 }}
+          animate={{ opacity: hidden ? 0 : 1, scale: hidden ? 0.85 : 1, y: hidden ? 14 : 0 }}
+          transition={{ duration: 0.5, ease: EASE }}
+          onClick={() => document.getElementById('growth')?.scrollIntoView({ behavior: 'smooth' })}
+          role="button"
+          aria-label={`${displayTotal.toLocaleString()} npm downloads — view growth charts`}
+          style={{ ...squareStyle, visibility: hidden ? 'hidden' : 'visible' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.35rem', width: '100%' }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: SUCCESS, boxShadow: `0 0 8px ${SUCCESS}`, flexShrink: 0 }} />
+            <span style={{ fontSize: '0.5rem', fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)' }}>
+              Live · npm
+            </span>
+            <ArrowUpRight size={12} color="rgba(255,255,255,0.6)" style={{ marginLeft: 'auto' }} />
+          </div>
+
+          <span
+            style={{
+              fontWeight: 700, color: '#fff', lineHeight: 1, letterSpacing: '-0.02em',
+              marginTop: '0.25rem', fontSize: '1.7rem',
+            }}
+          >
+            {displayTotal.toLocaleString()}
           </span>
-          <ArrowUpRight size={12} color="rgba(255,255,255,0.6)" style={{ marginLeft: 'auto' }} />
-        </div>
+
+          <span
+            style={{
+              fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.82)',
+              marginTop: '0.25rem', fontSize: '0.56rem',
+            }}
+          >
+            downloads
+          </span>
+
+          {firstPublish && (
+            <span style={{ marginTop: '0.3rem', fontSize: '0.5rem', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.55)' }}>
+              since {fmtSince(firstPublish)}
+            </span>
+          )}
+        </motion.div>
       )}
-
-      <motion.span
-        layout="position"
-        style={{
-          fontWeight: 700, color: '#fff', lineHeight: 1, letterSpacing: '-0.02em',
-          fontSize: intro ? 'clamp(2.5rem, 9vw, 5.5rem)' : '1.7rem',
-        }}
-      >
-        {shown.toLocaleString()}
-      </motion.span>
-
-      <motion.span
-        layout="position"
-        style={{
-          fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.82)',
-          marginTop: intro ? '0.6rem' : '0.25rem',
-          fontSize: intro ? 'clamp(0.65rem, 1.4vw, 0.85rem)' : '0.56rem',
-        }}
-      >
-        {intro ? 'npm downloads and counting' : 'downloads'}
-      </motion.span>
-
-      {!intro && firstPublish && (
-        <span style={{ marginTop: '0.3rem', fontSize: '0.5rem', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.55)' }}>
-          since {fmtSince(firstPublish)}
-        </span>
-      )}
-    </motion.div>
+    </div>
   )
 }
