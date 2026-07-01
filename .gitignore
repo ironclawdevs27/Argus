@@ -33,6 +33,10 @@ PR_VALIDATOR_MAX_PLAN.md
 pr_validator_max_prompt.md
 REDACTION_BOUNDARY_MAX_PLAN.md
 redaction_boundary_max_prompt.md
+HOSTED_BACKEND.md
+SAAS_DASHBOARD_PLAN.md
+AEGIS_FOR_TEAMS_PLAN.md
+LANDING_APP_INTEGRATION_PLAN.md
 
 # Harness output log — written by npm run test:harness:log
 harness-results.txt

@@ -3,6 +3,7 @@ import { motion, AnimatePresence, MotionConfig } from 'framer-motion'
 import { supabase } from './supabase'
 import { useNpmDownloads } from './useNpmDownloads'
 import { DownloadBadge } from './DownloadBadge'
+import { AuthModal } from './AuthModal'
 import {
   ACCENT, SURFACE_TINT, DANGER,
   accent, accentLight, warning, success,
@@ -2250,13 +2251,13 @@ function ComparisonTable() {
 }
 
 // ── Pricing section ────────────────────────────────────────────────────────────
-function PricingSection() {
+function PricingSection({ onBuy }) {
   const [enterpriseOpen, setEnterpriseOpen] = useState(false)
   const [waitlistPlan, setWaitlistPlan] = useState(null)
 
   const handleCta = (plan) => {
     const checkoutUrl = STRIPE_LINKS[plan.id]
-    if (checkoutUrl) { window.location.assign(checkoutUrl); return }   // Stripe Payment Link
+    if (checkoutUrl) { onBuy(plan, checkoutUrl); return }   // → signup/login popup, then Stripe
     if (plan.ctaAction === 'enterprise') setEnterpriseOpen(true)
     else if (plan.ctaAction === 'waitlist') setWaitlistPlan(plan)
   }
@@ -2869,6 +2870,32 @@ export default function App() {
   const [gsHovered, setGsHovered] = useState(false)
   const npm = useNpmDownloads()
 
+  // Auth (Supabase) + the auth-modal context for the signup-first checkout flow.
+  const [authUser, setAuthUser] = useState(null)
+  const [authCtx, setAuthCtx] = useState(null)   // { mode, intent, checkoutUrl } | null
+  useEffect(() => {
+    if (!supabase) return
+    supabase.auth.getSession().then(({ data }) => setAuthUser(data.session?.user ?? null))
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => setAuthUser(session?.user ?? null))
+    return () => sub?.subscription?.unsubscribe()
+  }, [])
+  const proceedToCheckout = (u, checkoutUrl) => {
+    const url = new URL(checkoutUrl)
+    url.searchParams.set('client_reference_id', u.id)          // ties the payment → account (no email reconciliation)
+    if (u.email) url.searchParams.set('prefilled_email', u.email)
+    window.location.assign(url.toString())
+  }
+  const handleBuy = (plan, checkoutUrl) => {
+    const intent = plan.founding ? `${plan.name} — Founding Member` : plan.name
+    if (authUser) { proceedToCheckout(authUser, checkoutUrl); return }   // already signed in → straight to Stripe
+    setAuthCtx({ mode: 'signup', intent, checkoutUrl })                  // else → signup/login popup first
+  }
+  const handleAuthed = (u) => {
+    const ctx = authCtx
+    setAuthCtx(null); setAuthUser(u)
+    if (ctx?.checkoutUrl) proceedToCheckout(u, ctx.checkoutUrl)
+  }
+
   useEffect(() => {
     const t = setInterval(() => setSlideIndex(i => (i + 1) % slides.length), SLIDE_INTERVAL)
     return () => clearInterval(t)
@@ -2883,6 +2910,13 @@ export default function App() {
     <MotionConfig reducedMotion="user">
     <div style={{ fontFamily: "'Inter', sans-serif" }}>
       <CheckoutSuccessToast />
+      <AuthModal
+        open={!!authCtx}
+        initialMode={authCtx?.mode}
+        intent={authCtx?.intent}
+        onClose={() => setAuthCtx(null)}
+        onAuthed={handleAuthed}
+      />
       {/* ═══════════════════════════════════════════════════════════════════════
           HERO SECTION
       ═══════════════════════════════════════════════════════════════════════ */}
@@ -3170,7 +3204,7 @@ export default function App() {
         <SecuritySection />
       </Suspense>
       <SetupSection />
-      <PricingSection />
+      <PricingSection onBuy={handleBuy} />
       <DocsSection />
       <Footer />
     </div>

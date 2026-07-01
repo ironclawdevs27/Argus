@@ -1,0 +1,112 @@
+/* Argus animated auth modal — ported from the WebDesignMastery double-slider
+   (github.com/WebDesignMastery/Animated_SignIn_SignUp_22-06-23), re-themed to
+   Argus (purple #5E0ED7 → #3A088A, Inter) and wrapped in a modal. All classes
+   are namespaced `aa-` so nothing collides with Tailwind / the landing styles. */
+
+.aa-overlay {
+  position: fixed; inset: 0; z-index: 90;
+  display: grid; place-items: center; padding: 16px;
+  background: rgba(8, 6, 15, 0.62); backdrop-filter: blur(6px);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+.aa-card {
+  position: relative; width: min(880px, 100%); height: min(560px, 92vh);
+  background: #fff; border-radius: 22px; overflow: hidden;
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.5);
+}
+.aa-close {
+  position: absolute; top: 14px; right: 16px; z-index: 40;
+  width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(0, 0, 0, 0.06); color: #333; display: grid; place-items: center;
+}
+.aa-close:hover { background: rgba(0, 0, 0, 0.12); }
+
+/* ── form panels (overlap on the left 60%) ─────────────────────────────────── */
+.aa-form-container {
+  position: absolute; top: 0; left: 0; height: 100%; width: 60%;
+  padding: 2.5rem; transition: 0.6s ease-in-out; display: flex;
+}
+.aa-signup { opacity: 0; z-index: 1; }
+.aa-signin { z-index: 2; }
+.aa-form-container form {
+  height: 100%; max-width: 360px; margin: auto; width: 100%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.aa-form-container h2 {
+  font-size: 1.85rem; font-weight: 700; color: #0f172a; letter-spacing: -0.02em; margin: 0 0 0.15rem;
+}
+.aa-intent { font-size: 0.78rem; color: #5E0ED7; font-weight: 600; margin-bottom: 0.4rem; text-align: center; }
+.aa-socials { display: flex; gap: 0.7rem; margin: 0.9rem 0; }
+.aa-socials button {
+  width: 42px; height: 42px; border-radius: 50%; border: 1px solid #e2e8f0; background: #fff;
+  display: grid; place-items: center; cursor: pointer; color: #334155; transition: all 0.15s;
+}
+.aa-socials button:hover { border-color: #5E0ED7; color: #5E0ED7; }
+.aa-hint { color: #94a3b8; font-size: 0.8rem; margin-bottom: 0.6rem; text-align: center; }
+.aa-group { position: relative; width: 100%; margin: 0.35rem 0; }
+.aa-group input {
+  width: 100%; padding: 0.8rem 1rem; outline: none; font-size: 0.95rem;
+  background: #f1f5f9; border-radius: 10px; border: 1px solid transparent; transition: border-color 0.15s, background 0.15s;
+}
+.aa-group input:focus { border-color: #5E0ED7; background: #fff; }
+.aa-error { color: #ef4444; font-size: 0.8rem; margin: 0.5rem 0 0; text-align: center; line-height: 1.4; }
+.aa-notice { color: #0a7d3c; font-size: 0.82rem; margin: 0.5rem 0 0; text-align: center; line-height: 1.4; }
+.aa-submit {
+  margin-top: 1.15rem; padding: 0.8rem 3rem; border: none; outline: none; cursor: pointer;
+  font-size: 0.85rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: #fff; border-radius: 2rem; background: linear-gradient(135deg, #5E0ED7, #3A088A);
+  box-shadow: 0 10px 26px rgba(94, 14, 215, 0.4); transition: opacity 0.15s;
+}
+.aa-submit:hover { opacity: 0.9; }
+.aa-submit:disabled { opacity: 0.6; cursor: default; }
+.aa-mobile-toggle { display: none; margin-top: 1rem; font-size: 0.82rem; color: #64748b; text-align: center; }
+.aa-mobile-toggle button { background: none; border: none; color: #5E0ED7; font-weight: 700; cursor: pointer; padding: 0; }
+
+/* ── sliding gradient overlay (right 40%) ──────────────────────────────────── */
+.aa-overlay-container {
+  position: absolute; top: 0; left: 60%; height: 100%; width: 40%;
+  overflow: hidden; transition: transform 0.6s ease-in-out; z-index: 10;
+}
+.aa-overlay-wrapper {
+  position: relative; left: -150%; height: 100%; width: 250%;
+  color: #fff; transition: transform 0.6s ease-in-out;
+  background: linear-gradient(135deg, #5E0ED7 0%, #3A088A 100%);
+}
+.aa-panel {
+  position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 3rem; text-align: center; height: 100%; width: 40%; transition: transform 0.6s ease-in-out;
+}
+.aa-panel-left { right: 60%; transform: translateX(-12%); }
+.aa-panel-right { right: 0; transform: translateX(0); }
+.aa-panel h2 { font-size: 1.85rem; font-weight: 700; margin: 0 0 0.75rem; }
+.aa-panel p { max-width: 300px; margin: 0 auto; line-height: 1.6; font-size: 0.92rem; opacity: 0.92; }
+.aa-ghost {
+  margin-top: 1.5rem; padding: 0.72rem 2.6rem; border: 1.5px solid rgba(255, 255, 255, 0.7); cursor: pointer;
+  font-size: 0.8rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: #fff; border-radius: 2rem; background: transparent; transition: background 0.15s;
+}
+.aa-ghost:hover { background: rgba(255, 255, 255, 0.14); }
+
+/* ── ACTIVE (sign-up shown) — the slide ────────────────────────────────────── */
+.aa-card.aa-active .aa-overlay-container { transform: translateX(-150%); }
+.aa-card.aa-active .aa-overlay-wrapper { transform: translateX(50%); }
+.aa-card.aa-active .aa-panel-left { transform: translateX(25%); }
+.aa-card.aa-active .aa-panel-right { transform: translateX(35%); }
+.aa-card.aa-active .aa-signin { transform: translateX(20%); opacity: 0; }
+.aa-card.aa-active .aa-signup { transform: translateX(65%); opacity: 1; z-index: 5; animation: aa-show 0.6s; }
+@keyframes aa-show {
+  0%, 49% { opacity: 0; z-index: 1; }
+  50%, 100% { opacity: 1; z-index: 5; }
+}
+
+/* ── Mobile: hide the overlay slider; single-form crossfade + text toggle ──── */
+@media (max-width: 640px) {
+  .aa-card { height: auto; min-height: 540px; max-height: 92vh; overflow-y: auto; }
+  .aa-overlay-container { display: none; }
+  .aa-form-container { width: 100%; padding: 2rem 1.4rem; }
+  .aa-mobile-toggle { display: block; }
+  .aa-signin { opacity: 1; }
+  .aa-signup { opacity: 0; }
+  .aa-card.aa-active .aa-signin { transform: none; opacity: 0; z-index: 1; }
+  .aa-card.aa-active .aa-signup { transform: none; opacity: 1; z-index: 5; }
+}
