@@ -10,6 +10,7 @@ reports/*.png
 reports/*.jpg
 reports/*.webp
 reports/*.diff.png
+reports/metrics-history.csv
 
 # Release notes — local scratch pad, copy-paste into GitHub release form
 RELEASE_NOTES.md
@@ -34,9 +35,16 @@ pr_validator_max_prompt.md
 REDACTION_BOUNDARY_MAX_PLAN.md
 redaction_boundary_max_prompt.md
 HOSTED_BACKEND.md
+hosted_backend_prompt.md
 SAAS_DASHBOARD_PLAN.md
 AEGIS_FOR_TEAMS_PLAN.md
 LANDING_APP_INTEGRATION_PLAN.md
+SETUP_GUIDE.md
+STARTUP_READINESS.md
+argus-alignment-report.md
+
+# Brand assets for business-account setups (Stripe/Google/etc.) — local only
+brand/
 
 # Harness output log — written by npm run test:harness:log
 harness-results.txt

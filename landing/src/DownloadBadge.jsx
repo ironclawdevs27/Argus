@@ -15,7 +15,7 @@ function fmtSince(day) {
 }
 
 // requestAnimationFrame count-up (easeOutCubic). run=false → jumps straight to target.
-function useCountUp(target, duration = 1700, run = true) {
+function useCountUp(target, duration = 3700, run = true) {
   const [n, setN] = useState(run ? 0 : target)
   useEffect(() => {
     if (!run) { setN(target); return }
@@ -58,10 +58,19 @@ export function DownloadBadge({ total, error, firstPublish }) {
     setPhase(reduce ? 'docked' : 'intro')
   }, [displayTotal, phase, reduce])
 
-  // intro → docked after the count-up settles.
+  // intro → docked after the count-up settles (count-up 3.7s + ~0.7s hold on the final number).
   useEffect(() => {
     if (phase !== 'intro') return
-    const t = setTimeout(() => setPhase('docked'), 2400)
+    const t = setTimeout(() => setPhase('docked'), 4400)
+    return () => clearTimeout(t)
+  }, [phase])
+
+  // Entry choreography flag: the square's mount transition (delayed, overlapping the band's
+  // exit) must not also delay the later scroll-hide fades — settled flips once it has landed.
+  const [settled, setSettled] = useState(false)
+  useEffect(() => {
+    if (phase !== 'docked') return
+    const t = setTimeout(() => setSettled(true), 1000)
     return () => clearTimeout(t)
   }, [phase])
 
@@ -74,7 +83,7 @@ export function DownloadBadge({ total, error, firstPublish }) {
     return () => window.removeEventListener('scroll', onScroll)
   }, [phase])
 
-  const count = useCountUp(displayTotal, 1700, phase === 'intro' && !reduce)
+  const count = useCountUp(displayTotal, 3700, phase === 'intro' && !reduce)
   if (phase === 'pending') return null
 
   const intro = phase === 'intro'
@@ -101,14 +110,22 @@ export function DownloadBadge({ total, error, firstPublish }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 45, pointerEvents: 'none', overflow: 'hidden' }}>
-      {/* Phase 1 — centre count-up band (crossfades out on dock). */}
+      {/* Phase 1 — centre count-up band. On dock it doesn't fade in place: it shrinks and
+          travels INTO the bottom-right corner (translate + scale + radius morph), so the eye
+          follows it to where the square lands. Pure transforms on an absolutely-positioned
+          element — no framer `layout` on fixed (the old clipping bug). */}
       <AnimatePresence>
         {intro && (
           <motion.div
             key="band"
             initial={{ opacity: 0, scaleY: 0.7 }}
             animate={{ opacity: 1, scaleY: 1 }}
-            exit={{ opacity: 0, scale: 0.94 }}
+            exit={{
+              opacity: 0, x: '36vw', y: '38vh', scale: 0.16, borderRadius: '1.5rem',
+              // opacity eases IN so the band stays visible for most of the travel, vanishing
+              // right as the square takes over in the corner.
+              transition: { duration: 0.7, ease: EASE, opacity: { duration: 0.7, ease: 'easeIn' } },
+            }}
             transition={{ duration: 0.5, ease: EASE }}
             style={bandStyle}
           >
@@ -132,12 +149,16 @@ export function DownloadBadge({ total, error, firstPublish }) {
         )}
       </AnimatePresence>
 
-      {/* Phase 2 — docked corner square (fades in; scroll-hide via opacity, not unmount). */}
+      {/* Phase 2 — docked corner square. Entry grows in from the band's incoming direction
+          (up-left of the corner), delayed to overlap the band's travel — a hand-off, not a
+          crossfade. Scroll-hide keeps the old quick fade (settled strips the entry delay). */}
       {phase === 'docked' && (
         <motion.div
-          initial={{ opacity: 0, scale: 0.85, y: 14 }}
-          animate={{ opacity: hidden ? 0 : 1, scale: hidden ? 0.85 : 1, y: hidden ? 14 : 0 }}
-          transition={{ duration: 0.5, ease: EASE }}
+          initial={reduce ? false : { opacity: 0, scale: 0.55, x: -28, y: -28 }}
+          animate={{ opacity: hidden ? 0 : 1, scale: hidden ? 0.85 : 1, x: 0, y: hidden ? 14 : 0 }}
+          transition={settled
+            ? { duration: 0.5, ease: EASE }
+            : { duration: 0.6, ease: EASE, delay: 0.3 }}
           onClick={() => document.getElementById('growth')?.scrollIntoView({ behavior: 'smooth' })}
           role="button"
           aria-label={`${displayTotal.toLocaleString()} npm downloads — view growth charts`}

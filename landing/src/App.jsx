@@ -538,8 +538,7 @@ jobs:
 // Empty string → the CTA falls back to the waitlist, so the site is byte-identical to today until
 // a link is configured. Create the link in the Stripe dashboard → Payment Links (no keys in code).
 const STRIPE_LINKS = {
-  pro:  import.meta.env.VITE_STRIPE_PRO_LINK  || '',
-  team: import.meta.env.VITE_STRIPE_TEAM_LINK || '',
+  pro: import.meta.env.VITE_STRIPE_PRO_LINK || '',
 }
 
 // ── Pricing plans ──────────────────────────────────────────────────────────────
@@ -586,39 +585,13 @@ const pricingPlans = [
     benefits: [
       'Everything in Open Source',
       'Fully hosted — no Chrome or npm needed',
-      'Up to 5 projects',
+      'Up to 10 projects',
       'Scheduled audits (on PR, nightly, continuous)',
       'Cloud report storage & history',
       'Web dashboard',
-      'Slack & email alerts included',
-    ],
-    cta: 'Join Waitlist',
-    ctaAction: 'waitlist',
-  },
-  {
-    id: 'team',
-    name: 'Team',
-    price: '$99',
-    period: '/month',
-    tag: 'FOR TEAMS',
-    dark: false,
-    comingSoon: true,
-    // Founding-member pre-sale for Team — rendered ONLY when STRIPE_LINKS.team is set.
-    founding: {
-      tag: 'FOUNDING TEAM',
-      price: '$79', origPrice: '$99', period: '/month',
-      cta: 'Become a Founding Team',
-      note: 'Price locked forever · first access to team features + shared baselines · direct founder support.',
-    },
-    description: 'For engineering teams that need unlimited scale and collaboration.',
-    benefits: [
-      'Everything in Pro',
-      'Unlimited projects',
-      'Team dashboard & member sharing',
-      'Hosted baselines shared across the team',
+      'Invite teammates & shared baselines',
       'Trend charts & regression alerts',
-      'Priority support (< 4 hr response)',
-      'Custom Slack notifications per team',
+      'Slack & email alerts included',
     ],
     cta: 'Join Waitlist',
     ctaAction: 'waitlist',
@@ -632,7 +605,8 @@ const pricingPlans = [
     dark: true,
     description: 'For large organisations with compliance, security, and custom requirements.',
     benefits: [
-      'Everything in Team',
+      'Everything in Pro',
+      'Unlimited projects & team members',
       'SSO via SAML 2.0 or OIDC',
       'On-premises deployment option',
       'Custom detection rules & policies',
@@ -656,10 +630,10 @@ const COMPARISON_ROWS = [
   { feature: 'Hosted — no Chrome or npm needed',    open: false, pro: true,  team: true,  enterprise: true  },
   { feature: 'Scheduled audits (PR / nightly)',     open: false, pro: true,  team: true,  enterprise: true  },
   { feature: 'Cloud report storage & history',      open: false, pro: true,  team: true,  enterprise: true  },
-  { feature: 'Up to 5 hosted projects',             open: false, pro: true,  team: true,  enterprise: true  },
-  { feature: 'Team dashboard & member sharing',     open: false, pro: false, team: true,  enterprise: true  },
-  { feature: 'Unlimited projects',                  open: false, pro: false, team: true,  enterprise: true  },
-  { feature: 'Trend charts & regression alerts',    open: false, pro: false, team: true,  enterprise: true  },
+  { feature: 'Up to 10 hosted projects',            open: false, pro: true,  team: true,  enterprise: true  },
+  { feature: 'Team members & shared baselines',     open: false, pro: true,  team: true,  enterprise: true  },
+  { feature: 'Unlimited projects & team members',   open: false, pro: false, team: true,  enterprise: true  },
+  { feature: 'Trend charts & regression alerts',    open: false, pro: true,  team: true,  enterprise: true  },
   { feature: 'Priority support (< 4hr response)',   open: false, pro: false, team: true,  enterprise: true  },
   { feature: 'SSO — SAML 2.0 or OIDC',             open: false, pro: false, team: false, enterprise: true  },
   { feature: 'On-premises deployment',              open: false, pro: false, team: false, enterprise: true  },
@@ -2108,8 +2082,8 @@ function WaitlistModal({ planName, onClose }) {
 // ── Comparison table ───────────────────────────────────────────────────────────
 function ComparisonTable() {
   const [expanded, setExpanded] = useState(false)
-  const cols = ['Open Source', 'Pro', 'Team', 'Enterprise']
-  const colKeys = ['open', 'pro', 'team', 'enterprise']
+  const cols = ['Open Source', 'Pro', 'Enterprise']
+  const colKeys = ['open', 'pro', 'enterprise']
 
   return (
     <motion.div
@@ -2251,6 +2225,103 @@ function ComparisonTable() {
 }
 
 // ── Pricing section ────────────────────────────────────────────────────────────
+// ── Festive / seasonal offer campaigns ───────────────────────────────────────────
+// Add a campaign here; the banner auto-shows while "today" is inside [from, to] (inclusive)
+// COMPUTED IN THE CAMPAIGN'S HOME TIMEZONE (`tz`) — so Independence Day flips on at exactly
+// 00:00 IST on Aug 15 for every visitor worldwide, Canada Day at 00:00 Toronto time, etc.
+// The banner only DISPLAYS the code: enforcement is the matching Stripe promotion code,
+// which must be created with the same redemption window (see HOSTED_BACKEND.md §8.5).
+const FESTIVE_OFFERS = [
+  { id: 'canada-day-2026',       emoji: '🍁', name: 'Canada Day',       tz: 'America/Toronto', from: '2026-06-29', to: '2026-07-05', headline: 'Canada Day offer — 25% off Pro',      sub: 'Founding price + an extra 25% off your first 3 months.', code: 'CANADA25' },
+  { id: 'good-friday-2026',      emoji: '✝️', name: 'Good Friday',      tz: 'UTC',             from: '2026-04-03', to: '2026-04-06', headline: 'Good Friday sale — 20% off Pro',       sub: 'Limited-time founding discount.',                        code: 'GOODFRIDAY20' },
+  { id: 'independence-day-2026', emoji: '🇮🇳', name: 'Independence Day', tz: 'Asia/Kolkata',    from: '2026-08-15', to: '2026-08-17', headline: 'Independence Day — 30% off Pro',       sub: 'Freedom from manual QA — founding discount on your first 3 months.', code: 'INDIA30' },
+  { id: 'diwali-2026',           emoji: '🪔', name: 'Diwali Special',   tz: 'Asia/Kolkata',    from: '2026-11-06', to: '2026-11-12', headline: 'Diwali special — 30% off Pro',         sub: 'Light up your QA — festive founding discount.',          code: 'DIWALI30' },
+]
+// YYYY-MM-DD for "now" in a given IANA timezone ('en-CA' locale formats exactly that way).
+function dateInTz(tz, now = new Date()) {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
+  } catch {
+    return now.toISOString().slice(0, 10) // unknown tz → UTC fallback
+  }
+}
+function activeFestiveOffer(now = new Date()) {
+  return FESTIVE_OFFERS.find(o => {
+    const d = dateInTz(o.tz || 'UTC', now)
+    return d >= o.from && d <= o.to
+  }) || null
+}
+function FestiveBanner() {
+  // Re-check once a minute so a tab left open flips the banner at the campaign's midnight
+  // (and hides it when the window closes) without a reload.
+  const [offer, setOffer] = useState(() => activeFestiveOffer())
+  useEffect(() => {
+    const t = setInterval(() => {
+      setOffer(prev => {
+        const next = activeFestiveOffer()
+        return next?.id === prev?.id ? prev : next
+      })
+    }, 60_000)
+    return () => clearInterval(t)
+  }, [])
+  const [dismissed, setDismissed] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(offer.code)
+    } catch {
+      // http/older-browser fallback
+      const ta = document.createElement('textarea')
+      ta.value = offer.code
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      ta.remove()
+    }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1800)
+  }
+  if (!offer || dismissed) return null
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+      style={{
+        position: 'relative', margin: '0 auto clamp(2.25rem, 5vw, 3.5rem)', maxWidth: 940,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.7rem 0.9rem', flexWrap: 'wrap',
+        padding: '0.9rem 2.8rem', borderRadius: '1rem', textAlign: 'center',
+        background: 'linear-gradient(135deg, #5E0ED7 0%, #3A088A 100%)', color: '#fff',
+        boxShadow: `0 14px 44px ${accent(0.35)}`,
+      }}
+    >
+      <span style={{ fontSize: '1.35rem', lineHeight: 1 }}>{offer.emoji}</span>
+      <span style={{ fontWeight: 800, fontSize: '0.95rem' }}>{offer.headline}</span>
+      <span style={{ opacity: 0.85, fontSize: '0.85rem' }}>{offer.sub}</span>
+      {offer.code && (
+        <button
+          onClick={copyCode}
+          title="Click to copy"
+          aria-label={copied ? 'Code copied' : `Copy code ${offer.code}`}
+          style={{
+            padding: '0.18rem 0.6rem', borderRadius: 7, fontWeight: 700, fontSize: '0.8rem', letterSpacing: '0.04em',
+            background: copied ? 'rgba(255,255,255,0.32)' : 'rgba(255,255,255,0.2)',
+            border: '1px dashed rgba(255,255,255,0.45)', color: '#fff', cursor: 'pointer',
+            transition: 'background 0.15s', fontFamily: 'inherit',
+          }}
+          onMouseEnter={e => { if (!copied) e.currentTarget.style.background = 'rgba(255,255,255,0.28)' }}
+          onMouseLeave={e => { if (!copied) e.currentTarget.style.background = 'rgba(255,255,255,0.2)' }}
+        >
+          {copied ? '✓ Copied!' : <>code: {offer.code} ⧉</>}
+        </button>
+      )}
+      <button onClick={() => setDismissed(true)} aria-label="Dismiss offer"
+        style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'rgba(255,255,255,0.85)', cursor: 'pointer', fontSize: '1.15rem', lineHeight: 1, padding: 0 }}>
+        ×
+      </button>
+    </motion.div>
+  )
+}
+
+// ── Pricing section ──────────────────────────────────────────────────────────────
 function PricingSection({ onBuy }) {
   const [enterpriseOpen, setEnterpriseOpen] = useState(false)
   const [waitlistPlan, setWaitlistPlan] = useState(null)
@@ -2268,6 +2339,7 @@ function PricingSection({ onBuy }) {
       style={{ background: '#FAFAFA', padding: 'clamp(5rem, 10vw, 9rem) clamp(1.25rem, 6vw, 5rem)' }}
     >
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
+        <FestiveBanner />
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }}
@@ -2293,8 +2365,8 @@ function PricingSection({ onBuy }) {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 260px), 1fr))',
-            gap: '1.25rem', alignItems: 'start',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))',
+            gap: '1.25rem', alignItems: 'stretch',
           }}
         >
           {pricingPlans.map((plan, i) => {
@@ -2325,8 +2397,8 @@ function PricingSection({ onBuy }) {
                     style={{
                       fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase',
                       padding: '0.22rem 0.6rem', borderRadius: '2rem',
-                      background: plan.popular ? ACCENT : plan.dark ? 'rgba(255,255,255,0.1)' : 'rgba(94,14,215,0.08)',
-                      color: plan.popular ? '#fff' : plan.dark ? 'rgba(255,255,255,0.55)' : ACCENT,
+                      background: plan.id === 'enterprise' ? 'linear-gradient(135deg, #F7D774, #D4A017)' : plan.popular ? ACCENT : plan.dark ? 'rgba(255,255,255,0.1)' : 'rgba(94,14,215,0.08)',
+                      color: plan.id === 'enterprise' ? '#000' : plan.popular ? '#fff' : plan.dark ? 'rgba(255,255,255,0.55)' : ACCENT,
                     }}
                   >
                     {plan.tag}
@@ -2453,6 +2525,43 @@ function PricingSection({ onBuy }) {
           })}
         </div>
 
+        {/* Referral → team discount (replaces the standalone Team plan) */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '-60px' }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          style={{
+            marginTop: 'clamp(2rem, 4vw, 3rem)', display: 'flex', flexWrap: 'wrap', gap: '1rem 1.5rem',
+            alignItems: 'center', justifyContent: 'space-between',
+            padding: 'clamp(1.25rem, 3vw, 1.75rem) clamp(1.5rem, 4vw, 2.25rem)', borderRadius: '1.25rem',
+            background: `linear-gradient(135deg, ${accent(0.06)} 0%, ${success(0.12)} 100%)`,
+            border: `1px solid ${accent(0.18)}`,
+          }}
+        >
+          <div style={{ flex: '1 1 420px', minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: '1.15rem' }}>🎁</span>
+              <span style={{ fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', color: ACCENT }}>Build a team, the smart way</span>
+            </div>
+            <p style={{ margin: 0, fontSize: '0.95rem', color: 'rgba(10,10,10,0.7)', lineHeight: 1.6 }}>
+              No separate Team plan — <strong style={{ color: '#0a0a0a', fontWeight: 700 }}>refer teammates and form a team to unlock group discounts</strong>. Everyone gets Pro’s hosted dashboard, shared baselines, and trend alerts; the more you bring, the more you save.
+            </p>
+          </div>
+          <button
+            onClick={() => setWaitlistPlan({ name: 'Referral rewards' })}
+            style={{
+              flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+              padding: '0.8rem 1.6rem', borderRadius: '0.875rem', border: 'none', cursor: 'pointer',
+              background: ACCENT, color: '#fff', fontWeight: 700, fontSize: '0.8rem',
+              letterSpacing: '0.06em', textTransform: 'uppercase', transition: 'opacity 0.15s',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.opacity = '0.88')}
+            onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+          >
+            Get referral perks <ArrowUpRight size={14} />
+          </button>
+        </motion.div>
+
         {/* Feature comparison table */}
         <ComparisonTable />
 
@@ -2463,7 +2572,7 @@ function PricingSection({ onBuy }) {
           transition={{ delay: 0.4, duration: 0.5 }}
           style={{ margin: 'clamp(2rem, 4vw, 3rem) auto 0', textAlign: 'center', fontSize: '0.8rem', color: 'rgba(10,10,10,0.35)', maxWidth: 480, lineHeight: 1.65 }}
         >
-          The Open Source tier is free forever. Pro and Team pricing is indicative and subject to change before launch.
+          The Open Source tier is free forever. Pro pricing is indicative and subject to change before launch.
           Enterprise pricing is fully custom and negotiated directly.
         </motion.p>
       </div>
@@ -2971,7 +3080,7 @@ export default function App() {
 
         {/* Navigation */}
         <nav className="flex items-center justify-between px-5 sm:px-8 md:px-12 pt-5 md:pt-6 pb-4 relative z-10">
-          <motion.div custom={0} variants={fadeDown} initial="initial" animate="animate" className="flex items-center gap-2.5">
+          <motion.div custom={0} variants={fadeDown} initial="initial" animate="animate" className="flex items-center gap-2.5 flex-1">
             <Logo />
             <span className="font-semibold tracking-widest uppercase text-black" style={{ fontSize: 15, letterSpacing: '0.2em' }}>
               Argus
@@ -3044,17 +3153,19 @@ export default function App() {
             ))}
           </div>
 
-          <motion.button
-            custom={5} variants={fadeDown} initial="initial" animate="animate"
-            onClick={() => setMenuOpen(true)}
-            aria-label="Open menu"
-            aria-expanded={menuOpen}
-            className="w-11 h-11 rounded-full bg-black flex flex-col items-center justify-center gap-1"
-          >
-            <span className="w-4 h-0.5 bg-white" aria-hidden="true" />
-            <span className="w-4 h-0.5 bg-white" aria-hidden="true" />
-            <span className="w-4 h-0.5 bg-white" aria-hidden="true" />
-          </motion.button>
+          <div className="flex-1 flex justify-end">
+            <motion.button
+              custom={5} variants={fadeDown} initial="initial" animate="animate"
+              onClick={() => setMenuOpen(true)}
+              aria-label="Open menu"
+              aria-expanded={menuOpen}
+              className="w-11 h-11 rounded-full bg-black flex flex-col items-center justify-center gap-1"
+            >
+              <span className="w-4 h-0.5 bg-white" aria-hidden="true" />
+              <span className="w-4 h-0.5 bg-white" aria-hidden="true" />
+              <span className="w-4 h-0.5 bg-white" aria-hidden="true" />
+            </motion.button>
+          </div>
         </nav>
 
         {/* Stats row */}

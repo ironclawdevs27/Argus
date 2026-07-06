@@ -131,7 +131,7 @@ test-harness/
     mcp-tool-schemas.js       — golden Zod response schemas for the 9 MCP tools (block [147]; exported for E2E)
   .env.harness                — ARGUS_LOG_LEVEL=warn — suppresses Pino INFO flood during harness runs (auto-loaded by test:harness)
   run-with-log.mjs            — tee wrapper: streams output live to terminal AND saves full output to harness-results.txt
-  pages/                      — 63 fixture HTML pages
+  pages/                      — 64 fixture HTML pages
   server.js                   — fixture HTTP server
   nextjs-fixture/             — Next.js pages/+app/ structure for C3 route discovery tests
   source-fixture/             — JS source + .env fixture for C1 codebase analysis tests

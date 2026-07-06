@@ -264,7 +264,7 @@ export function DownloadsSection({ daily, total, firstPublish, loading, error })
           <Stat accent value={safeTotal.toLocaleString()} label="npm Downloads" />
           <Stat value={t.clones.toLocaleString()} label="Git Clones · 14d" />
           <Stat value={pulseStats.estVisitors} label="Est. Visitors" />
-          <Stat value={pulseStats.rank} label={`Pulse Rank · peak ${pulseStats.peakRank}`} />
+          <Stat value={pulseStats.rank} label="Peak Pulse MCP Popularity ranking" />
         </motion.div>
 
         {/* Source tabs */}

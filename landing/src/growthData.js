@@ -46,7 +46,7 @@ export const socketScores = {
 
 // ── Pulse MCP ecosystem estimate ─────────────────────────────────────────────────
 export const pulseStats = {
-  estVisitors: '5.8k',
+  estVisitors: '6.2k',
   estVisitorsWeek: '351',
   rank: '#356',
   peakRank: '#2,526',

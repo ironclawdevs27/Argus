@@ -856,7 +856,7 @@ argus/
 │   ├── server.js                     — Fixture HTTP server (ports 3100 dev / 3101 staging)
 │   ├── .env.harness                  — ARGUS_LOG_LEVEL=warn — suppresses INFO flood during harness runs
 │   ├── run-with-log.mjs              — Tee wrapper: streams output live + saves to harness-results.txt
-│   ├── pages/                        — 63 fixture HTML pages (one per detection category)
+│   ├── pages/                        — 64 fixture HTML pages (one per detection category)
 │   ├── nextjs-fixture/               — Next.js pages/+app/ structure for C3 tests
 │   ├── source-fixture/               — Minimal app.js for C1 codebase-analyzer tests
 │   └── static/

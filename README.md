@@ -1,25 +1,49 @@
 <div align="center">
 
-# Argus — AI-Powered Automated QA
+# Argus — The QA Layer for AI-Assisted Development
+
+### Your AI agent writes the code. **Argus checks what it actually built.**
+
+[![MCP Server](https://glama.ai/mcp/servers/ironclawdevs27/Argus/badges/card.svg)](https://glama.ai/mcp/servers/ironclawdevs27/Argus)
 
 [![npm](https://img.shields.io/npm/v/argusqa-os?color=7C3AED)](https://www.npmjs.com/package/argusqa-os)
-[![MCP Server](https://glama.ai/mcp/servers/ironclawdevs27/Argus/badges/card.svg)](https://glama.ai/mcp/servers/ironclawdevs27/Argus)
 [![Harness](https://img.shields.io/badge/harness-978%2F978-4ADE80)](test-harness/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Argus catches the bugs your test suite misses — visual regressions, API loops, CSS drift, console noise, accessibility failures, and more — and delivers rich reports to Slack (or a local HTML dashboard).**
+One line in your MCP config gives Claude (or any MCP agent) a real Chrome audit engine —
+**67 audit categories · 149 finding types · zero test files to write or maintain.**
+And with **Aegis**, what it finds **never leaks your secrets to the LLM**.
 
-[Quick Start](#quick-start) · [Features](#what-argus-catches) · [Setup](#full-setup) · [MCP Tools](#mcp-tools) · [CLI Commands](#cli-commands) · [Troubleshooting](#troubleshooting) · [Full Reference](REFERENCE.md)
+<!-- TODO(GTM): record the 30-second "Argus catches a real bug" GIF and embed it here.
+     This is the single highest-leverage asset in the repo. Until then the landing link stands in. -->
+**[▶ See it in action → argus-qa.com](https://argus-qa.com)**
+
+[Quick Start](#quick-start) · [The Fix Loop](#the-fix-loop) · [What It Catches](#what-argus-catches) · [Your Stack](#works-with-your-stack) · [MCP Tools](#mcp-tools) · [Full Setup](#full-setup) · [Reference](REFERENCE.md)
 
 </div>
 
 ---
 
+## Why Argus Exists
+
+AI agents now write most of the code — and they judge their own work by whether it *compiles and looks done*, not by what actually happens in the browser. The uncaught exception on the third click. The form that posts credentials over HTTP. The 4-second LCP. The button that vanished in dark mode. The API endpoint hammered in an infinite loop.
+
+**Argus closes that gap.** It drives a real Chrome (via the Chrome DevTools Protocol) against your locally-running app and hands the agent — or you — a structured, severity-ranked bug report. The agent fixes; Argus re-checks; the loop closes *before* the code leaves your machine.
+
+|  |  |
+|---|---|
+| 🧪 **No test files, ever** | Argus audits the *rendered app* — DOM, console, network, pixels — not your source. Nothing to write, nothing to maintain when the agent refactors |
+| 🤖 **Built for the agent loop** | The only QA engine Claude can call natively over MCP. Audit → fix → re-audit without leaving the conversation |
+| 🔒 **Safe for agents by default** | **Aegis**: findings are redacted at every egress boundary — secrets, PII, and exploit detail never reach the LLM's context window (OWASP LLM02, default-ON, fail-closed) |
+| 🧰 **Also a normal QA tool** | CLI batch audits, a GitHub Action PR gate, Slack reports with screenshots, dev-vs-staging diffs, watch mode — with or without an agent |
+
+---
+
 ## Quick Start
 
-> **No install required.** `npx` auto-downloads Argus on first run.
+> **No install.** `npx` fetches Argus on first run.
 
-**Step 1 — Add to `.mcp.json`** in your project root:
+**1 — Add two lines to `.mcp.json`** in your project root:
 
 ```json
 {
@@ -30,14 +54,21 @@
 }
 ```
 
-Or via Claude Code CLI:
+Or via the Claude Code CLI:
 
 ```bash
 claude mcp add chrome-devtools -- npx -y chrome-devtools-mcp@latest
 claude mcp add argus -- npx -y argusqa-os
 ```
 
-**Step 2 — Start Chrome with remote debugging:**
+**2 — Launch Chrome** (auto-detects your Chrome, sets the right flags):
+
+```bash
+npx -y -p argusqa-os argus-chrome
+```
+
+<details>
+<summary>Prefer launching Chrome manually? (macOS / Windows / Linux commands)</summary>
 
 ```bash
 # macOS
@@ -50,13 +81,43 @@ open -a "Google Chrome" --args --remote-debugging-port=9222 --headless=new
 google-chrome --remote-debugging-port=9222 --headless=new --no-sandbox
 ```
 
-**Step 3 — Run an audit:**
+</details>
+
+**3 — Ask your agent:**
 
 ```
 Run argus_audit on http://localhost:3000
 ```
 
-Argus scans your app and either posts findings to Slack or opens a local `report.html`. That's it.
+That's it. Findings come back structured and severity-ranked — into the conversation, to Slack, or as a local `report.html`. Something off? `npx -y -p argusqa-os argus-doctor` diagnoses your setup in one command.
+
+---
+
+## The Fix Loop
+
+This is what Argus looks like inside an agentic coding session:
+
+```
+You:    Build me a checkout page with a card form.
+Agent:  [writes the code, dev server renders it]
+
+You:    Run argus_audit on http://localhost:3000/checkout
+Argus:  ● 2 critical · 3 warnings
+        ● uncaught TypeError in checkout.js (visible on submit)
+        ● form posts over HTTP — security_no_https
+        ▲ card inputs missing labels + autocomplete (a11y/WCAG)
+        ▲ LCP 4.1s — hero image unoptimized
+        ▲ duplicate POST /api/cart ×7 — likely render loop
+
+Agent:  [fixes all five]
+
+You:    Run argus_get_context
+Argus:  ✓ resolved: 5 · persisting: 0 · new: 0
+```
+
+`argus_get_context` diffs against the previous snapshot, so the agent knows exactly what it fixed, what it broke, and what remains — no re-reading walls of output.
+
+**"But my agent can already drive a browser…"** — it can. Driving isn't judging. A raw browser MCP (Playwright MCP, bare chrome-devtools-mcp) gives the agent hands and eyes; the agent must then *re-derive what to check* every session, burning context on console-log spelunking. Argus is the judgment layer on top: 149 codified finding types with thresholds, severity policy, cross-run baselines, flakiness filtering, dedup, root-cause hints — returned in one call, redacted by default.
 
 ---
 
@@ -81,6 +142,7 @@ Argus scans your app and either posts findings to Slack or opens a local `report
 | **Forms** | Missing `required`, `autocomplete`, `aria-describedby`; unlabelled inputs |
 | **Fonts** | FOIT, FOUT, missing fallbacks, slow loads > 1s, suboptimal formats |
 | **Motion** | `prefers-reduced-motion` violations, `autoplay` without pause controls |
+| **Theme** | Dark-mode gaps — static CSS vars, missing `prefers-color-scheme` handling |
 | **Network baseline** | New requests, missing requests, status-code regressions vs saved HAR baseline |
 | **Environment diff** | Dev vs staging — screenshot diff, DOM changes, console/network regressions |
 
@@ -95,9 +157,25 @@ And every finding is post-processed with:
 
 ---
 
+## Works With Your Stack
+
+Argus audits the **rendered output**, not your source — so it is framework-agnostic by construction. **If it runs in Chrome, Argus can audit it:**
+
+| | |
+|---|---|
+| **SPA frameworks** | React, Vue, Angular, Svelte/SvelteKit, Solid, Preact, Astro… |
+| **Meta-frameworks** | Next.js, Nuxt, Remix, Gatsby — plus **framework-aware extras**: Next.js & React Router route discovery, import-graph PR mapping ("this component changed → audit only the routes that render it"), monorepo path awareness |
+| **Server-rendered** | Rails, Django, Laravel, Flask, Spring, PHP — anything that serves HTML to a browser |
+| **Static / no framework** | Plain HTML/CSS/JS, docs sites, landing pages |
+| **APIs (via the page)** | Response schema validation, status/timing checks on every request the page makes |
+
+**Honest limits:** Chrome/Chromium rendering only (no Safari/Firefox engine differences), web only (no native mobile/desktop apps), and backend services are checked through the traffic the page generates — not as standalone API test suites.
+
+---
+
 ## Confidentiality — Aegis Egress Boundary
 
-> **Default ON.** Argus audits your app for *secrets and vulnerabilities* — so its findings are exactly the data you least want leaving your machine. **Aegis** redacts them at every external boundary before they cross.
+> **Default ON.** Argus audits your app for *secrets and vulnerabilities* — so its findings are exactly the data you least want leaving your machine. **Aegis** redacts them at every external boundary before they cross. For teams adopting AI agents, this is the difference between "we use an AI QA tool" and "we can tell our security lead exactly why it's safe."
 
 A finding sent to an external sink — an **MCP tool response** (which lands in the calling agent's context window and transits to that agent's model provider), a **Slack** message, a **GitHub** PR comment + its `::error` annotations, the **hosted/CI HTML report**, or **CI logs** — is reduced to a need-to-know projection: a **sensitive** finding crosses as its `type` + `route` + `severity` + a `🔒` marker, and **never** its raw payload (`message`, `evidence`, request/response bodies, headers, cookies, stack). URLs are projected with the query string stripped (tokens hide there). A **benign** finding keeps its message — but that message is still scrubbed for any accidentally-embedded secret or PII.
 
@@ -122,7 +200,7 @@ Ask Claude (or any MCP client) — no terminal required:
 | `argus_audit` | Fast pass — JS, network, accessibility, SEO, security, CSS, content |
 | `argus_audit_full` | Deep pass — adds Lighthouse, responsive checks, memory leak detection, hover-state bugs |
 | `argus_compare` | Diff dev vs staging — screenshots, findings delta, environment regressions |
-| `argus_get_context` | Capture everything broken on the open tab for Claude to diagnose |
+| `argus_get_context` | Capture everything broken on the open tab — with `resolved / new / persisting` diff vs the last snapshot (the fix loop) |
 | `argus_watch_snapshot` | Snapshot the open tab without navigating (preserves auth/form state) |
 | `argus_last_report` | Return last JSON report without re-running |
 | `argus_design_audit` | Figma URL → 13 design-token finding types (color, spacing, typography, shadows, etc.) |
@@ -142,6 +220,17 @@ Run argus_get_context
 
 ---
 
+## Battle-Tested, Not Vibe-Tested
+
+Argus's own correctness is enforced the way it audits yours:
+
+- **978/978 hard assertions** across a 168-block integration harness driving real Chrome against 64 fixture pages — including per-category negative controls (zero over-fire), golden response schemas for all 9 MCP tools, and an upstream-drift canary that catches chrome-devtools-mcp API changes at version-bump time
+- **495 Chrome-free unit tests** (Vitest) + property-based parser fuzzing
+- **`npm audit`: 0 vulnerabilities** · CodeQL + Dependabot on every PR · [Socket.dev](https://socket.dev/npm/package/argusqa-os): 100/100/100 on vulnerability/quality/license
+- Session files and captured tokens written `0600`, owner-only
+
+---
+
 ## Full Setup
 
 ### Prerequisites
@@ -150,7 +239,7 @@ Run argus_get_context
 |---|---|
 | Node.js | v20.19+ |
 | Chrome | Stable (desktop or headless) |
-| Claude Code | Latest (`npm install -g @anthropic-ai/claude-code`) |
+| Claude Code | Latest (`npm install -g @anthropic-ai/claude-code`) — or any MCP client |
 | Slack workspace | **Optional** — omit for local `report.html` mode |
 
 ---
@@ -243,7 +332,7 @@ npm run test:harness:log   # same, but tees full output to harness-results.txt
 npm run test:coverage      # merged unit + harness coverage gate (requires Chrome)
 ```
 
-**Watch mode** — live monitoring as you develop:
+**Watch mode** — live monitoring as you (or your agent) develop:
 
 ```bash
 # Terminal 1: start your app
@@ -264,7 +353,9 @@ To expose the server via tunnel: `cloudflared tunnel --url http://localhost:3001
 
 ---
 
-## GitHub Actions CI
+## GitHub Actions CI — PR Gate
+
+Argus ships as a composite GitHub Action: on every PR it maps the diff to affected routes, audits them, and blocks the merge **only on findings the PR introduces** (baseline-aware) — with an idempotent PR comment and a Check Run.
 
 Add to your repo's secrets (Settings → Secrets → Actions):
 
@@ -326,6 +417,8 @@ The included [workflow](.github/workflows/argus.yml) runs on push to `main`, dai
 
 ## Troubleshooting
 
+> First stop for anything broken: `npx -y -p argusqa-os argus-doctor` — it checks Chrome reachability, MCP config validity, and required env keys, and prints the exact fix for each failure.
+
 **Chrome DevTools MCP not connecting**
 ```bash
 claude mcp add chrome-devtools -- npx chrome-devtools-mcp@latest
@@ -355,19 +448,29 @@ claude mcp add chrome-devtools -- npx chrome-devtools-mcp@latest
 
 Argus is a **complementary layer**, not a replacement for unit or E2E tests:
 
-| | Playwright / Cypress | Argus |
-|---|---|---|
-| **Purpose** | Test your logic and API contracts | Catch what the user actually sees |
-| **What it catches** | Regressions in behavior | CSS drift, visual regressions, API loops, console noise, perf budgets |
-| **When it runs** | In your test suite | Continuously, on the live running app |
-| **Setup** | Write test files | Configure routes in `targets.js` |
-| **Output** | Pass / fail | Structured Slack reports with screenshots |
+| | Playwright / Cypress | Raw browser MCP (Playwright MCP, chrome-devtools-mcp) | Argus |
+|---|---|---|---|
+| **Purpose** | Test your logic and API contracts | Give an agent browser hands & eyes | Give the agent (and you) **judgment** about what's broken |
+| **What you get** | Pass / fail on scripts you wrote | Raw DOM/console/network access | 149 codified finding types, severities, baselines, noise filtering, root-cause hints |
+| **Maintenance** | Test files, forever | Re-prompt the checks every session | Zero — audits the rendered app |
+| **When it runs** | In your test suite | When the agent thinks to look | On demand, in CI as a PR gate, or continuously (watch mode) |
+| **Output** | Pass / fail | Whatever the agent noticed | Structured reports with screenshots — Slack, HTML, PR comments — secrets redacted |
 
 ---
 
 ## Known Limitations
 
-All 978 harness assertions pass (`978/978`) — there are currently no known MCP- or Chrome-layer restrictions. Lighthouse now runs in headless (after the `lighthouse_audit` argument fix); the remaining soft assertions (perf traces, GC-dependent heap-growth) are promoted to counted hard assertions only in the weekly strict-soft lane (`harness-strict.yml`) via `ARGUS_HARNESS_STRICT_SOFT`.
+All 978 harness assertions pass (`978/978`) — there are currently no known MCP- or Chrome-layer restrictions. Lighthouse runs headless (after the `lighthouse_audit` argument fix); the remaining soft assertions (perf traces, GC-dependent heap-growth) are promoted to counted hard assertions only in the weekly strict-soft lane (`harness-strict.yml`) via `ARGUS_HARNESS_STRICT_SOFT`. Scope limits: Chrome/Chromium only, web apps only — see [Works With Your Stack](#works-with-your-stack).
+
+---
+
+## Hosted Argus — Founding Members
+
+Want audits without running Chrome or npm — with history, trends, schedules, and a team dashboard? **Argus Cloud** is in founding-member early access: **$19/month, locked forever** (regular $29).
+
+**[Become a founding member → argus-qa.com](https://argus-qa.com#pricing)**
+
+The open-source engine on this page stays MIT and fully-featured, always — the hosted tier sells convenience and memory, never detections.
 
 ---
 
@@ -396,6 +499,8 @@ Full source map → [CLAUDE.md](CLAUDE.md) · MCP/DSL reference → [SKILL.md](S
 ---
 
 ## Contributing
+
+Contributions are welcome — fixture pages, new detection categories, framework route-discovery, docs. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 1. Fork the repo and create a branch
 2. `npm run test:unit` — verify without Chrome (495 tests)
