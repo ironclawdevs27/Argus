@@ -52,8 +52,8 @@ const navHrefs = {
 
 const stats = [
   { num: '67', label: 'DETECTION\nTYPES' },
-  { num: '168', label: 'TEST\nBLOCKS' },
-  { num: '978', label: 'ASSERTIONS\nRUN' },
+  { num: '171', label: 'TEST\nBLOCKS' },
+  { num: '998', label: 'ASSERTIONS\nRUN' },
 ]
 
 const headingWords = ['Every', 'Bug', 'Caught']
@@ -787,7 +787,7 @@ const docChapters = [
   {
     num: '05',
     title: 'Test Coverage',
-    tagline: '168 blocks, 978 hard assertions, fixture-driven with zero ambiguity',
+    tagline: '171 blocks, 998 hard assertions, fixture-driven with zero ambiguity',
     sections: [
       {
         body: 'Every detection category has a corresponding fixture HTML page that reliably triggers exactly that bug. Fixtures are served via HTTP — never file:// — so CORS, ES modules, and fetch APIs work correctly. Each block has at minimum 3 hard assertions and passes consistently across environments without flakiness.',
@@ -843,8 +843,11 @@ const docChapters = [
           'Block 167: PR Validator — CLI end-to-end; drives the real CLI as a child process (docs-only PR → exit 0; a critical → exit 1), pinning exit codes, GitHub Action outputs, annotations, and the JSON result, 8 assertions',
           'Block 168: Aegis — confidentiality egress boundary; drives the real pipeline plus a live MCP audit against a secret-bearing fixture, proving the redacted projection leaks no JWT/key/email/card and fails closed, 12 assertions',
           'Block 169: Aegis — egress-sink guards; Slack / GitHub / hosted-HTML / CI-log sinks each redact secrets while keeping benign messages, with opt-out non-vacuity controls, 5 assertions',
-          '495 Vitest unit tests covering core logic — zero Chrome dependency',
-          'All 978 hard assertions pass — zero permanent failures',
+          'Block 170: Aegis for Teams — engine policy param; an org policy toggles secret/PII rules but only ever narrows the egress allowlist / widens the sensitive-type set, and a malformed policy fails closed, 7 assertions',
+          'Block 171: Aegis for Teams — governance seam; fetch + Ed25519-verify a signed org policy, apply it, fail closed on any bad signature, and post secret-free aggregates, 7 assertions',
+          'Block 172: Aegis for Teams — team-vault routing; mode=token maps to a central vault so the secret reaches only the authorized endpoint while the information-free token crosses every other sink, 6 assertions',
+          '562 Vitest unit tests covering core logic — zero Chrome dependency',
+          'All 998 hard assertions pass — zero permanent failures',
         ],
       },
       {
@@ -856,9 +859,9 @@ const docChapters = [
       },
       {
         title: 'Running',
-        code: `npm run test:unit     # 495 Vitest tests — no Chrome required
-npm run test:harness  # 978 hard assertions — Chrome required (headless)
-# Expected: 978/978 — no permanent failures
+        code: `npm run test:unit     # 562 Vitest tests — no Chrome required
+npm run test:harness  # 998 hard assertions — Chrome required (headless)
+# Expected: 998/998 — no permanent failures
 # Weekly strict-soft lane promotes ~23 soft checks to hard via ARGUS_HARNESS_STRICT_SOFT`,
       },
     ],
@@ -2640,7 +2643,7 @@ function DocsSection() {
             How we built it.
           </h2>
           <p style={{ margin: 0, maxWidth: 520, fontSize: 'clamp(0.9rem, 1.3vw, 1.05rem)', color: 'rgba(255,255,255,0.38)', lineHeight: 1.7 }}>
-            From a single file to 166 test blocks — the engineering decisions, discoveries, and challenges behind Argus.
+            From a single file to 171 test blocks — the engineering decisions, discoveries, and challenges behind Argus.
           </p>
         </motion.div>
 

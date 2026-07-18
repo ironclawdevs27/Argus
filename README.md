@@ -225,7 +225,7 @@ Run argus_get_context
 Argus's own correctness is enforced the way it audits yours:
 
 - **998/998 hard assertions** across a 171-block integration harness driving real Chrome against 64 fixture pages — including per-category negative controls (zero over-fire), golden response schemas for all 9 MCP tools, and an upstream-drift canary that catches chrome-devtools-mcp API changes at version-bump time
-- **495 Chrome-free unit tests** (Vitest) + property-based parser fuzzing
+- **562 Chrome-free unit tests** (Vitest) + property-based parser fuzzing
 - **`npm audit`: 0 vulnerabilities** · CodeQL + Dependabot on every PR · [Socket.dev](https://socket.dev/npm/package/argusqa-os): 100/100/100 on vulnerability/quality/license
 - Session files and captured tokens written `0600`, owner-only
 
@@ -326,7 +326,7 @@ npm run report:html    # Generate reports/report.html from last JSON audit
 npm run report:pdf     # Export HTML report to A4 PDF (requires: npm install puppeteer)
 npm run server         # Start Slack slash-command server (port 3001)
 npm run init           # Interactive setup wizard
-npm run test:unit          # 495 unit tests — no Chrome required
+npm run test:unit          # 562 unit tests — no Chrome required
 npm run test:harness       # 171-block correctness harness — requires Chrome
 npm run test:harness:log   # same, but tees full output to harness-results.txt
 npm run test:coverage      # merged unit + harness coverage gate (requires Chrome)
@@ -490,7 +490,7 @@ src/
     doctor.js           — npm run doctor / argus-doctor — pre-flight checks
     pr-validate.js      — headless CI entry point for GitHub Actions
 test-harness/           — 171-block correctness harness, 998 hard assertions, 64 fixture pages
-test/unit/              — 495 Vitest unit tests (no Chrome required)
+test/unit/              — 562 Vitest unit tests (no Chrome required)
 landing/                — Product landing page (React 19 + Vite + Tailwind)
 ```
 
@@ -503,7 +503,7 @@ Full source map → [CLAUDE.md](CLAUDE.md) · MCP/DSL reference → [SKILL.md](S
 Contributions are welcome — fixture pages, new detection categories, framework route-discovery, docs. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 1. Fork the repo and create a branch
-2. `npm run test:unit` — verify without Chrome (495 tests)
+2. `npm run test:unit` — verify without Chrome (562 tests)
 3. `npm run test:harness` — full integration coverage (requires Chrome on port 9222)
 4. Open a PR — Argus audits itself via the CI workflow
 

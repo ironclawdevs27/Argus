@@ -125,7 +125,7 @@ Most UI lives in `src/App.jsx`; the Growth section and the hero download badge a
 | `@media` edge cases | ✅ Fixed | `100dvh` via `@supports` in `index.css`; stat row / detection grid / nav handle narrow viewports natively |
 | SEO — OG / Twitter / JSON-LD | ✅ Added | `index.html` has full OG tags, Twitter card, canonical, JSON-LD schema |
 | `robots.txt` + `sitemap.xml` | ✅ Added | Both in `landing/public/` |
-| OG social card | ✅ Done | `og-image-v3.jpg` — 1200×630 JPEG, branded overlay, purple stat numbers (67 / 168 / 978); regenerated for v9.9.0 by rendering an HTML reconstruction of the card over the clean `argus-poster.png` via headless Chrome (real Inter digits) → PNG → JPEG (jimp); `og-image.jpg` gitignored |
+| OG social card | ✅ Done | `og-image-v3.jpg` — 1200×630 JPEG, branded overlay, purple stat numbers **67 / 171 / 998**; regenerated for v10.0.0 by transplanting the two changed numbers (168→171, 978→998) from the image's own existing digit glyphs (jimp masked composite over a per-column background fill) so font/color/spacing match exactly; `og-image.jpg` gitignored |
 | Mobile stats layout | ✅ Fixed | Stats row stacks vertically on mobile (`flex-col sm:flex-row`); slide widget reduced from 8 → 6 slides; `clamp()`-based fluid typography |
 | Deployment | ✅ Live | `npx wrangler pages deploy dist --project-name argus-qa`; custom domain `argus-qa.com` active |
 
@@ -523,3 +523,19 @@ PR Validator Phase F closed out the plan with hermetic, network-free test maximi
 | "How we built it" caption | `164 test blocks` | `166 test blocks` |
 
 > OG card: **Resolved 2026-06-25** — `og-image-v3.jpg` regenerated to **67 / 166 / 961** for v9.8.0. Only the two changed numbers (166, 961) were re-rendered onto the original art: a clean slice of the gradient just above the stat row was block-copied down to erase the old digits, then cap-height-matched native digits were drawn in the brand purple (`rgb(101,44,200)`) so they sit flush with the untouched `67`. Still 1200×630, ~103 KB.
+
+## Stats Update (2026-07-18 — Aegis v9.9.0 + Aegis for Teams v10.0.0)
+
+Consolidated sync — the build-changelog skipped v9.9.0. **v9.9.0 (Aegis — confidentiality egress boundary):** default-ON secret/PII redaction at all five external sinks (MCP / Slack / GitHub / hosted-HTML / CI logs), fail-closed, deny-by-default (OWASP LLM02:2025); blocks [168] (engine + pipeline + live MCP boundary) + [169] (egress-sink guards) → 168 blocks / 978 hard assertions; the landing gained the **Security & Compliance** section (`SecuritySection.jsx`). **v10.0.0 (Aegis for Teams — opt-in org governance, default byte-identical, no new dependency):** the engine `policy` param (`redaction-policy.js`, block [170]), the Ed25519-verified governance seam (`governance-seam.js`, block [171]), and team-vault routing (`team-vault.js`, block [172]) → 171 blocks / 998 hard assertions. Detection categories unchanged at 67; MCP tools unchanged at 9. Published to npm as `argusqa-os@10.0.0` + the MCP registry.
+
+| Field | Old (v9.8.0) | New (v10.0.0) |
+|---|---|---|
+| `stats[1].num` (TEST BLOCKS) | `166` | `171` |
+| `stats[2].num` (ASSERTIONS RUN) | `961` | `998` |
+| Docs § "Test Coverage" tagline | `166 blocks, 961 hard assertions` | `171 blocks, 998 hard assertions` |
+| Docs § "Running" code | `366 Vitest tests`, `961 hard assertions`, `961/961` | `562 Vitest tests`, `998 hard assertions`, `998/998` |
+| Docs § Breakdown bullets | blocks end at [167] | blocks [168]/[169] (Aegis) + [170]/[171]/[172] (Aegis for Teams) added |
+| "How we built it" caption | `166 test blocks` | `171 test blocks` |
+| `index.html` SEO/OG/JSON-LD | (block/assertion counts already dropped — now "67 categories" only) | unchanged — no stat numbers to sync |
+
+> OG card: **Resolved 2026-07-18** — `og-image-v3.jpg` regenerated from **67 / 168 / 978** to **67 / 171 / 998** for v10.0.0. Only the two changed numbers were re-rendered by transplanting the image's own digit glyphs (the leading `9` copied over the middle `7`; a `7` + `1` sourced from the `67` / `168` digits) so font/color/spacing match exactly; the rest of the art is untouched. Still 1200×630, ~132 KB.

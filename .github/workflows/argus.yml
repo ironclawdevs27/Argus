@@ -22,6 +22,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
+    # Shared by the crawl + compare steps below — defined once at the job level so
+    # each secret is referenced a single time (not duplicated per step). Every Slack
+    # value is OPTIONAL: with none configured, ARGUS writes a local HTML report
+    # instead of posting to Slack (see src/orchestration/dispatcher.js). The
+    # "Context access might be invalid" editor hints on these lines are expected
+    # until the secrets are defined in the repo, and harmless because they're optional.
+    env:
+      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
+      SLACK_CHANNEL_CRITICAL: ${{ secrets.SLACK_CHANNEL_CRITICAL }}
+      SLACK_CHANNEL_WARNINGS: ${{ secrets.SLACK_CHANNEL_WARNINGS }}
+      SLACK_CHANNEL_DIGEST: ${{ secrets.SLACK_CHANNEL_DIGEST }}
+      REPORT_OUTPUT_DIR: ./reports
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -90,7 +104,7 @@ jobs:
           echo "TARGET_STAGING_URL=${{ inputs.target_url || vars.TARGET_STAGING_URL || secrets.TARGET_STAGING_URL }}" >> $GITHUB_ENV
 
       - name: Restore baseline cache (B3 — persist findings across runs)
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: reports/baselines/
           # Unique key per run so the updated baseline is always saved.
@@ -105,17 +119,9 @@ jobs:
 
       - name: Run ARGUS error detection crawl
         id: crawl
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
-          SLACK_CHANNEL_CRITICAL: ${{ secrets.SLACK_CHANNEL_CRITICAL }}
-          SLACK_CHANNEL_WARNINGS: ${{ secrets.SLACK_CHANNEL_WARNINGS }}
-          SLACK_CHANNEL_DIGEST: ${{ secrets.SLACK_CHANNEL_DIGEST }}
-          REPORT_OUTPUT_DIR: ./reports
-          # B2 auth: when auth is configured in src/config/targets.js, add
-          # ARGUS_AUTH_EMAIL and ARGUS_AUTH_PASSWORD to repo secrets and uncomment:
-          # ARGUS_AUTH_EMAIL: ${{ secrets.ARGUS_AUTH_EMAIL }}
-          # ARGUS_AUTH_PASSWORD: ${{ secrets.ARGUS_AUTH_PASSWORD }}
+        # Slack tokens + REPORT_OUTPUT_DIR are inherited from the job-level env above.
+        # B2 auth: when auth is configured in src/config/targets.js, add
+        # ARGUS_AUTH_EMAIL / ARGUS_AUTH_PASSWORD to the job env block above.
         run: |
           node -e "
             import('./src/orchestration/crawl-and-report.js').then(async ({ runCrawl }) => {
@@ -134,13 +140,7 @@ jobs:
 
       - name: Run ARGUS environment comparison
         id: compare
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
-          SLACK_CHANNEL_CRITICAL: ${{ secrets.SLACK_CHANNEL_CRITICAL }}
-          SLACK_CHANNEL_WARNINGS: ${{ secrets.SLACK_CHANNEL_WARNINGS }}
-          SLACK_CHANNEL_DIGEST: ${{ secrets.SLACK_CHANNEL_DIGEST }}
-          REPORT_OUTPUT_DIR: ./reports
+        # Slack tokens + REPORT_OUTPUT_DIR are inherited from the job-level env above.
         run: |
           node -e "
             import('./src/orchestration/env-comparison.js').then(async ({ runComparison }) => {

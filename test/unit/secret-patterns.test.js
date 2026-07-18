@@ -22,6 +22,11 @@ import {
 
 // Real-shaped positives (documented example credentials, not live secrets).
 const JWT = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+// Synthetic Google API key — assembled from fragments so no full-format literal ever
+// sits in source (GitHub secret scanning matches static text, not runtime values).
+// Still matches the detector regex /\bAIza[0-9A-Za-z_-]{35}\b/ at runtime, so the test
+// exercises the real google_api_key rule.
+const GOOGLE_KEY = 'AIza' + 'SyFAKEKEYFORTESTSONLY'.padEnd(35, '0');
 
 const SECRET_POSITIVES = {
   jwt: JWT,
@@ -29,7 +34,7 @@ const SECRET_POSITIVES = {
   openai_key: 'sk-proj-abcdef1234567890ABCDEFGHIJklmno',
   aws_access_key_id: 'AKIAIOSFODNN7EXAMPLE',
   aws_secret_access_key: 'aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
-  google_api_key: 'AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI',
+  google_api_key: GOOGLE_KEY,
   slack_token: 'xoxb-EXAMPLE-PLACEHOLDER-slack-token',
   github_pat: 'github_pat_11ABCDEFG0abcdefghij_klmnopqrstuvwxyz1234567890ABCD',
   github_token: 'ghp_1234567890abcdefghijABCDEFGHIJ',
@@ -46,7 +51,7 @@ const SECRET_VALUE = {
   openai_key: 'sk-proj-abcdef1234567890ABCDEFGHIJklmno',
   aws_access_key_id: 'AKIAIOSFODNN7EXAMPLE',
   aws_secret_access_key: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
-  google_api_key: 'AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI',
+  google_api_key: GOOGLE_KEY,
   slack_token: 'xoxb-EXAMPLE-PLACEHOLDER-slack-token',
   github_pat: 'github_pat_11ABCDEFG0abcdefghij_klmnopqrstuvwxyz1234567890ABCD',
   github_token: 'ghp_1234567890abcdefghijABCDEFGHIJ',

@@ -89,6 +89,12 @@ console.log(`  MRR / paying    ${mrr || '—'} / ${paying || '—'}  (pass --mrr
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 const header = 'date,gh_stars,gh_forks,gh_open_issues,npm_week,npm_month,waitlist,mrr,paying_users\n';
-if (!fs.existsSync(OUT_FILE)) fs.writeFileSync(OUT_FILE, header);
+// Write the header only if the file is absent — atomic create-exclusive (flag 'wx')
+// instead of a existsSync→write check-then-act, which is a file-system race (TOCTOU).
+try {
+  fs.writeFileSync(OUT_FILE, header, { flag: 'wx' });
+} catch (err) {
+  if (err.code !== 'EEXIST') throw err; // already exists ⇒ keep the existing header
+}
 fs.appendFileSync(OUT_FILE, `${date},${gh.stars ?? ''},${gh.forks ?? ''},${gh.issues ?? ''},${npm.week ?? ''},${npm.month ?? ''},${waitlist.count ?? ''},${mrr},${paying}\n`);
 console.log(`\n  ✓ appended to ${OUT_FILE}\n`);
