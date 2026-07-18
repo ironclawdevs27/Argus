@@ -285,8 +285,13 @@ export function stripZeroWidth(text) {
  * {secret, pii, entropy}. This is the single source of truth that scrubText
  * redacts and that the fuzz invariant proves redactForEgress never leaks.
  *
+ * The optional `ruleFilter` (Aegis engine `policy` param — redaction-policy.js) can
+ * DISABLE a named secret/PII rule; `extraSecretRules` ADD org-custom secret rules.
+ * Neither can touch the entropy layer (the non-toggleable floor), so an actual
+ * secret still cannot leak even with a named rule turned off.
+ *
  * @param {string} text
- * @param {{ entropyThreshold?: number }} [opts]
+ * @param {{ entropyThreshold?: number, ruleFilter?: (name:string, kind:string)=>boolean, extraSecretRules?: {name:string, regex:RegExp}[] }} [opts]
  * @returns {{start:number, end:number, kind:'secret'|'pii'|'entropy', name:string}[]}
  */
 export function findSensitiveSpans(text, opts = {}) {
@@ -294,6 +299,8 @@ export function findSensitiveSpans(text, opts = {}) {
   if (!s) return [];
   /** @type {{start:number,end:number,kind:string,name:string}[]} */
   const spans = [];
+  const ruleFilter = typeof opts.ruleFilter === 'function' ? opts.ruleFilter : null;
+  const allowed = (name, kind) => !ruleFilter || ruleFilter(name, kind) !== false;
 
   const pushFromRule = (rule, kind) => {
     rule.regex.lastIndex = 0;
@@ -310,8 +317,14 @@ export function findSensitiveSpans(text, opts = {}) {
     }
   };
 
-  for (const rule of SECRET_RULES) pushFromRule(rule, 'secret');
-  for (const rule of PII_RULES)    pushFromRule(rule, 'pii');
+  for (const rule of SECRET_RULES) if (allowed(rule.name, 'secret')) pushFromRule(rule, 'secret');
+  // Org-custom secret rules (policy `rules.secret.extra`) — additive, already compiled + /g.
+  if (Array.isArray(opts.extraSecretRules)) {
+    for (const rule of opts.extraSecretRules) {
+      if (rule && rule.regex instanceof RegExp) pushFromRule(rule, 'secret');
+    }
+  }
+  for (const rule of PII_RULES)    if (allowed(rule.name, 'pii')) pushFromRule(rule, 'pii');
 
   // Layer 3 — entropy / token-efficiency over candidate tokens.
   TOKEN_SCAN_RE.lastIndex = 0;
@@ -400,8 +413,11 @@ function maskValue(value, kind, name, mode) {
  * (scrub(scrub(x)) === scrub(x)) and, for mode=mask, never lengthens the input.
  * This SUPERSEDES the GitHub-only scrubSecrets for free-text egress.
  *
+ * `opts` is forwarded to findSensitiveSpans, so the Aegis policy toggles
+ * (`ruleFilter`, `extraSecretRules`) apply here too.
+ *
  * @param {string} text
- * @param {{ mode?: string, entropyThreshold?: number }} [opts]
+ * @param {{ mode?: string, entropyThreshold?: number, ruleFilter?: Function, extraSecretRules?: object[] }} [opts]
  * @returns {string}
  */
 export function scrubText(text, opts = {}) {

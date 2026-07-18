@@ -69,8 +69,11 @@ import {
 // not a hand-rolled duplicate. The Slack init side-effect concern was resolved by lazy
 // WebClient init, so importing crawl-and-report.js is now safe in test context.
 import { crawlRouteCheap, checkHttpsRequired } from '../src/orchestration/crawl-and-report.js';
-import { classifyFinding, classifySensitivity, redactForEgress, summarizeRedaction, buildRedactionRider } from '../src/utils/sensitivity-classifier.js';
+import { classifyFinding, classifySensitivity, redactForEgress, summarizeRedaction, buildRedactionRider, redactReport, isSensitiveType, deepScrub, REDACT_MARKER } from '../src/utils/sensitivity-classifier.js';
 import { scrubText, findSensitiveSpans } from '../src/utils/secret-patterns.js';
+import { resolvePolicy, effectivePolicyOpts, policyFromEnv, governanceOptOutClamped, _resetPolicyCacheForTests } from '../src/utils/redaction-policy.js';
+import { verifySignedPolicy, ensureGovernancePolicy, postRedactionAggregate, governanceActive, governancePolicyVersion, canonicalPolicyBytes, _resetGovernanceForTests } from '../src/utils/governance-seam.js';
+import { teamVaultActive, teamTokenFor, ensureTokenVaultWired, flushTeamVault, pendingTeamVaultCount, _resetTeamVaultForTests } from '../src/utils/team-vault.js';
 import { analyzeIssues } from '../src/utils/issues-analyzer.js';
 import { parseNetworkTiming } from '../src/utils/network-timing-analyzer.js';
 import { analyzeKeyboard } from '../src/utils/keyboard-analyzer.js';
@@ -9963,6 +9966,411 @@ async function runTests(mcp, stagingProc, devPort, stagingPort) {
       leaks169(safe169.message).length === 0 && !safe169.url.includes('session='),
       `[169e] step summary + safeFindingLine redact the secret + strip the url query, keep the type (mdLeak: ${JSON.stringify(leaks169(md169))}, msgLeak: ${JSON.stringify(leaks169(safe169.message))}, urlHasQuery: ${safe169.url.includes('session=')})`
     );
+  }
+
+  // ── [170] AEGIS — engine `policy` param (org governance toggles, plan §4.2/§9) ──
+  // Chrome-free + pure: drives the REAL egress projector (redactForEgress / redactReport /
+  // scrubText) with a structured org policy — the "apply" mechanism the (future) opt-in
+  // governance seam wraps behind an Ed25519 fetch/verify. Pins the governance invariants:
+  // a TOGGLE actually takes effect through the pipeline, the egress allowlist NARROWS-only,
+  // sensitiveTypes WIDEN-only, a bad policy FAILS CLOSED to the strict floor, the no-leak
+  // floor holds even with named rules OFF, and NO policy is byte-identical to v9.9.0 (the
+  // open-core guarantee) — plus the ARGUS_REDACT_POLICY env entry point (valid + malformed).
+  {
+    console.log('\n[170] Aegis — engine policy param (governance toggles, fail-closed, default-identical)');
+    const JWT170 = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI5OTkifQ.Zx8Kd1t8sQ2rN4pV6wLtY3fH8dG1cA5eW0uNbQ7mXvA';
+    const KEY170 = 'sk-ant-api03-Gov0123456789ABCDEFghij0123456789ABCDEFghij_p1';
+    const EMAIL170 = 'ceo@acme-corp.example';
+    const secrets170 = [JWT170, KEY170];
+    const leaks170 = (o) => secrets170.filter((s) => JSON.stringify(o).includes(s));
+
+    const secFinding170 = { type: 'security_no_https', severity: 'critical', route: '/login', url: `https://acme.example/login?session=${JWT170}`, message: `Bearer ${KEY170}` };
+    const benignEmail170 = { type: 'seo_meta', severity: 'warning', route: '/contact', message: `Reach us at ${EMAIL170}` };
+    const perfFinding170 = { type: 'perf_budget', severity: 'warning', route: '/', message: 'bundle is 2MB', selector: '#app', count: 3 };
+
+    // [170a] TOGGLE takes effect through the real projector: rules.pii.email:false stops the
+    // benign email being classified sensitive (message survives), while the DEFAULT redacts it.
+    const emailDefault170 = redactForEgress([benignEmail170])[0];
+    const emailToggle170 = redactForEgress([benignEmail170], { policy: { rules: { pii: { email: false } } } })[0];
+    assert(
+      emailDefault170.message === REDACT_MARKER && emailToggle170.message.includes(EMAIL170) && emailToggle170.message.includes('Reach us'),
+      `[170a] policy rules.pii.email:false flows through redactForEgress — default redacts the email, the toggle keeps it (default==marker: ${emailDefault170.message === REDACT_MARKER}, toggledKeepsEmail: ${emailToggle170.message.includes(EMAIL170)})`
+    );
+
+    // [170b] sensitiveTypes WIDENS only: perf_budget (benign by default) redacts under perf_*,
+    // and a built-in security_* stays redacted even though the policy never lists it (union).
+    const perfDefault170 = redactForEgress([perfFinding170])[0];
+    const perfWiden170 = redactForEgress([perfFinding170], { policy: { sensitiveTypes: ['perf_*'] } })[0];
+    const secWiden170 = redactForEgress([secFinding170], { policy: { sensitiveTypes: ['perf_*'] } })[0];
+    assert(
+      perfDefault170.message === 'bundle is 2MB' && perfWiden170.message === REDACT_MARKER &&
+      secWiden170.message === REDACT_MARKER && leaks170(secWiden170).length === 0,
+      `[170b] sensitiveTypes WIDENS only — perf_budget benign by default, redacted under perf_*, built-in security_* stays redacted (perfDefault: "${perfDefault170.message}", perfWiden==marker: ${perfWiden170.message === REDACT_MARKER}, secStillRedacted: ${secWiden170.message === REDACT_MARKER})`
+    );
+
+    // [170c] egress allowlist NARROWS only: optional passthroughs dropped, structural fields kept,
+    // and a policy that lists a NEW field (password/apiKey) can NEVER add it (intersection).
+    const wideDefault170 = redactForEgress([perfFinding170])[0];
+    const narrowed170 = redactForEgress([perfFinding170], { policy: { egressFieldAllowlist: ['type', 'severity', 'route'] } })[0];
+    const cantAdd170 = redactForEgress([{ type: 'x', severity: 'info', password: 'p@ssw0rd', apiKey: 'k' }], { policy: { egressFieldAllowlist: ['password', 'apiKey', 'type', 'severity'] } })[0];
+    assert(
+      wideDefault170.selector === '#app' && narrowed170.selector === undefined && narrowed170.count === undefined &&
+      narrowed170.type === 'perf_budget' && !Object.keys(cantAdd170).includes('password') && !Object.keys(cantAdd170).includes('apiKey'),
+      `[170c] egress allowlist NARROWS only — optional fields dropped, structural kept, a policy can't ADD a leaky field (narrowedSelector: ${narrowed170.selector}, cantAddKeys: ${JSON.stringify(Object.keys(cantAdd170))})`
+    );
+
+    // [170d] FAIL-CLOSED: a malformed string policy AND a throwing-getter policy both fall back
+    // to the strict floor — the finding is still redacted, no secret crosses, never throws.
+    const evil170 = {}; Object.defineProperty(evil170, 'rules', { get() { throw new Error('boom'); } });
+    const badStr170 = redactForEgress([secFinding170], { policy: 'not-a-policy' })[0];
+    let threw170 = false; let badGetter170 = {};
+    try { badGetter170 = redactForEgress([secFinding170], { policy: evil170 })[0]; } catch { threw170 = true; }
+    assert(
+      badStr170.message === REDACT_MARKER && leaks170(badStr170).length === 0 && leaks170(badGetter170).length === 0 && threw170 === false,
+      `[170d] a malformed / throwing policy FAILS CLOSED — still redacted, no secret, never throws (strLeak: ${leaks170(badStr170).length}, getterLeak: ${leaks170(badGetter170).length}, threw: ${threw170})`
+    );
+
+    // [170e] NO-LEAK FLOOR: with the named secret rules OFF, the category floor (a security_*
+    // finding) AND the entropy floor (a benign finding carrying a raw key) both still redact.
+    const floorProj170 = redactForEgress([secFinding170], { policy: { rules: { secret: { all: false }, pii: {} }, sensitiveTypes: [] } })[0];
+    const benignSecret170 = { type: 'console_log', severity: 'info', route: '/x', message: `dump ${KEY170}` };
+    const entropyProj170 = redactForEgress([benignSecret170], { policy: { rules: { secret: { all: false } } } })[0];
+    assert(
+      leaks170(floorProj170).length === 0 && leaks170(entropyProj170).length === 0 && !String(entropyProj170.message).includes(KEY170),
+      `[170e] NO-LEAK FLOOR — secret rules OFF, but category + entropy floors still redact the JWT/key (categoryLeak: ${leaks170(floorProj170).length}, entropyLeak: ${leaks170(entropyProj170).length})`
+    );
+
+    // [170f] OPT-IN default byte-identical: no policy === {policy:null} for BOTH redactForEgress
+    // and redactReport, and an unset ARGUS_REDACT_POLICY resolves to null — the open-core line.
+    const fixtureSet170 = [secFinding170, benignEmail170, perfFinding170];
+    const baseProj170 = JSON.stringify(redactForEgress(fixtureSet170));
+    const nullProj170 = JSON.stringify(redactForEgress(fixtureSet170, { policy: null }));
+    const report170 = { routes: [{ url: 'https://acme.example/', errors: fixtureSet170 }], summary: { total: 3 } };
+    const baseRep170 = JSON.stringify(redactReport(structuredClone(report170)));
+    const nullRep170 = JSON.stringify(redactReport(structuredClone(report170), { policy: null }));
+    _resetPolicyCacheForTests();
+    assert(
+      baseProj170 === nullProj170 && baseRep170 === nullRep170 && policyFromEnv() === null && resolvePolicy(null).ruleFilter === null,
+      `[170f] OPT-IN default byte-identical — no policy === {policy:null} for redactForEgress + redactReport; ARGUS_REDACT_POLICY unset ⇒ null (projEq: ${baseProj170 === nullProj170}, repEq: ${baseRep170 === nullRep170})`
+    );
+
+    // [170g] ARGUS_REDACT_POLICY env entry point: a VALID inline-JSON policy is applied (email
+    // kept), a MALFORMED one fails closed (the secret still redacted). Restored + cache reset.
+    const _savedPol170 = process.env.ARGUS_REDACT_POLICY;
+    let envToggle170 = {}; let envBad170 = {};
+    try {
+      _resetPolicyCacheForTests();
+      process.env.ARGUS_REDACT_POLICY = JSON.stringify({ rules: { pii: { email: false } } });
+      envToggle170 = redactForEgress([benignEmail170])[0];
+      _resetPolicyCacheForTests();
+      process.env.ARGUS_REDACT_POLICY = '{ broken json';
+      envBad170 = redactForEgress([secFinding170])[0];
+    } finally {
+      if (_savedPol170 === undefined) delete process.env.ARGUS_REDACT_POLICY; else process.env.ARGUS_REDACT_POLICY = _savedPol170;
+      _resetPolicyCacheForTests();
+    }
+    assert(
+      envToggle170.message.includes(EMAIL170) && envBad170.message === REDACT_MARKER && leaks170(envBad170).length === 0,
+      `[170g] ARGUS_REDACT_POLICY env — a valid policy is applied (email kept), a MALFORMED one fails closed (secret redacted) (envKeepsEmail: ${envToggle170.message.includes(EMAIL170)}, badRedacted: ${envBad170.message === REDACT_MARKER})`
+    );
+  }
+
+  // ── [171] AEGIS-for-Teams — governance seam (opt-in self-hosted central policy, §9) ──
+  // The thin OPT-IN network wrapper over the [170] policy param: fetch the org's
+  // SIGNED policy, Ed25519-VERIFY it, apply it through the real redactForEgress,
+  // fail CLOSED on any error, post SECRET-FREE aggregates, and stay byte-identical
+  // without a gov token. Pins the open-core moat invariants (AEGIS_FOR_TEAMS_PLAN §9):
+  // signature (signed verifies / tampered + wrong-key rejected), fail-closed
+  // (unreachable / malformed / HTTP-error → strict floor), no-leak aggregate,
+  // opt-in default-identical + the strict opt-out clamp, TTL cache, and a LIVE
+  // end-to-end fetch over real HTTP. Env is saved + restored so no state leaks.
+  {
+    console.log('\n[171] Aegis-for-Teams — governance seam (Ed25519 fetch/verify, fail-closed, secret-free aggregate)');
+    const JWT171 = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI3MjEifQ.Ab3Kd9t2sQ5rN8pV1wLtY6fH3dG4cA7eW2uNbQ0mXvZ';
+    const KEY171 = 'sk-ant-api03-Gov9876543210ZYXWVUTsrqp9876543210ZYXWVUTsrqp_g7';
+    const EMAIL171 = 'cto@acme-corp.example';
+    const secrets171 = [JWT171, KEY171, EMAIL171];
+    const leaks171 = (o) => secrets171.filter((s) => JSON.stringify(o).includes(s));
+
+    const secFinding171 = { type: 'security_no_https', severity: 'critical', route: '/admin', url: `https://acme.example/admin?session=${JWT171}`, message: `Bearer ${KEY171}` };
+    const benignEmail171 = { type: 'seo_meta', severity: 'warning', route: '/contact', message: `Reach the CTO at ${EMAIL171}` };
+
+    // Org keypair (honest) + an ATTACKER keypair (wrong-key proof). The served policy
+    // turns email OFF — a toggle that only survives if verification passed.
+    const orgKP171 = crypto.generateKeyPairSync('ed25519');
+    const attackerKP171 = crypto.generateKeyPairSync('ed25519');
+    const ORG_PUB171 = orgKP171.publicKey.export({ type: 'spki', format: 'pem' });
+    const POLICY171 = {
+      version: 11, orgId: 'org_acme', enforcement: 'strict', mode: 'label',
+      rules: { secret: { all: true }, pii: { email: false, credit_card: true, ssn_us: true } },
+      sensitiveTypes: ['security_*'], egressFieldAllowlist: ['type', 'severity', 'route', 'url', 'selector', 'value', 'title'],
+      floor: { failOpen: false, minMode: 'mask' },
+    };
+    const sign171 = (p, kp = orgKP171) => crypto.sign(null, Buffer.from(canonicalPolicyBytes(p), 'utf8'), kp.privateKey).toString('base64');
+    const signed171 = (p = POLICY171, kp = orgKP171) => ({ policy: p, signature: sign171(POLICY171, kp), alg: 'ed25519' });
+    const fetchOf171 = (payload, { ok = true, status = 200 } = {}) => async () => ({ ok, status, json: async () => payload });
+
+    // Save + restore ALL governance env so the block leaves no residue.
+    const _sav171 = {};
+    for (const k of ['ARGUS_GOV_TOKEN', 'ARGUS_REDACT_POLICY_URL', 'ARGUS_REDACT_POLICY_PUBKEY', 'ARGUS_REDACT_AUDIT_URL', 'ARGUS_REDACT_SENSITIVE', 'ARGUS_REDACT_POLICY_TTL_MS']) _sav171[k] = process.env[k];
+    try {
+      process.env.ARGUS_GOV_TOKEN = 'gov_harness_token';
+      process.env.ARGUS_REDACT_POLICY_URL = 'http://127.0.0.1:9/policy';
+      process.env.ARGUS_REDACT_POLICY_PUBKEY = ORG_PUB171;
+      _resetGovernanceForTests(); _resetPolicyCacheForTests();
+
+      // [171a] SIGNATURE + APPLY: a genuinely-signed policy verifies + its email-OFF
+      // toggle takes effect through the REAL redactForEgress; a tampered body under
+      // the honest signature is REJECTED → strict floor (email redacted again).
+      const verified171 = verifySignedPolicy(signed171());
+      await ensureGovernancePolicy({ fetchImpl: fetchOf171(signed171()) });
+      const appliedEmail171 = redactForEgress([benignEmail171])[0];
+      const tamperPayload171 = { policy: { ...POLICY171, rules: { secret: { all: false }, pii: {} } }, signature: sign171(POLICY171) };
+      let tamperThrew171 = false; try { verifySignedPolicy(tamperPayload171); } catch { tamperThrew171 = true; }
+      _resetGovernanceForTests();
+      await ensureGovernancePolicy({ fetchImpl: fetchOf171(tamperPayload171) });
+      const afterTamper171 = redactForEgress([benignEmail171])[0];
+      assert(
+        verified171.version === 11 && appliedEmail171.message.includes(EMAIL171) &&
+        tamperThrew171 === true && effectivePolicyOpts({}) === null && !afterTamper171.message.includes(EMAIL171),
+        `[171a] signed policy verifies + email-OFF toggle applies through redactForEgress; a TAMPERED body is rejected → strict floor (applied: ${appliedEmail171.message.includes(EMAIL171)}, tamperRejected: ${tamperThrew171}, floorRedactsEmail: ${!afterTamper171.message.includes(EMAIL171)})`
+      );
+
+      // [171b] WRONG KEY: an attacker-signed policy fails verification → fail-closed.
+      let wrongKeyThrew171 = false; try { verifySignedPolicy(signed171(POLICY171, attackerKP171)); } catch { wrongKeyThrew171 = true; }
+      _resetGovernanceForTests();
+      await ensureGovernancePolicy({ fetchImpl: fetchOf171(signed171(POLICY171, attackerKP171)) });
+      assert(
+        wrongKeyThrew171 === true && effectivePolicyOpts({}) === null && governancePolicyVersion() === null,
+        `[171b] a wrong-key (attacker-signed) policy is REJECTED → strict floor, no version adopted (rejected: ${wrongKeyThrew171}, optsNull: ${effectivePolicyOpts({}) === null})`
+      );
+
+      // [171c] FAIL-CLOSED transport: an unreachable URL, a malformed payload, and an
+      // HTTP error each fall back to the strict floor — the secret never leaks.
+      _resetGovernanceForTests();
+      await ensureGovernancePolicy({ fetchImpl: async () => { throw new Error('ECONNREFUSED'); } });
+      const unreach171 = redactForEgress([secFinding171])[0];
+      _resetGovernanceForTests();
+      await ensureGovernancePolicy({ fetchImpl: fetchOf171({ policy: POLICY171 }) }); // no signature
+      const malformed171 = effectivePolicyOpts({});
+      _resetGovernanceForTests();
+      await ensureGovernancePolicy({ fetchImpl: fetchOf171({}, { ok: false, status: 403 }) });
+      const http403_171 = effectivePolicyOpts({});
+      assert(
+        unreach171.message === REDACT_MARKER && leaks171(unreach171).length === 0 &&
+        malformed171 === null && http403_171 === null,
+        `[171c] unreachable / malformed / HTTP-error all FAIL CLOSED to the strict floor — secret redacted, no leak (unreachRedacted: ${unreach171.message === REDACT_MARKER}, malformedNull: ${malformed171 === null}, http403Null: ${http403_171 === null})`
+      );
+
+      // [171d] NO-LEAK aggregate: the POST body carries only secret-free label counts
+      // + coarse meta; a byReason label tainted with a secret AND a secret-bearing
+      // runRef are both scrubbed. Captured via an injected fetch (no socket needed).
+      process.env.ARGUS_REDACT_AUDIT_URL = 'http://127.0.0.1:9/audit';
+      let auditBody171 = null; let auditAuth171 = null;
+      const summary171 = { total: 4, redacted: 2, byReason: { 'secret:jwt': 1, 'pii:email': 1, [`tok ${KEY171}`]: 1 } };
+      const postRes171 = await postRedactionAggregate(summary171, {
+        fetchImpl: async (_url, o) => { auditBody171 = o.body; auditAuth171 = o.headers.Authorization; return { ok: true, status: 200, json: async () => ({}) }; },
+        meta: { runRef: `error-report ${EMAIL171}.json` },
+      });
+      assert(
+        postRes171.posted === true && auditAuth171 === 'Bearer gov_harness_token' &&
+        !auditBody171.includes(JWT171) && !auditBody171.includes(KEY171) && !auditBody171.includes(EMAIL171) &&
+        JSON.parse(auditBody171).byReason['secret:jwt'] === 1 && JSON.parse(auditBody171).total === 4,
+        `[171d] the aggregate POST is SECRET-FREE — tainted label + runRef scrubbed, counts preserved, bearer-authed (leaks: ${[JWT171, KEY171, EMAIL171].filter((s) => auditBody171.includes(s)).length}, counted: ${JSON.parse(auditBody171).byReason['secret:jwt']})`
+      );
+
+      // [171e] OPT-IN default-identical + STRICT CLAMP: with a gov token the local
+      // ARGUS_REDACT_SENSITIVE=0 opt-out is CLAMPED (secret still redacted); drop the
+      // token and it is inert (null) + byte-identical (the opt-out passes through raw).
+      _resetGovernanceForTests();
+      process.env.ARGUS_REDACT_SENSITIVE = '0';
+      const clampedOn171 = governanceOptOutClamped();
+      const clampedFinding171 = redactForEgress([secFinding171])[0];
+      delete process.env.ARGUS_GOV_TOKEN;
+      _resetGovernanceForTests();
+      const inert171 = await ensureGovernancePolicy({ fetchImpl: fetchOf171(signed171()) });
+      const clampedOff171 = governanceOptOutClamped();
+      const passthrough171 = redactForEgress([secFinding171]);
+      assert(
+        clampedOn171 === true && clampedFinding171.message === REDACT_MARKER && leaks171(clampedFinding171).length === 0 &&
+        inert171 === null && clampedOff171 === false && passthrough171.length === 1 && passthrough171[0] === secFinding171,
+        `[171e] a gov token CLAMPS the ARGUS_REDACT_SENSITIVE=0 opt-out (secret still redacted); no token ⇒ inert + byte-identical raw passthrough (clampedOn: ${clampedOn171}, clampRedacts: ${clampedFinding171.message === REDACT_MARKER}, inert: ${inert171 === null}, clampedOff: ${clampedOff171})`
+      );
+
+      // [171f] TTL CACHE: within the window one fetch; expiry re-fetches (counting fetch).
+      process.env.ARGUS_GOV_TOKEN = 'gov_harness_token';
+      process.env.ARGUS_REDACT_POLICY_TTL_MS = '1000';
+      _resetGovernanceForTests();
+      let calls171 = 0; let t171 = 50_000; const now171 = () => t171;
+      const counting171 = async () => { calls171++; return { ok: true, status: 200, json: async () => signed171() }; };
+      await ensureGovernancePolicy({ fetchImpl: counting171, now: now171 });
+      await ensureGovernancePolicy({ fetchImpl: counting171, now: now171 });
+      t171 += 400; await ensureGovernancePolicy({ fetchImpl: counting171, now: now171 });
+      const cachedCalls171 = calls171;
+      t171 += 1200; await ensureGovernancePolicy({ fetchImpl: counting171, now: now171 });
+      assert(
+        cachedCalls171 === 1 && calls171 === 2,
+        `[171f] TTL cache — one fetch within the window, re-fetch after expiry (cachedCalls: ${cachedCalls171}, afterExpiry: ${calls171})`
+      );
+
+      // [171g] LIVE end-to-end over REAL HTTP: a mock control plane Ed25519-signs +
+      // serves the policy and ingests the aggregate; the engine fetches over the wire,
+      // applies (email survives), the secret never leaks, the received body is clean.
+      let liveAudit171 = null;
+      const server171 = http.createServer((req, res) => {
+        if (req.url === '/policy') { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(signed171())); }
+        else if (req.url === '/audit') { let raw = ''; req.on('data', (c) => (raw += c)); req.on('end', () => { liveAudit171 = raw; res.end('{}'); }); }
+        else { res.statusCode = 404; res.end(); }
+      });
+      await new Promise((r) => server171.listen(0, '127.0.0.1', r));
+      const port171 = server171.address().port;
+      process.env.ARGUS_REDACT_POLICY_URL = `http://127.0.0.1:${port171}/policy`;
+      process.env.ARGUS_REDACT_AUDIT_URL = `http://127.0.0.1:${port171}/audit`;
+      delete process.env.ARGUS_REDACT_POLICY_TTL_MS;
+      _resetGovernanceForTests(); _resetPolicyCacheForTests();
+      await ensureGovernancePolicy(); // REAL fetch over HTTP (default global fetch)
+      const liveEmail171 = redactForEgress([benignEmail171])[0];
+      const liveSecret171 = redactForEgress([secFinding171])[0];
+      const liveSummary171 = summarizeRedaction([benignEmail171, secFinding171], effectivePolicyOpts({}));
+      await postRedactionAggregate(liveSummary171, { meta: { runRef: 'live-run' } });
+      await new Promise((r) => server171.close(r));
+      assert(
+        governancePolicyVersion() === 11 && liveEmail171.message.includes(EMAIL171) &&
+        liveSecret171.message === REDACT_MARKER && leaks171(liveSecret171).length === 0 &&
+        liveAudit171 !== null && !liveAudit171.includes(JWT171) && !liveAudit171.includes(KEY171),
+        `[171g] LIVE HTTP fetch→verify→apply→aggregate — policy v${governancePolicyVersion()} applied (email survives), secret never leaks, wire aggregate clean (emailSurvives: ${liveEmail171.message.includes(EMAIL171)}, secretRedacted: ${liveSecret171.message === REDACT_MARKER}, auditReceived: ${liveAudit171 !== null})`
+      );
+    } finally {
+      for (const [k, v] of Object.entries(_sav171)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+      _resetGovernanceForTests(); _resetPolicyCacheForTests();
+    }
+  }
+
+  // ── [172] AEGIS-for-Teams — team-vault routing (mode=token → central vault, §9) ──
+  // The last T3 sub-item: when a gov token AND a team-vault URL are both set, `token`
+  // mode routes the reversible token→secret mapping to the org's CENTRAL vault (so a
+  // token minted on a laptop / in CI is re-hydratable through the org's authorized RBAC
+  // flow) instead of the local 0600 file. Pins the open-core moat invariants: opt-in
+  // activation, mint+buffer with NO secret in the egress artifact, a LIVE flush that
+  // sends the secret ONLY to the authorized endpoint (bearer-authed), fail-closed on any
+  // flush error, opt-in default-identical (masks + zero network without the seam), and
+  // team>local precedence. Chrome-free; a real localhost sink; env saved + restored.
+  {
+    console.log('\n[172] Aegis-for-Teams — team-vault routing (mode=token central vault, fail-closed, opt-in)');
+    const JWT172 = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI5MDIifQ.Zt7Kd1x9sQ3rN2pV8wLtY4fH6dG0cA1eW5uNbR7mYvC';
+    const TAIL172 = 'Zt7Kd1x9sQ3rN2pV8wLtY4fH6dG0cA1eW5uNbR7mYvC';
+    const AEGIS_RE172 = /AEGIS_[0-9a-f]{16}/;
+    const consoleMsg172 = () => ({ level: 'error', text: `Auth failed: Authorization: Bearer ${JWT172}` });
+
+    const _sav172 = {};
+    for (const k of ['ARGUS_GOV_TOKEN', 'ARGUS_REDACT_VAULT_URL', 'ARGUS_REDACT_MODE', 'ARGUS_REDACT_VAULT', 'ARGUS_REDACT_SENSITIVE']) _sav172[k] = process.env[k];
+    let server172 = null;
+    try {
+      // [172a] ACTIVATION (opt-in): inert with neither / only one of the two knobs; active only with BOTH.
+      for (const k of ['ARGUS_GOV_TOKEN', 'ARGUS_REDACT_VAULT_URL']) delete process.env[k];
+      _resetTeamVaultForTests();
+      const inertNone172 = teamVaultActive();
+      process.env.ARGUS_GOV_TOKEN = 'gov_harness_token';
+      const inertTokenOnly172 = teamVaultActive();
+      delete process.env.ARGUS_GOV_TOKEN; process.env.ARGUS_REDACT_VAULT_URL = 'http://127.0.0.1:9/vault';
+      const inertUrlOnly172 = teamVaultActive();
+      process.env.ARGUS_GOV_TOKEN = 'gov_harness_token';
+      const activeBoth172 = teamVaultActive();
+      assert(
+        inertNone172 === false && inertTokenOnly172 === false && inertUrlOnly172 === false && activeBoth172 === true,
+        `[172a] team vault is OPT-IN — inert without BOTH a gov token AND a vault URL (none: ${inertNone172}, tokenOnly: ${inertTokenOnly172}, urlOnly: ${inertUrlOnly172}, both: ${activeBoth172})`
+      );
+
+      // [172b] MINT + BUFFER + NO-LEAK: token mode through the REAL deepScrub emits an
+      // information-free AEGIS_ token, buffers the token→secret mapping, and the secret
+      // NEVER appears in the redacted egress artifact.
+      process.env.ARGUS_REDACT_MODE = 'token';
+      _resetTeamVaultForTests();
+      const scrubStr172 = JSON.stringify(deepScrub(consoleMsg172()));
+      assert(
+        AEGIS_RE172.test(scrubStr172) && !scrubStr172.includes(TAIL172) && pendingTeamVaultCount() >= 1,
+        `[172b] token mode mints an information-free AEGIS token + buffers the mapping; the secret never reaches egress (tokenised: ${AEGIS_RE172.test(scrubStr172)}, leaks: ${scrubStr172.includes(TAIL172) ? 1 : 0}, buffered: ${pendingTeamVaultCount()})`
+      );
+
+      // [172c] LIVE FLUSH over REAL HTTP: a mock team-vault endpoint ingests the POST; the
+      // SECRET travels ONLY to that authorized endpoint (gov-token bearer), the token is
+      // AEGIS-shaped, and the buffer clears on success.
+      let vaultBody172 = null; let vaultAuth172 = null;
+      server172 = http.createServer((req, res) => {
+        if (req.url === '/vault') { let raw = ''; req.on('data', (c) => (raw += c)); req.on('end', () => { vaultBody172 = raw; vaultAuth172 = req.headers.authorization; res.end('{"ok":true,"stored":1}'); }); }
+        else { res.statusCode = 404; res.end(); }
+      });
+      await new Promise((r) => server172.listen(0, '127.0.0.1', r));
+      const port172 = server172.address().port;
+      process.env.ARGUS_REDACT_VAULT_URL = `http://127.0.0.1:${port172}/vault`;
+      _resetTeamVaultForTests();
+      deepScrub(consoleMsg172()); // re-mint under the live URL
+      const bufferedBefore172 = pendingTeamVaultCount();
+      const flushRes172 = await flushTeamVault(); // REAL global fetch over the wire
+      const parsedVault172 = vaultBody172 ? JSON.parse(vaultBody172) : null;
+      assert(
+        flushRes172.posted === true && bufferedBefore172 >= 1 && pendingTeamVaultCount() === 0 &&
+        vaultAuth172 === 'Bearer gov_harness_token' &&
+        parsedVault172 && parsedVault172.mappings.length >= 1 &&
+        /^AEGIS_[0-9a-f]{16}$/.test(parsedVault172.mappings[0].token) &&
+        parsedVault172.mappings.some((m) => m.secret.includes(TAIL172)),
+        `[172c] LIVE flush ships the mapping to the authorized endpoint ONLY — secret at the vault, token AEGIS-shaped, bearer-authed, buffer cleared (posted: ${flushRes172.posted}, bufferAfter: ${pendingTeamVaultCount()}, secretAtVault: ${parsedVault172 && parsedVault172.mappings.some((m) => m.secret.includes(TAIL172))})`
+      );
+
+      // [172d] FAIL-CLOSED: a throwing fetch AND an HTTP-error both return posted:false
+      // WITHOUT throwing and RETAIN the buffer; the already-emitted token is information-
+      // free (no secret substring), so a failed flush leaks nothing.
+      _resetTeamVaultForTests();
+      teamTokenFor(JWT172);
+      let flushThrew172 = false; let throwRes172;
+      try { throwRes172 = await flushTeamVault({ fetchImpl: async () => { throw new Error('ECONNREFUSED'); } }); } catch { flushThrew172 = true; }
+      const retainedAfterThrow172 = pendingTeamVaultCount();
+      const httpErrRes172 = await flushTeamVault({ fetchImpl: async () => ({ ok: false, status: 500 }) });
+      const mintedToken172 = teamTokenFor(JWT172);
+      assert(
+        flushThrew172 === false && throwRes172.posted === false && retainedAfterThrow172 === 1 &&
+        httpErrRes172.posted === false && pendingTeamVaultCount() === 1 && !mintedToken172.includes(TAIL172),
+        `[172d] a throwing / HTTP-error flush FAILS CLOSED — never throws, buffer retained, token information-free (threw: ${flushThrew172}, throwPosted: ${throwRes172.posted}, httpPosted: ${httpErrRes172.posted}, retained: ${pendingTeamVaultCount()})`
+      );
+
+      // [172e] OPT-IN default-identical: with the seam OFF, token mode MASKS (no AEGIS
+      // token), nothing buffers, the secret is still redacted, and flushTeamVault is inert
+      // — it makes NO network call (a throwing fetchImpl is never reached).
+      delete process.env.ARGUS_GOV_TOKEN; delete process.env.ARGUS_REDACT_VAULT_URL; delete process.env.ARGUS_REDACT_VAULT;
+      _resetTeamVaultForTests();
+      const offStr172 = JSON.stringify(deepScrub(consoleMsg172()));
+      const inertFlush172 = await flushTeamVault({ fetchImpl: async () => { throw new Error('should-not-be-called'); } });
+      assert(
+        !AEGIS_RE172.test(offStr172) && !offStr172.includes(TAIL172) && pendingTeamVaultCount() === 0 &&
+        inertFlush172.posted === false && inertFlush172.reason === 'inactive',
+        `[172e] OPT-IN default-identical — seam OFF ⇒ token mode masks (no team token), nothing buffered, secret redacted, flush inert / no network (masked: ${!AEGIS_RE172.test(offStr172)}, buffered: ${pendingTeamVaultCount()}, inert: ${inertFlush172.reason === 'inactive'})`
+      );
+
+      // [172f] PRECEDENCE (§4.3): with BOTH the local vault (ARGUS_REDACT_VAULT=1) and the
+      // team vault active, ensureTokenVaultWired wires the TEAM tokenizer (mapping buffered
+      // for the central flush, NOT the local file); team OFF + local ON falls back to local.
+      process.env.ARGUS_REDACT_VAULT = '1';
+      process.env.ARGUS_GOV_TOKEN = 'gov_harness_token';
+      process.env.ARGUS_REDACT_VAULT_URL = 'http://127.0.0.1:9/vault';
+      _resetTeamVaultForTests();
+      const teamWired172 = ensureTokenVaultWired();
+      const teamScrub172 = scrubText(`Bearer ${JWT172}`, { mode: 'token' });
+      const teamBuffered172 = pendingTeamVaultCount();
+      delete process.env.ARGUS_GOV_TOKEN; delete process.env.ARGUS_REDACT_VAULT_URL;
+      _resetTeamVaultForTests();
+      const localWired172 = ensureTokenVaultWired();
+      const localScrub172 = scrubText(`Bearer ${JWT172}`, { mode: 'token' });
+      const localBuffered172 = pendingTeamVaultCount();
+      assert(
+        teamWired172 === true && AEGIS_RE172.test(teamScrub172) && teamBuffered172 === 1 &&
+        localWired172 === true && AEGIS_RE172.test(localScrub172) && localBuffered172 === 0 && teamVaultActive() === false,
+        `[172f] team vault WINS over the local vault when both active; falls back to local when the team vault is off (teamBuffered: ${teamBuffered172}, localBuffered: ${localBuffered172})`
+      );
+    } finally {
+      if (server172) { try { await new Promise((r) => server172.close(r)); } catch { /* already closed */ } }
+      for (const [k, v] of Object.entries(_sav172)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+      _resetTeamVaultForTests();
+    }
   }
 }
 

@@ -48,6 +48,7 @@ import {
 import {
   redactForEgress, buildRedactionRider, redactReport, deepScrub,
 } from './utils/sensitivity-classifier.js';
+import { flushTeamVault } from './utils/team-vault.js';
 
 const logger = childLogger('mcp-server');
 
@@ -701,20 +702,32 @@ const server = new Server(
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
 
+async function callTool(req) {
+  switch (req.params.name) {
+    case 'argus_audit':       return await handleAudit(req.params.arguments ?? {});
+    case 'argus_audit_full':  return await handleAuditFull(req.params.arguments ?? {});
+    case 'argus_compare':     return await handleCompare();
+    case 'argus_last_report':     return await handleLastReport();
+    case 'argus_watch_snapshot':  return await handleWatchSnapshot(req.params.arguments ?? {});
+    case 'argus_get_context':     return await handleGetContext(req.params.arguments ?? {});
+    case 'argus_visual_diff':     return await handleVisualDiff(req.params.arguments ?? {});
+    case 'argus_design_audit':    return await handleDesignAudit(req.params.arguments ?? {});
+    case 'argus_pr_validate':     return await handlePrValidate(req.params.arguments ?? {});
+    default: throw new Error(`Unknown tool: ${req.params.name}`);
+  }
+}
+
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   try {
-    switch (req.params.name) {
-      case 'argus_audit':       return await handleAudit(req.params.arguments ?? {});
-      case 'argus_audit_full':  return await handleAuditFull(req.params.arguments ?? {});
-      case 'argus_compare':     return await handleCompare();
-      case 'argus_last_report':     return await handleLastReport();
-      case 'argus_watch_snapshot':  return await handleWatchSnapshot(req.params.arguments ?? {});
-      case 'argus_get_context':     return await handleGetContext(req.params.arguments ?? {});
-      case 'argus_visual_diff':     return await handleVisualDiff(req.params.arguments ?? {});
-      case 'argus_design_audit':    return await handleDesignAudit(req.params.arguments ?? {});
-      case 'argus_pr_validate':     return await handlePrValidate(req.params.arguments ?? {});
-      default: throw new Error(`Unknown tool: ${req.params.name}`);
-    }
+    const result = await callTool(req);
+    // Aegis team-vault flush (AEGIS_FOR_TEAMS §9): if this response was projected in
+    // `token` mode under an active team vault, ship the buffered token→secret mappings
+    // to the org's central vault so a token that just crossed to the agent can later be
+    // re-hydrated through the authorized RBAC flow. Best-effort + inert without a gov
+    // token + team-vault URL (byte-identical default); never throws, never leaks (the
+    // emitted tokens are information-free).
+    await flushTeamVault();
+    return result;
   } catch (err) {
     return {
       content: [{ type: 'text', text: JSON.stringify({ error: err.message }) }],

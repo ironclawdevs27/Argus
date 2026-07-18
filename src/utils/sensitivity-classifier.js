@@ -23,7 +23,8 @@
 
 import { childLogger } from './logger.js';
 import { findSensitiveSpans, scrubText, stripZeroWidth } from './secret-patterns.js';
-import { ensureVaultWired } from './aegis-vault.js';
+import { ensureTokenVaultWired } from './team-vault.js';
+import { effectivePolicyOpts, governanceOptOutClamped } from './redaction-policy.js';
 
 const logger = childLogger('aegis');
 
@@ -63,13 +64,34 @@ export const EGRESS_ALLOWLIST = ['type', 'severity', 'route', 'url', 'requestUrl
   'isNew', 'noisy', 'flaky', 'localRef'];
 
 /**
+ * True when `type` matches one of the org policy's `sensitiveTypes` patterns.
+ * A pattern is a literal type or a `prefix_*` glob (trailing `*` only — the shape
+ * the schema uses, e.g. `security_*`). Policy types only ever WIDEN the built-in
+ * set (union in isSensitiveType) — a policy can never drop a built-in type.
  * @param {string} type
+ * @param {string[]} patterns
  * @returns {boolean}
  */
-export function isSensitiveType(type) {
+function matchesPolicyType(type, patterns) {
+  for (const p of patterns) {
+    if (typeof p !== 'string' || !p) continue;
+    if (p.endsWith('*')) { if (type.startsWith(p.slice(0, -1))) return true; }
+    else if (type === p) return true;
+  }
+  return false;
+}
+
+/**
+ * @param {string} type
+ * @param {string[]} [policyTypes]  org policy sensitiveTypes — UNIONed (widens only)
+ * @returns {boolean}
+ */
+export function isSensitiveType(type, policyTypes) {
   if (typeof type !== 'string') return true; // unknown shape ⇒ fail closed
   if (type.startsWith('security_')) return true;
-  return SENSITIVE_TYPES.has(type);
+  if (SENSITIVE_TYPES.has(type)) return true;
+  if (Array.isArray(policyTypes) && policyTypes.length && matchesPolicyType(type, policyTypes)) return true;
+  return false;
 }
 
 // ── Detection ───────────────────────────────────────────────────────────────
@@ -92,14 +114,20 @@ export function findingKey(finding) {
  *   L4 PII · L5 context (the latter four via findSensitiveSpans over its free
  *   text). Sensitive iff any layer fires.
  *
+ * The optional `po` (effective policy opts from redaction-policy.js) widens the
+ * sensitive-type set and applies the secret/PII rule toggles to the content scan.
+ * Absent ⇒ byte-identical to the pre-policy classifier.
+ *
  * @param {object} finding
+ * @param {{ ruleFilter?: Function, extraSecretRules?: object[], sensitiveTypes?: string[] }} [po]
  * @returns {{ sensitive: boolean, sensitivityReasons: string[] }}
  */
-export function classifyFinding(finding) {
+export function classifyFinding(finding, po = null) {
   const reasons = [];
+  const spanOpts = po ? { ruleFilter: po.ruleFilter, extraSecretRules: po.extraSecretRules } : undefined;
 
   // Layer 1 — category + body-field catch-all.
-  if (isSensitiveType(finding?.type)) reasons.push(`category:${finding?.type ?? 'unknown'}`);
+  if (isSensitiveType(finding?.type, po?.sensitiveTypes)) reasons.push(`category:${finding?.type ?? 'unknown'}`);
   for (const f of BODY_FIELDS) {
     const v = finding?.[f];
     if (v !== undefined && v !== null && v !== '') { reasons.push(`category:has_${f}`); break; }
@@ -124,14 +152,14 @@ export function classifyFinding(finding) {
     reasons.push(tag);
     return true;
   };
-  for (const span of findSensitiveSpans(blob)) addSpan(span);
+  for (const span of findSensitiveSpans(blob, spanOpts)) addSpan(span);
   // Defeat zero-width-splice evasion: re-scan a boundary-preserving, zero-width-
   // stripped variant so \b-anchored rules (email/private-host) and the secret
   // regexes still fire after a U+200B/soft-hyphen splice. ADDITIVE + fail closed.
   const zwStripped = stripZeroWidth(blob);
   if (zwStripped !== blob) {
     let addedNew = false;
-    for (const span of findSensitiveSpans(zwStripped)) { if (addSpan(span)) addedNew = true; }
+    for (const span of findSensitiveSpans(zwStripped, spanOpts)) { if (addSpan(span)) addedNew = true; }
     if (addedNew) reasons.push('evasion:normalized');
   }
 
@@ -144,16 +172,17 @@ export function classifyFinding(finding) {
  * closed per finding: any classifier error ⇒ that finding is marked sensitive.
  *
  * @param {object} report
- * @param {{ reportRef?: string }} [opts]
+ * @param {{ reportRef?: string, policy?: unknown }} [opts]
  * @returns {{ sensitiveCount: number }}
  */
 export function classifySensitivity(report, opts = {}) {
   const reportRef = opts.reportRef || 'local-report';
+  const po = effectivePolicyOpts(opts); // null ⇒ byte-identical pre-policy classify
   let sensitiveCount = 0;
 
   const tag = (finding) => {
     try {
-      const result = classifyFinding(finding);
+      const result = classifyFinding(finding, po);
       if (result.sensitive) sensitiveCount++;
       // Shallow clone — works whether or not the source is Object.freeze'd, and
       // never removes local detail (the local report stays pristine + now tagged).
@@ -232,16 +261,28 @@ function titleFor(finding) {
 
 export const REDACT_MARKER = '🔒 redacted — full detail in local report (localRef)';
 
+// Fields that ALWAYS survive projection — structural + secret-free by construction
+// (the redaction markers are compile-time constants). A narrower org allowlist may
+// drop the OPTIONAL passthroughs below, never these.
+const ALWAYS_KEEP = new Set(['type', 'severity', 'route', 'title', 'localRef', 'detail', 'message']);
+
 /**
  * Project ONE finding to its egress-safe shape under the deny-by-default
  * allowlist. Builds a brand-new object — never mutates the input.
+ *
+ * `ctx.po` (effective policy opts) applies the secret/PII rule toggles to the
+ * inner classify + scrub; `ctx.allowSet` (an org allowlist already INTERSECTED
+ * with the built-in EGRESS_ALLOWLIST — narrow-only) drops optional passthroughs
+ * not in it. Both absent ⇒ byte-identical to the pre-policy projector.
+ *
  * @param {object} finding
- * @param {{ mode: string, failClosed: boolean }} ctx
+ * @param {{ mode: string, failClosed: boolean, po?: object, allowSet?: Set<string> }} ctx
  * @returns {object}
  */
 function projectFinding(finding, ctx) {
   let sensitive = ctx.failClosed === true || finding?.sensitive === true;
-  if (!sensitive) sensitive = classifyFinding(finding).sensitive; // untagged fallback
+  if (!sensitive) sensitive = classifyFinding(finding, ctx.po).sensitive; // untagged fallback
+  const scrubOpts = { mode: ctx.mode, ruleFilter: ctx.po?.ruleFilter, extraSecretRules: ctx.po?.extraSecretRules };
 
   const out = {
     type: finding?.type ?? 'unknown',
@@ -263,13 +304,21 @@ function projectFinding(finding, ctx) {
   if (typeof finding?.count === 'number') out.count = finding.count;
   // value: numeric passes through; a string value is free-text ⇒ scrub it.
   if (typeof finding?.value === 'number') out.value = finding.value;
-  else if (typeof finding?.value === 'string') out.value = scrubText(finding.value, { mode: ctx.mode });
+  else if (typeof finding?.value === 'string') out.value = scrubText(finding.value, scrubOpts);
 
   // Booleans needed for new/persisting/resolved reconciliation.
   for (const b of ['isNew', 'noisy', 'flaky']) {
     if (typeof finding?.[b] === 'boolean') out[b] = finding[b];
   }
   if (typeof finding?.localRef === 'string') out.localRef = finding.localRef;
+
+  // Org policy egress allowlist (narrow-only): drop optional passthroughs the org
+  // excluded. ALWAYS_KEEP fields are never dropped; the marker fields are added below.
+  if (ctx.allowSet) {
+    for (const k of Object.keys(out)) {
+      if (!ALWAYS_KEEP.has(k) && !ctx.allowSet.has(k)) delete out[k];
+    }
+  }
 
   if (sensitive) {
     // Sensitive: the RAW message never crosses. The redaction marker is carried in BOTH
@@ -283,7 +332,7 @@ function projectFinding(finding, ctx) {
   } else {
     // Catch-all: a benign finding keeps its helpful message, but only after the
     // mandatory secret/PII scrub (an accidental key in an innocuous message dies).
-    out.message = scrubText(typeof finding?.message === 'string' ? finding.message : '', { mode: ctx.mode });
+    out.message = scrubText(typeof finding?.message === 'string' ? finding.message : '', scrubOpts);
   }
   return out;
 }
@@ -300,15 +349,22 @@ function projectFinding(finding, ctx) {
 export function redactForEgress(findings, opts = {}) {
   const list = Array.isArray(findings) ? findings : [];
   // Opt-out: byte-identical to pre-Aegis (the sinks shipped raw findings).
-  if (process.env.ARGUS_REDACT_SENSITIVE === '0') return list.slice();
+  if (process.env.ARGUS_REDACT_SENSITIVE === '0' && !governanceOptOutClamped()) return list.slice();
 
-  const mode = process.env.ARGUS_REDACT_MODE || opts.mode || 'mask';
+  // Effective org policy (opts.policy or ARGUS_REDACT_POLICY env). null ⇒ default.
+  const po = effectivePolicyOpts(opts);
+  const mode = (po && po.mode) || process.env.ARGUS_REDACT_MODE || opts.mode || 'mask';
   const failClosed = opts.failClosed === true;
-  if (mode === 'token') ensureVaultWired(); // wire the reversible vault seam (Step 8) lazily
+  // Egress allowlist can only NARROW: intersect the org list with the built-in one,
+  // so a policy can never allow a field the deny-by-default allowlist didn't.
+  const allowSet = po && po.egressAllowlist
+    ? new Set(po.egressAllowlist.filter((f) => EGRESS_ALLOWLIST.includes(f)))
+    : null;
+  if (mode === 'token') ensureTokenVaultWired(); // wire the reversible vault seam (team vault > local, §9) lazily
 
   return list.map((finding) => {
     try {
-      return projectFinding(finding, { mode, failClosed });
+      return projectFinding(finding, { mode, failClosed, po, allowSet });
     } catch (err) {
       // Per-finding fail-closed: emit a fully-redacted stub, never the raw finding.
       logger.error(`[ARGUS] Aegis redactForEgress threw — emitting redacted stub: ${err.message}`);
@@ -329,9 +385,10 @@ export function redactForEgress(findings, opts = {}) {
  * closed: a finding whose classification throws is counted as redacted.
  *
  * @param {object[]} findings
+ * @param {{ ruleFilter?: Function, extraSecretRules?: object[], sensitiveTypes?: string[] }} [po]  effective policy opts
  * @returns {{ total: number, redacted: number, byReason: Record<string, number> }}
  */
-export function summarizeRedaction(findings) {
+export function summarizeRedaction(findings, po = null) {
   const list = Array.isArray(findings) ? findings : [];
   let redacted = 0;
   const byReason = Object.create(null);
@@ -346,7 +403,7 @@ export function summarizeRedaction(findings) {
       reasons = [];
     } else {
       try {
-        const r = classifyFinding(finding);
+        const r = classifyFinding(finding, po);
         sensitive = r.sensitive;
         reasons = r.sensitivityReasons;
       } catch {
@@ -375,7 +432,7 @@ export function summarizeRedaction(findings) {
  */
 export function buildRedactionRider(rawFindings, opts = {}) {
   const list = Array.isArray(rawFindings) ? rawFindings : [];
-  const r = summarizeRedaction(list);
+  const r = summarizeRedaction(list, effectivePolicyOpts(opts));
   // Fail-closed (report-level _aegisFailClosed): EVERY finding was force-redacted, so the
   // rider must say so rather than undercounting via the per-finding classifier.
   const redacted = opts.failClosed === true ? list.length : r.redacted;
@@ -408,21 +465,26 @@ const URL_KEYS = new Set(['url', 'requestUrl', 'documentUrl', 'documentURL', 'so
  * @returns {*}
  */
 export function deepScrub(value, opts = {}, depth = 0) {
-  if (process.env.ARGUS_REDACT_SENSITIVE === '0') return value;
-  const mode = process.env.ARGUS_REDACT_MODE || opts.mode || 'mask';
-  if (mode === 'token' && depth === 0) ensureVaultWired(); // wire the vault seam once per top-level call
+  if (process.env.ARGUS_REDACT_SENSITIVE === '0' && !governanceOptOutClamped()) return value;
+  // Resolve the org policy once at the top level, then thread it down via `_po`
+  // so a deep payload doesn't re-resolve at every node (perf-neutral when unset).
+  const po = depth === 0 ? effectivePolicyOpts(opts) : opts._po;
+  const mode = (po && po.mode) || process.env.ARGUS_REDACT_MODE || opts.mode || 'mask';
+  if (mode === 'token' && depth === 0) ensureTokenVaultWired(); // wire the vault seam once per top-level call (team > local, §9)
+  const scrubOpts = { mode, ruleFilter: po && po.ruleFilter, extraSecretRules: po && po.extraSecretRules };
+  const childOpts = depth === 0 && po ? { ...opts, _po: po } : opts;
   if (value === null || value === undefined) return value;
-  if (typeof value === 'string') return scrubText(value, { mode });
+  if (typeof value === 'string') return scrubText(value, scrubOpts);
   if (typeof value === 'number' || typeof value === 'boolean') return value;
   if (depth >= 6) return undefined; // pathological nesting → drop (fail closed)
-  if (Array.isArray(value)) return value.map((v) => deepScrub(v, opts, depth + 1));
+  if (Array.isArray(value)) return value.map((v) => deepScrub(v, childOpts, depth + 1));
   if (typeof value === 'object') {
     const out = {};
     for (const k of Object.keys(value)) {
       let v;
       try { v = value[k]; } catch { continue; } // throwing getter → drop the field
-      if (URL_KEYS.has(k) && typeof v === 'string') out[k] = scrubText(sanitizeUrl(v), { mode });
-      else out[k] = deepScrub(v, opts, depth + 1);
+      if (URL_KEYS.has(k) && typeof v === 'string') out[k] = scrubText(sanitizeUrl(v), scrubOpts);
+      else out[k] = deepScrub(v, childOpts, depth + 1);
     }
     return out;
   }
@@ -440,12 +502,15 @@ export function deepScrub(value, opts = {}, depth = 0) {
  * Honours the report-level `_aegisFailClosed` flag (set by report-processor step 3c
  * on a classifier error): when set, ALL findings are force-redacted.
  *
+ * A `policy` (raw §4.2 org policy) in `opts` flows through to redactForEgress /
+ * deepScrub / the rider count; absent ⇒ the ARGUS_REDACT_POLICY env, else default.
+ *
  * @param {object} report
- * @param {{ localReportPath?: string|null, mode?: string, failClosed?: boolean }} [opts]
+ * @param {{ localReportPath?: string|null, mode?: string, failClosed?: boolean, policy?: unknown }} [opts]
  * @returns {object}
  */
 export function redactReport(report, opts = {}) {
-  if (process.env.ARGUS_REDACT_SENSITIVE === '0') return report;
+  if (process.env.ARGUS_REDACT_SENSITIVE === '0' && !governanceOptOutClamped()) return report;
   if (!report || typeof report !== 'object') return report;
 
   const failClosed = report._aegisFailClosed === true || opts.failClosed === true;

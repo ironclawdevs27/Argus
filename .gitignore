@@ -15,33 +15,14 @@ reports/metrics-history.csv
 # Release notes — local scratch pad, copy-paste into GitHub release form
 RELEASE_NOTES.md
 
-# Internal planning docs — keep local only
+# Internal planning docs — keep local only.
+# Strategy/plan/analysis docs live in "Strategy and Planning Docs/"; the
+# re-runnable Claude session prompts live in "Prompts/". Both stay local.
+Strategy and Planning Docs/
+Prompts/
 session.md
-solution.md
 Sessions/
-*-strategy.md
-FINALIZE.md
-argus-vX1-roadmap.md
-argus-vX1-gaps.md
-business-analysis.md
-test-harness-gaps.md
-audit_prompt.md
-AUDIT_REPORT.md
-E2E_PLAN.md
-HARNESS_MAX_PLAN.md
-harness_max_prompt.md
-PR_VALIDATOR_MAX_PLAN.md
-pr_validator_max_prompt.md
-REDACTION_BOUNDARY_MAX_PLAN.md
-redaction_boundary_max_prompt.md
-HOSTED_BACKEND.md
-hosted_backend_prompt.md
-SAAS_DASHBOARD_PLAN.md
-AEGIS_FOR_TEAMS_PLAN.md
-LANDING_APP_INTEGRATION_PLAN.md
 SETUP_GUIDE.md
-STARTUP_READINESS.md
-argus-alignment-report.md
 
 # Brand assets for business-account setups (Stripe/Google/etc.) — local only
 brand/
@@ -85,4 +66,3 @@ oss-fixes/
 # Obsidian vault config and dashboard (local only)
 .obsidian/
 Home.md
-Argus_Potential.md
