@@ -9,6 +9,74 @@ All notable changes to Argus are documented here. The format follows
 
 ---
 
+## [10.0.0] — 2026-07-18
+
+### Aegis for Teams — org governance for the egress boundary
+
+Builds on the v9.9.0 Aegis confidentiality boundary with **optional, opt-in**
+organization-level governance. Every feature below is **inert by default** — with
+no policy and no governance token set, output is **byte-identical to v9.9.0**.
+There is **no default behavior change** and **no new runtime dependency**.
+
+**What's new (all opt-in).**
+- **Structured org policy** (`ARGUS_REDACT_POLICY`, inline JSON, or the `policy`
+  param): toggle which of the 13 secret / 7 PII detectors run, add org-custom
+  secret patterns, widen the sensitive finding-type set, and narrow the egress
+  field allowlist. The policy can only ever make redaction **stricter** — the
+  allowlist is **narrow-only** (intersection), the sensitive-type set is
+  **widen-only** (union), and the statistical-entropy layer + category / body
+  catch-alls are **not** policy-toggleable (the no-leak floor). A missing,
+  malformed, or throwing policy **fails closed** to the strict floor.
+- **Governance seam** (`ARGUS_GOV_TOKEN` + `ARGUS_REDACT_POLICY_URL` +
+  `ARGUS_REDACT_POLICY_PUBKEY`): a self-hosted / CI bridge that fetches the org's
+  **Ed25519-signed** policy from a central control plane, **verifies** it against
+  a pinned public key, applies it, TTL-caches it, and posts **secret-free**
+  redaction aggregates (label counts only) to an optional audit sink. Any fetch /
+  verify / parse error **fails closed** to the strict floor — a bad signature
+  never loosens redaction. When a governance token is present it **clamps** the
+  local `ARGUS_REDACT_SENSITIVE=0` opt-out so a member can't disable the org
+  policy locally. Inert without `ARGUS_GOV_TOKEN` — no phone-home by default.
+- **Team-vault routing** (`ARGUS_REDACT_MODE=token` + a governance token +
+  `ARGUS_REDACT_VAULT_URL`): route the reversible token→secret mapping to the
+  org's central vault (re-hydratable via an authorized RBAC flow) instead of the
+  local `0600` file. The information-free token still crosses every other sink;
+  the secret travels **only** to the bearer-authed vault endpoint. Best-effort +
+  fail-closed (a failed flush leaks nothing — the emitted token carries no
+  information — it only forgoes central re-hydration).
+
+#### New configuration (`.env`)
+
+| Variable | Default | Description |
+|---|---|---|
+| `ARGUS_REDACT_POLICY` | unset | Inline-JSON org policy. Unset ⇒ byte-identical default; malformed ⇒ fail-closed strict floor |
+| `ARGUS_GOV_TOKEN` | unset | Governance token (bearer) — the master switch for the governance seam |
+| `ARGUS_REDACT_POLICY_URL` | unset | Endpoint serving the org's Ed25519-signed policy |
+| `ARGUS_REDACT_POLICY_PUBKEY` | unset | The org's pinned Ed25519 public key (PEM/SPKI) used to verify the policy |
+| `ARGUS_REDACT_AUDIT_URL` | unset | Sink for secret-free redaction aggregates (best-effort) |
+| `ARGUS_REDACT_POLICY_TTL_MS` | `300000` | Policy re-fetch interval (5 min) |
+| `ARGUS_REDACT_VAULT_URL` | unset | Central team-vault endpoint for `mode=token` mappings |
+
+#### Added
+- `src/utils/redaction-policy.js` — pure, zero-dependency, zero-I/O policy
+  resolver (`resolvePolicy` / `effectivePolicyOpts` / `policyFromEnv`); fails
+  closed to a strict default on any bad input.
+- `src/utils/governance-seam.js` — opt-in Ed25519 fetch / verify wrapper
+  (`ensureGovernancePolicy` / `verifySignedPolicy` / `postRedactionAggregate`);
+  `node:crypto` + global `fetch` only, no new dependency.
+- `src/utils/team-vault.js` — opt-in `mode=token` → central-vault routing
+  (`teamVaultActive` / `flushTeamVault` / `ensureTokenVaultWired`).
+- Harness blocks `[170]` (policy param), `[171]` (governance seam), and `[172]`
+  (team-vault routing); three new Chrome-free unit suites (redaction-policy,
+  governance-seam, team-vault).
+
+### Changed
+- Harness grows to **171 blocks / 998 hard assertions** (was 168 / 978); unit
+  suite to **562** Chrome-free tests (was 495).
+
+Published to npm as `argusqa-os@10.0.0`; GitHub Action pinned to `10.0.0`.
+
+---
+
 ## [9.9.0] — 2026-06-30
 
 ### ⚠️ Behavior change (default ON) — Aegis confidentiality egress boundary

@@ -113,7 +113,7 @@ runs:
 
     - name: Install argusqa-os
       shell: bash
-      run: npm install -g argusqa-os@9.9.0 chrome-devtools-mcp@1.1.1
+      run: npm install -g argusqa-os@10.0.0 chrome-devtools-mcp@1.1.1
 
     - name: Launch Chrome
       shell: bash
