@@ -49,4 +49,11 @@ export default defineConfig({
       },
     },
   ],
+  // Unit tests for the non-React seam logic (checkout capture + the live-campaign
+  // fetch). jsdom because that code touches localStorage, document.cookie and
+  // window.location — the exact parts most likely to break silently in a browser.
+  test: {
+    include: ['test/**/*.test.js'],
+    environment: 'jsdom',
+  },
 })
