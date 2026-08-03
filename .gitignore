@@ -47,6 +47,11 @@ reports/.aegis-audit/
 # Claude Code local config — never commit
 .claude/
 
+# Agent skills installed by `npx skills add` — third-party content, and local
+# tooling rather than anything a consumer of the published package needs.
+.agents/
+skills-lock.json
+
 # Landing page build output, vite temp files, and local video asset
 landing/node_modules/
 landing/dist/

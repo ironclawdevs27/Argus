@@ -7,6 +7,11 @@ import { defineConfig } from 'vitest/config';
 // scripts/coverage-gate.mjs.
 export default defineConfig({
   test: {
+    // Scope to the engine's own unit tests. `npm run test:unit` passes `test/unit`
+    // explicitly, but a bare `vitest run` at the repo root would otherwise also
+    // sweep up landing/test/**, which needs the jsdom environment configured in
+    // landing/vite.config.js and fails noisily under this config.
+    include: ['test/unit/**/*.test.js'],
     coverage: {
       provider: 'v8',
       all: true,
