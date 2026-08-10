@@ -73,7 +73,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentelemetry/api": "^1.9.1",
-    "@opentelemetry/sdk-node": "^0.220.0",
+    "@opentelemetry/sdk-node": "^0.221.0",
     "@slack/web-api": "^7.19.0",
     "axe-core": "^4.12.1",
     "dotenv": "^17.4.2",
